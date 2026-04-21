@@ -2,6 +2,8 @@
 CREATE TABLE IF NOT EXISTS schools (
   id SERIAL PRIMARY KEY,
   name VARCHAR(255) NOT NULL UNIQUE,
+  location VARCHAR(255),
+  code VARCHAR(50),
   created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -11,7 +13,8 @@ CREATE TABLE IF NOT EXISTS users (
   name VARCHAR(255) NOT NULL,
   email VARCHAR(255) NOT NULL UNIQUE,
   password VARCHAR(255) NOT NULL,
-  role VARCHAR(20) NOT NULL CHECK (role IN ('teacher', 'student')),
+  role VARCHAR(20) NOT NULL CHECK (role IN ('teacher', 'student', 'admin')),
+  is_suspended BOOLEAN DEFAULT FALSE,
   school_id INTEGER REFERENCES schools(id),
   created_at TIMESTAMP DEFAULT NOW()
 );
@@ -98,13 +101,44 @@ CREATE TABLE IF NOT EXISTS quiz_attempts (
   attempted_at TIMESTAMP DEFAULT NOW()
 );
 
--- Announcements
+-- Announcements (class-level)
 CREATE TABLE IF NOT EXISTS announcements (
   id SERIAL PRIMARY KEY,
   class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
   teacher_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   content TEXT NOT NULL,
   created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Admin Announcements (platform-wide)
+CREATE TABLE IF NOT EXISTS admin_announcements (
+  id SERIAL PRIMARY KEY,
+  admin_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title VARCHAR(255) NOT NULL,
+  message TEXT NOT NULL,
+  target VARCHAR(20) NOT NULL DEFAULT 'all' CHECK (target IN ('all', 'teachers', 'students', 'school')),
+  school_id INTEGER REFERENCES schools(id) ON DELETE SET NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Reports / Messages
+CREATE TABLE IF NOT EXISTS reports (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  subject VARCHAR(255) NOT NULL,
+  message TEXT NOT NULL,
+  status VARCHAR(20) DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
+  admin_reply TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  replied_at TIMESTAMP
+);
+
+-- Platform Settings
+CREATE TABLE IF NOT EXISTS platform_settings (
+  id SERIAL PRIMARY KEY,
+  platform_name VARCHAR(255) DEFAULT 'EduApp',
+  logo_url VARCHAR(500),
+  updated_at TIMESTAMP DEFAULT NOW()
 );
 
 -- Discussions

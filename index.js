@@ -9,6 +9,7 @@ const noteRoutes = require('./routes/notes');
 const homeworkRoutes = require('./routes/homework');
 const quizRoutes = require('./routes/quizzes');
 const contentRoutes = require('./routes/content');
+const adminRoutes = require('./routes/admin');
 
 const app = express();
 
@@ -17,6 +18,7 @@ app.use(cors({
     'https://student.umunsi.com',
     'https://frontend-six-henna-68.vercel.app',
     'http://localhost:3000',
+    'http://localhost:5173',
     /\.vercel\.app$/
   ],
   credentials: true
@@ -30,6 +32,7 @@ app.use('/api/classes', noteRoutes);
 app.use('/api/classes', homeworkRoutes);
 app.use('/api/classes', quizRoutes);
 app.use('/api/classes', contentRoutes);
+app.use('/api/admin', adminRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
