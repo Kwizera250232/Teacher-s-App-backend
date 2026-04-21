@@ -1,4 +1,16 @@
-const express = require('express');
+App Port: Port is already in use.
+Domain Name
+students.umunsi.com
+Node.js Version
+Node 22 LTS
+App Port
+8080
+Site User
+umunsi-students
+The main SSH User for the site.
+Site User Password
+KWIZERA783450859@k
+Generate new passwordconst express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const pool = require('../db');
