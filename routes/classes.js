@@ -14,6 +14,22 @@ function generateClassCode() {
   return code;
 }
 
+// GET class preview by code — no auth required (for join landing page)
+router.get('/preview/:code', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT c.id, c.name, c.subject, u.name AS teacher_name
+       FROM classes c JOIN users u ON c.teacher_id = u.id
+       WHERE c.class_code = $1`,
+      [req.params.code.toUpperCase()]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Invalid class code. Ask your teacher for the correct code.' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET all classes for logged-in teacher
 router.get('/', authenticateToken, requireRole('teacher'), async (req, res) => {
   try {
