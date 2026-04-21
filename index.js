@@ -12,7 +12,14 @@ const contentRoutes = require('./routes/content');
 
 const app = express();
 
-app.use(cors());
+app.use(cors({
+  origin: [
+    'https://frontend-six-henna-68.vercel.app',
+    'http://localhost:3000',
+    /\.vercel\.app$/
+  ],
+  credentials: true
+}));
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
