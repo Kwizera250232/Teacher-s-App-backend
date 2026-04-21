@@ -14,7 +14,7 @@ const app = express();
 
 app.use(cors({
   origin: [
-    'https://students.umunsi.com',
+    'https://student.umunsi.com',
     'https://frontend-six-henna-68.vercel.app',
     'http://localhost:3000',
     /\.vercel\.app$/
