@@ -66,7 +66,12 @@ CREATE TABLE IF NOT EXISTS homework_submissions (
   homework_id INTEGER NOT NULL REFERENCES homework(id) ON DELETE CASCADE,
   student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   file_path VARCHAR(500),
+  file_name VARCHAR(255),
+  text_response TEXT,
+  grade INTEGER,
+  feedback TEXT,
   submitted_at TIMESTAMP DEFAULT NOW(),
+  graded_at TIMESTAMP,
   UNIQUE(homework_id, student_id)
 );
 
