@@ -4,11 +4,16 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
-// GET quizzes for a class
+// GET quizzes for a class (includes attempt_count so teacher knows if editable)
 router.get('/:classId/quizzes', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT * FROM quizzes WHERE class_id = $1 ORDER BY created_at DESC',
+      `SELECT q.*, COUNT(qa.id)::int AS attempt_count
+       FROM quizzes q
+       LEFT JOIN quiz_attempts qa ON qa.quiz_id = q.id
+       WHERE q.class_id = $1
+       GROUP BY q.id
+       ORDER BY q.created_at DESC`,
       [req.params.classId]
     );
     res.json(result.rows);
@@ -41,6 +46,60 @@ router.post('/:classId/quizzes', authenticateToken, requireRole('teacher'), asyn
     }
     await client.query('COMMIT');
     res.status(201).json({ ...quiz, question_count: questions.length });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// GET quiz questions for teacher (includes correct_answer for editing)
+router.get('/:classId/quizzes/:quizId/questions-edit', authenticateToken, requireRole('teacher'), async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, question, option_a, option_b, option_c, option_d, correct_answer, order_num
+       FROM quiz_questions WHERE quiz_id = $1 ORDER BY order_num`,
+      [req.params.quizId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT update quiz (teacher) — only allowed if no attempts exist
+router.put('/:classId/quizzes/:quizId', authenticateToken, requireRole('teacher'), async (req, res) => {
+  const { title, description, questions } = req.body;
+  if (!title || !questions || !Array.isArray(questions) || questions.length === 0) {
+    return res.status(400).json({ error: 'Title and at least one question are required.' });
+  }
+  const client = await pool.connect();
+  try {
+    // Block edit if any student has already attempted this quiz
+    const attemptCheck = await client.query(
+      'SELECT COUNT(*) FROM quiz_attempts WHERE quiz_id = $1',
+      [req.params.quizId]
+    );
+    if (parseInt(attemptCheck.rows[0].count) > 0) {
+      return res.status(403).json({ error: 'Cannot edit a quiz that students have already attempted.' });
+    }
+    await client.query('BEGIN');
+    await client.query(
+      'UPDATE quizzes SET title=$1, description=$2 WHERE id=$3 AND class_id=$4',
+      [title, description || null, req.params.quizId, req.params.classId]
+    );
+    await client.query('DELETE FROM quiz_questions WHERE quiz_id = $1', [req.params.quizId]);
+    for (let i = 0; i < questions.length; i++) {
+      const q = questions[i];
+      await client.query(
+        `INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, order_num)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [req.params.quizId, q.question, q.option_a, q.option_b, q.option_c || null, q.option_d || null, q.correct_answer.toLowerCase(), i]
+      );
+    }
+    await client.query('COMMIT');
+    res.json({ message: 'Quiz updated.' });
   } catch (err) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: err.message });
