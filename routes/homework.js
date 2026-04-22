@@ -1,8 +1,19 @@
 const express = require('express');
+const multer = require('multer');
+const path = require('path');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, 'uploads/'),
+  filename: (req, file, cb) => {
+    const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, unique + path.extname(file.originalname));
+  },
+});
+const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } }); // 20MB
 
 // GET homework for a class
 router.get('/:classId/homework', authenticateToken, async (req, res) => {
@@ -18,13 +29,15 @@ router.get('/:classId/homework', authenticateToken, async (req, res) => {
 });
 
 // POST create homework (teacher)
-router.post('/:classId/homework', authenticateToken, requireRole('teacher'), async (req, res) => {
+router.post('/:classId/homework', authenticateToken, requireRole('teacher'), upload.single('file'), async (req, res) => {
   const { title, description, due_date } = req.body;
   if (!title) return res.status(400).json({ error: 'Title is required.' });
+  const filePath = req.file ? req.file.filename : null;
+  const fileName = req.file ? req.file.originalname : null;
   try {
     const result = await pool.query(
-      'INSERT INTO homework (class_id, title, description, due_date) VALUES ($1,$2,$3,$4) RETURNING *',
-      [req.params.classId, title, description || null, due_date || null]
+      'INSERT INTO homework (class_id, title, description, due_date, file_path, file_name) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+      [req.params.classId, title, description || null, due_date || null, filePath, fileName]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {

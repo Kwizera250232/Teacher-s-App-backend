@@ -55,6 +55,8 @@ CREATE TABLE IF NOT EXISTS homework (
   title VARCHAR(255) NOT NULL,
   description TEXT,
   due_date DATE,
+  file_path VARCHAR(500),
+  file_name VARCHAR(255),
   created_at TIMESTAMP DEFAULT NOW()
 );
 

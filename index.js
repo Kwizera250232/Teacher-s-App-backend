@@ -15,7 +15,10 @@ const app = express();
 
 app.use(cors({
   origin: [
+    'https://umunsi.com',
+    'https://www.umunsi.com',
     'https://student.umunsi.com',
+    'https://studentapi.umunsi.com',
     'https://frontend-six-henna-68.vercel.app',
     'http://localhost:3000',
     'http://localhost:5173',
