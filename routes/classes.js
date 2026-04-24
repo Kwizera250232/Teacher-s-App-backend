@@ -1,21 +1,175 @@
 const express = require('express');
+const crypto = require('crypto');
+const rateLimit = require('express-rate-limit');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Generate a random 6-char alphanumeric class code
+// Secure 6-char alphanumeric class code using crypto
 function generateClassCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = crypto.randomBytes(6);
   let code = '';
   for (let i = 0; i < 6; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
+    code += chars[bytes[i] % chars.length];
   }
   return code;
 }
 
+// Rate limiter for public preview endpoint (prevent brute-force of class codes)
+const previewLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Ugerageje inshuro nyinshi. Gerageza nyuma y\'iminota 15.' },
+});
+
 // GET class preview by code — no auth required (for join landing page)
-router.get('/preview/:code', async (req, res) => {
+router.get('/preview/:code', previewLimiter, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT c.id, c.name, c.subject, u.name AS teacher_name
+       FROM classes c JOIN users u ON c.teacher_id = u.id
+       WHERE c.class_code = $1`,
+      [req.params.code.toUpperCase()]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Invalid class code. Ask your teacher for the correct code.' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// GET all classes for logged-in teacher
+router.get('/', authenticateToken, requireRole('teacher'), async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT c.*, COUNT(cm.student_id) AS student_count
+       FROM classes c
+       LEFT JOIN class_members cm ON c.id = cm.class_id
+       WHERE c.teacher_id = $1
+       GROUP BY c.id
+       ORDER BY c.created_at DESC`,
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// GET classes joined by student
+router.get('/my', authenticateToken, requireRole('student'), async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT c.*, u.name AS teacher_name
+       FROM classes c
+       JOIN class_members cm ON c.id = cm.class_id
+       JOIN users u ON c.teacher_id = u.id
+       WHERE cm.student_id = $1
+       ORDER BY cm.joined_at DESC`,
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// POST create class (teacher)
+router.post('/', authenticateToken, requireRole('teacher'), async (req, res) => {
+  const name = (req.body.name || '').trim();
+  const subject = (req.body.subject || '').trim();
+  if (!name) return res.status(400).json({ error: 'Class name is required.' });
+  if (name.length > 150) return res.status(400).json({ error: 'Class name is too long.' });
+  if (subject.length > 150) return res.status(400).json({ error: 'Subject name is too long.' });
+  try {
+    let code;
+    let unique = false;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      code = generateClassCode();
+      const exists = await pool.query('SELECT id FROM classes WHERE class_code = $1', [code]);
+      if (exists.rows.length === 0) { unique = true; break; }
+    }
+    if (!unique) return res.status(500).json({ error: 'Could not generate a unique class code. Try again.' });
+    const result = await pool.query(
+      'INSERT INTO classes (name, subject, teacher_id, class_code) VALUES ($1,$2,$3,$4) RETURNING *',
+      [name, subject || null, req.user.id, code]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// POST join class by code (student)
+router.post('/join', authenticateToken, requireRole('student'), async (req, res) => {
+  const { class_code } = req.body;
+  if (!class_code) return res.status(400).json({ error: 'Class code is required.' });
+  try {
+    const classResult = await pool.query('SELECT * FROM classes WHERE class_code = $1', [class_code.toUpperCase()]);
+    if (classResult.rows.length === 0) return res.status(404).json({ error: 'Class not found. Check the code and try again.' });
+    const cls = classResult.rows[0];
+    await pool.query(
+      'INSERT INTO class_members (class_id, student_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+      [cls.id, req.user.id]
+    );
+    res.json({ message: 'Joined class successfully!', class: cls });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// GET single class details — teacher must own it, student must be a member
+router.get('/:id', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT c.*, u.name AS teacher_name FROM classes c JOIN users u ON c.teacher_id = u.id WHERE c.id = $1`,
+      [req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Class not found.' });
+    const cls = result.rows[0];
+
+    if (req.user.role === 'teacher') {
+      if (cls.teacher_id !== req.user.id) return res.status(403).json({ error: 'Forbidden.' });
+    } else if (req.user.role === 'student') {
+      const member = await pool.query(
+        'SELECT 1 FROM class_members WHERE class_id=$1 AND student_id=$2',
+        [cls.id, req.user.id]
+      );
+      if (member.rows.length === 0) return res.status(403).json({ error: 'Forbidden.' });
+    }
+    // admin may view any class — no extra check needed
+
+    res.json(cls);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// GET students in a class — teacher must own the class
+router.get('/:id/students', authenticateToken, requireRole('teacher'), async (req, res) => {
+  try {
+    const classCheck = await pool.query('SELECT teacher_id FROM classes WHERE id=$1', [req.params.id]);
+    if (classCheck.rows.length === 0) return res.status(404).json({ error: 'Class not found.' });
+    if (classCheck.rows[0].teacher_id !== req.user.id) return res.status(403).json({ error: 'Forbidden.' });
+
+    const result = await pool.query(
+      `SELECT u.id, u.name, u.email, cm.joined_at
+       FROM class_members cm JOIN users u ON cm.student_id = u.id
+       WHERE cm.class_id = $1 ORDER BY cm.joined_at`,
+      [req.params.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+module.exports = router;
+
   try {
     const result = await pool.query(
       `SELECT c.id, c.name, c.subject, u.name AS teacher_name

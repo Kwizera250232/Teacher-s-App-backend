@@ -9,13 +9,14 @@ const adminOnly = [authenticateToken, requireRole('admin')];
 // ─── DASHBOARD STATS ──────────────────────────────────────────────────────────
 router.get('/stats', ...adminOnly, async (req, res) => {
   try {
-    const [schools, teachers, students, classes, quizzes, homework] = await Promise.all([
+    const [schools, teachers, students, classes, quizzes, homework, pending] = await Promise.all([
       pool.query("SELECT COUNT(*) FROM schools"),
-      pool.query("SELECT COUNT(*) FROM users WHERE role='teacher'"),
+      pool.query("SELECT COUNT(*) FROM users WHERE role='teacher' AND is_approved=TRUE"),
       pool.query("SELECT COUNT(*) FROM users WHERE role='student'"),
       pool.query("SELECT COUNT(*) FROM classes"),
       pool.query("SELECT COUNT(*) FROM quizzes"),
       pool.query("SELECT COUNT(*) FROM homework"),
+      pool.query("SELECT COUNT(*) FROM users WHERE role='teacher' AND is_approved=FALSE"),
     ]);
     res.json({
       schools: parseInt(schools.rows[0].count),
@@ -24,6 +25,7 @@ router.get('/stats', ...adminOnly, async (req, res) => {
       classes: parseInt(classes.rows[0].count),
       quizzes: parseInt(quizzes.rows[0].count),
       homework: parseInt(homework.rows[0].count),
+      pending_teachers: parseInt(pending.rows[0].count),
     });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
@@ -101,14 +103,14 @@ router.delete('/schools/:id', ...adminOnly, async (req, res) => {
 router.get('/teachers', ...adminOnly, async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT u.id, u.name, u.email, u.is_suspended, u.created_at,
+      SELECT u.id, u.name, u.email, u.is_suspended, u.is_approved, u.created_at,
              s.name AS school_name,
              COUNT(DISTINCT c.id) AS class_count
       FROM users u
       LEFT JOIN schools s ON u.school_id = s.id
       LEFT JOIN classes c ON c.teacher_id = u.id
       WHERE u.role = 'teacher'
-      GROUP BY u.id, s.name ORDER BY u.created_at DESC
+      GROUP BY u.id, s.name ORDER BY u.is_approved ASC, u.created_at DESC
     `);
     res.json(result.rows);
   } catch (err) {
@@ -121,6 +123,19 @@ router.put('/teachers/:id/suspend', ...adminOnly, async (req, res) => {
     const result = await pool.query(
       'UPDATE users SET is_suspended=$1 WHERE id=$2 AND role=\'teacher\' RETURNING id, name, is_suspended',
       [req.body.suspended, req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Teacher not found.' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.put('/teachers/:id/approve', ...adminOnly, async (req, res) => {
+  try {
+    const result = await pool.query(
+      "UPDATE users SET is_approved=TRUE WHERE id=$1 AND role='teacher' RETURNING id, name, email, is_approved",
+      [req.params.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Teacher not found.' });
     res.json(result.rows[0]);

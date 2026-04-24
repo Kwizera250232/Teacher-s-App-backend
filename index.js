@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 const path = require('path');
 require('dotenv').config();
 
@@ -14,6 +15,17 @@ const studentNotesRoutes = require('./routes/student_notes');
 const leaderboardRoutes = require('./routes/leaderboard');
 
 const app = express();
+
+// Security headers
+app.use(helmet());
+app.use(helmet.contentSecurityPolicy({
+  directives: {
+    defaultSrc: ["'self'"],
+    imgSrc: ["'self'", 'data:', 'blob:'],
+    scriptSrc: ["'self'"],
+  },
+  reportOnly: true, // log only, don't block (API server; no HTML served)
+}));
 
 app.use(cors({
   origin: [
