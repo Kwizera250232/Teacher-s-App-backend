@@ -10,6 +10,8 @@ const homeworkRoutes = require('./routes/homework');
 const quizRoutes = require('./routes/quizzes');
 const contentRoutes = require('./routes/content');
 const adminRoutes = require('./routes/admin');
+const studentNotesRoutes = require('./routes/student_notes');
+const leaderboardRoutes = require('./routes/leaderboard');
 
 const app = express();
 
@@ -36,6 +38,8 @@ app.use('/api/classes', homeworkRoutes);
 app.use('/api/classes', quizRoutes);
 app.use('/api/classes', contentRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/student', studentNotesRoutes);
+app.use('/api/classes', leaderboardRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 

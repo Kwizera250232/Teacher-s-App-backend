@@ -124,7 +124,7 @@ router.get('/:classId/quizzes/:quizId/questions', authenticateToken, async (req,
 
 // POST submit quiz answers (student) - auto marks
 router.post('/:classId/quizzes/:quizId/submit', authenticateToken, requireRole('student'), async (req, res) => {
-  const { answers } = req.body; // { questionId: 'a', ... }
+  const { answers } = req.body;
   if (!answers || typeof answers !== 'object') {
     return res.status(400).json({ error: 'Answers are required.' });
   }
@@ -148,7 +148,37 @@ router.post('/:classId/quizzes/:quizId/submit', authenticateToken, requireRole('
        VALUES ($1,$2,$3,$4,$5)`,
       [req.params.quizId, req.user.id, score, total, JSON.stringify(answers)]
     );
-    res.json({ score, total, results });
+
+    // Auto-award badges
+    const percentage = total > 0 ? Math.round((score / total) * 100) : 0;
+    const badgesToAward = [];
+    if (percentage === 100) badgesToAward.push('perfect_score');
+    if (percentage >= 90)  badgesToAward.push('excellence');
+    if (percentage >= 75)  badgesToAward.push('great_job');
+    if (score === 0)       badgesToAward.push('keep_going');
+
+    // Check if #1 on this quiz
+    const topCheck = await pool.query(
+      `SELECT student_id FROM quiz_attempts WHERE quiz_id=$1 ORDER BY score DESC, attempted_at ASC LIMIT 1`,
+      [req.params.quizId]
+    );
+    if (topCheck.rows[0]?.student_id === req.user.id || topCheck.rows.length === 0) {
+      badgesToAward.push('top_student');
+    }
+
+    const earnedBadges = [];
+    for (const badge of badgesToAward) {
+      try {
+        await pool.query(
+          `INSERT INTO student_badges (student_id, badge, quiz_id, class_id)
+           VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
+          [req.user.id, badge, req.params.quizId, req.params.classId]
+        );
+        earnedBadges.push(badge);
+      } catch (_) {}
+    }
+
+    res.json({ score, total, results, earnedBadges });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
