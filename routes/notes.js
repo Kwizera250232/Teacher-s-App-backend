@@ -24,7 +24,7 @@ router.get('/:classId/notes', authenticateToken, async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -41,7 +41,7 @@ router.post('/:classId/notes', authenticateToken, requireRole('teacher'), upload
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -51,7 +51,7 @@ router.delete('/:classId/notes/:noteId', authenticateToken, requireRole('teacher
     await pool.query('DELETE FROM notes WHERE id = $1 AND class_id = $2', [req.params.noteId, req.params.classId]);
     res.json({ message: 'Note deleted.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 

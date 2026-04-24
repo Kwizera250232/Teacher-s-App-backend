@@ -24,7 +24,7 @@ router.get('/:classId/homework', authenticateToken, async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -41,7 +41,7 @@ router.post('/:classId/homework', authenticateToken, requireRole('teacher'), upl
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -51,7 +51,7 @@ router.delete('/:classId/homework/:hwId', authenticateToken, requireRole('teache
     await pool.query('DELETE FROM homework WHERE id = $1 AND class_id = $2', [req.params.hwId, req.params.classId]);
     res.json({ message: 'Homework deleted.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -67,7 +67,7 @@ router.get('/:classId/homework/:hwId/submissions', authenticateToken, requireRol
     );
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -80,7 +80,7 @@ router.get('/:classId/homework/:hwId/my-submission', authenticateToken, requireR
     );
     res.json(result.rows[0] || null);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -106,7 +106,7 @@ router.post('/:classId/homework/:hwId/submit', authenticateToken, requireRole('s
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -127,7 +127,7 @@ router.put('/:classId/homework/:hwId/submissions/:subId/grade', authenticateToke
     if (result.rows.length === 0) return res.status(404).json({ error: 'Submission not found.' });
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 

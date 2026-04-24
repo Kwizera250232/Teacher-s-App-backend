@@ -15,7 +15,7 @@ router.get('/:classId/announcements', authenticateToken, async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -30,7 +30,7 @@ router.post('/:classId/announcements', authenticateToken, requireRole('teacher')
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -40,7 +40,7 @@ router.delete('/:classId/announcements/:id', authenticateToken, requireRole('tea
     await pool.query('DELETE FROM announcements WHERE id = $1 AND class_id = $2', [req.params.id, req.params.classId]);
     res.json({ message: 'Announcement deleted.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -55,7 +55,7 @@ router.get('/:classId/discussions', authenticateToken, async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -70,7 +70,7 @@ router.post('/:classId/discussions', authenticateToken, async (req, res) => {
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 

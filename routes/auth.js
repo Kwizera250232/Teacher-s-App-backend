@@ -1,11 +1,37 @@
 ﻿const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+const rateLimit = require('express-rate-limit');
 const pool = require('../db');
 const { authenticateToken } = require('../middleware/auth');
 require('dotenv').config();
 
 const router = express.Router();
+
+// ── Rate limiters ─────────────────────────────────────────────────────────────
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Ugerageje inshuro nyinshi. Gerageza nyuma y\'iminota 15.' },
+});
+
+const forgotLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Ugerageje inshuro nyinshi. Gerageza nyuma y\'isaha imwe.' },
+});
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isValidEmail(email) {
+  return typeof email === 'string' && EMAIL_RE.test(email.trim());
+}
 
 // Ensure password_reset_tokens table exists
 pool.query(`
@@ -24,34 +50,48 @@ router.get('/schools', async (req, res) => {
     const result = await pool.query('SELECT id, name FROM schools ORDER BY name');
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[schools GET]', err);
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
 // POST create school
 router.post('/schools', async (req, res) => {
-  const { name } = req.body;
+  const name = (req.body.name || '').trim();
   if (!name) return res.status(400).json({ error: 'School name is required.' });
+  if (name.length > 200) return res.status(400).json({ error: 'School name is too long.' });
   try {
     const result = await pool.query(
       'INSERT INTO schools (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name=EXCLUDED.name RETURNING *',
-      [name.trim()]
+      [name]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[schools POST]', err);
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
 // POST register
-router.post('/register', async (req, res) => {
-  const { name, email, password, role, school_id } = req.body;
+router.post('/register', authLimiter, async (req, res) => {
+  const name = (req.body.name || '').trim();
+  const email = (req.body.email || '').trim().toLowerCase();
+  const { password, role, school_id } = req.body;
+
   if (!name || !email || !password || !role) {
     return res.status(400).json({ error: 'All fields are required.' });
+  }
+  if (!isValidEmail(email)) {
+    return res.status(400).json({ error: 'Invalid email address.' });
   }
   if (!['teacher', 'student'].includes(role)) {
     return res.status(400).json({ error: 'Role must be teacher or student.' });
   }
+  if (typeof password !== 'string' || password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+  }
+  if (name.length > 150) return res.status(400).json({ error: 'Name is too long.' });
+
   try {
     const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
     if (existing.rows.length > 0) {
@@ -66,14 +106,19 @@ router.post('/register', async (req, res) => {
     const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
     res.status(201).json({ token, user });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[register]', err);
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
 // POST login
-router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
+router.post('/login', authLimiter, async (req, res) => {
+  const email = (req.body.email || '').trim().toLowerCase();
+  const { password } = req.body;
+
   if (!email || !password) return res.status(400).json({ error: 'Email and password required.' });
+  if (!isValidEmail(email)) return res.status(400).json({ error: 'Invalid email address.' });
+
   try {
     const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
     if (result.rows.length === 0) return res.status(401).json({ error: 'Invalid credentials.' });
@@ -83,14 +128,17 @@ router.post('/login', async (req, res) => {
     const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, school_id: user.school_id } });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[login]', err);
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
 // POST /api/auth/forgot-password — generate a 6-digit reset code
-router.post('/forgot-password', async (req, res) => {
-  const { email } = req.body;
+router.post('/forgot-password', forgotLimiter, async (req, res) => {
+  const email = (req.body.email || '').trim().toLowerCase();
   if (!email) return res.status(400).json({ error: 'Email is required.' });
+  if (!isValidEmail(email)) return res.status(400).json({ error: 'Invalid email address.' });
+
   try {
     const result = await pool.query('SELECT id FROM users WHERE email=$1', [email]);
     if (result.rows.length === 0) {
@@ -98,8 +146,8 @@ router.post('/forgot-password', async (req, res) => {
       return res.json({ message: 'If this email exists, a reset code has been generated.' });
     }
     const userId = result.rows[0].id;
-    // Generate a 6-digit token
-    const token = String(Math.floor(100000 + Math.random() * 900000));
+    // Use crypto.randomInt for secure token generation (NOT Math.random)
+    const token = String(crypto.randomInt(100000, 999999));
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 min
     await pool.query('DELETE FROM password_reset_tokens WHERE user_id=$1', [userId]);
     await pool.query(
@@ -109,19 +157,28 @@ router.post('/forgot-password', async (req, res) => {
     // In production you'd send email; here we return the token directly for in-app flow
     res.json({ message: 'Reset code generated.', token });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[forgot-password]', err);
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
 // POST /api/auth/reset-password — validate code and set new password
-router.post('/reset-password', async (req, res) => {
-  const { email, token, newPassword } = req.body;
+router.post('/reset-password', forgotLimiter, async (req, res) => {
+  const email = (req.body.email || '').trim().toLowerCase();
+  const { token, newPassword } = req.body;
+
   if (!email || !token || !newPassword) {
     return res.status(400).json({ error: 'Email, token, and new password are required.' });
   }
-  if (newPassword.length < 6) {
+  if (!isValidEmail(email)) return res.status(400).json({ error: 'Invalid email address.' });
+  if (typeof newPassword !== 'string' || newPassword.length < 6) {
     return res.status(400).json({ error: 'Password must be at least 6 characters.' });
   }
+  // Validate token is exactly 6 digits
+  if (!/^\d{6}$/.test(String(token))) {
+    return res.status(400).json({ error: 'Invalid or expired reset code.' });
+  }
+
   try {
     const userResult = await pool.query('SELECT id FROM users WHERE email=$1', [email]);
     if (userResult.rows.length === 0) return res.status(400).json({ error: 'Invalid request.' });
@@ -140,8 +197,10 @@ router.post('/reset-password', async (req, res) => {
     await pool.query('UPDATE password_reset_tokens SET used=TRUE WHERE id=$1', [tokenResult.rows[0].id]);
     res.json({ message: 'Password reset successfully.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[reset-password]', err);
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
 module.exports = router;
+

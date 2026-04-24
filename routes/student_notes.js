@@ -26,7 +26,7 @@ router.get('/notes', authenticateToken, requireRole('student'), async (req, res)
       [req.user.id]
     );
     res.json(result.rows);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Internal server error.' }); }
 });
 
 // POST create note
@@ -40,7 +40,7 @@ router.post('/notes', authenticateToken, requireRole('student'), async (req, res
       [req.user.id, title, content || '', color || '#ffffff']
     );
     res.status(201).json(result.rows[0]);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Internal server error.' }); }
 });
 
 // PUT update note
@@ -55,7 +55,7 @@ router.put('/notes/:id', authenticateToken, requireRole('student'), async (req, 
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Note not found.' });
     res.json(result.rows[0]);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Internal server error.' }); }
 });
 
 // DELETE note
@@ -66,7 +66,7 @@ router.delete('/notes/:id', authenticateToken, requireRole('student'), async (re
       [req.params.id, req.user.id]
     );
     res.json({ message: 'Deleted.' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Internal server error.' }); }
 });
 
 module.exports = router;

@@ -26,7 +26,7 @@ router.get('/preview/:code', async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Invalid class code. Ask your teacher for the correct code.' });
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -44,7 +44,7 @@ router.get('/', authenticateToken, requireRole('teacher'), async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -62,7 +62,7 @@ router.get('/my', authenticateToken, requireRole('student'), async (req, res) =>
     );
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -84,7 +84,7 @@ router.post('/', authenticateToken, requireRole('teacher'), async (req, res) => 
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -102,7 +102,7 @@ router.post('/join', authenticateToken, requireRole('student'), async (req, res)
     );
     res.json({ message: 'Joined class successfully!', class: cls });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -116,7 +116,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Class not found.' });
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -131,7 +131,7 @@ router.get('/:id/students', authenticateToken, requireRole('teacher'), async (re
     );
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 

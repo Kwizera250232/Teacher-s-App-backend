@@ -26,7 +26,7 @@ router.get('/stats', ...adminOnly, async (req, res) => {
       homework: parseInt(homework.rows[0].count),
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -41,7 +41,7 @@ router.get('/activity', ...adminOnly, async (req, res) => {
     `);
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -56,7 +56,7 @@ router.get('/schools', ...adminOnly, async (req, res) => {
     `);
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -70,7 +70,7 @@ router.post('/schools', ...adminOnly, async (req, res) => {
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -84,7 +84,7 @@ router.put('/schools/:id', ...adminOnly, async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -93,7 +93,7 @@ router.delete('/schools/:id', ...adminOnly, async (req, res) => {
     await pool.query('DELETE FROM schools WHERE id=$1', [req.params.id]);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -112,7 +112,7 @@ router.get('/teachers', ...adminOnly, async (req, res) => {
     `);
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -125,7 +125,7 @@ router.put('/teachers/:id/suspend', ...adminOnly, async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Teacher not found.' });
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -137,7 +137,7 @@ router.put('/teachers/:id/school', ...adminOnly, async (req, res) => {
     );
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -146,7 +146,7 @@ router.delete('/teachers/:id', ...adminOnly, async (req, res) => {
     await pool.query('DELETE FROM users WHERE id=$1 AND role=\'teacher\'', [req.params.id]);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -165,7 +165,7 @@ router.get('/students', ...adminOnly, async (req, res) => {
     `);
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -178,7 +178,7 @@ router.put('/students/:id/suspend', ...adminOnly, async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Student not found.' });
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -190,7 +190,7 @@ router.put('/students/:id/reset-password', ...adminOnly, async (req, res) => {
     await pool.query('UPDATE users SET password=$1 WHERE id=$2 AND role=\'student\'', [hashed, req.params.id]);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -199,7 +199,7 @@ router.delete('/students/:id', ...adminOnly, async (req, res) => {
     await pool.query('DELETE FROM users WHERE id=$1 AND role=\'student\'', [req.params.id]);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -219,7 +219,7 @@ router.get('/classes', ...adminOnly, async (req, res) => {
     `);
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -228,7 +228,7 @@ router.delete('/classes/:id', ...adminOnly, async (req, res) => {
     await pool.query('DELETE FROM classes WHERE id=$1', [req.params.id]);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -248,7 +248,7 @@ router.get('/content', ...adminOnly, async (req, res) => {
     ]);
     res.json({ notes: notes.rows, homework: hw.rows, quizzes: quizzes.rows });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -257,7 +257,7 @@ router.delete('/content/notes/:id', ...adminOnly, async (req, res) => {
     await pool.query('DELETE FROM notes WHERE id=$1', [req.params.id]);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -273,7 +273,7 @@ router.get('/announcements', ...adminOnly, async (req, res) => {
     `);
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -287,7 +287,7 @@ router.post('/announcements', ...adminOnly, async (req, res) => {
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -296,7 +296,7 @@ router.delete('/announcements/:id', ...adminOnly, async (req, res) => {
     await pool.query('DELETE FROM admin_announcements WHERE id=$1', [req.params.id]);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -310,7 +310,7 @@ router.get('/reports', ...adminOnly, async (req, res) => {
     `);
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -324,7 +324,7 @@ router.put('/reports/:id/reply', ...adminOnly, async (req, res) => {
     );
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -337,7 +337,7 @@ router.get('/settings', ...adminOnly, async (req, res) => {
     }
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -350,7 +350,7 @@ router.put('/settings', ...adminOnly, async (req, res) => {
     );
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 

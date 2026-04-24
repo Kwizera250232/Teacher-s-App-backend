@@ -43,5 +43,12 @@ app.use('/api/classes', leaderboardRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
+// Central error handler — never leak internal error details to clients
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error('[UNHANDLED]', err);
+  res.status(500).json({ error: 'Internal server error.' });
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

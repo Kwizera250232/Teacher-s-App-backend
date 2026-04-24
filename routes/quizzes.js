@@ -18,7 +18,7 @@ router.get('/:classId/quizzes', authenticateToken, async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -48,7 +48,7 @@ router.post('/:classId/quizzes', authenticateToken, requireRole('teacher'), asyn
     res.status(201).json({ ...quiz, question_count: questions.length });
   } catch (err) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   } finally {
     client.release();
   }
@@ -64,7 +64,7 @@ router.get('/:classId/quizzes/:quizId/questions-edit', authenticateToken, requir
     );
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -102,7 +102,7 @@ router.put('/:classId/quizzes/:quizId', authenticateToken, requireRole('teacher'
     res.json({ message: 'Quiz updated.' });
   } catch (err) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   } finally {
     client.release();
   }
@@ -118,7 +118,7 @@ router.get('/:classId/quizzes/:quizId/questions', authenticateToken, async (req,
     );
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -189,7 +189,7 @@ router.post('/:classId/quizzes/:quizId/submit', authenticateToken, requireRole('
 
     res.json({ score, total, results, earnedBadges });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -262,7 +262,7 @@ router.get('/:classId/quizzes/:quizId/my-result', authenticateToken, async (req,
       questions: detailed,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -279,7 +279,7 @@ router.get('/:classId/quizzes/:quizId/results', authenticateToken, requireRole('
     );
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -351,7 +351,7 @@ router.get('/:classId/quizzes/:quizId/attempts/:attemptId/detail', authenticateT
       questions: detailed,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -361,7 +361,7 @@ router.delete('/:classId/quizzes/:quizId', authenticateToken, requireRole('teach
     await pool.query('DELETE FROM quizzes WHERE id = $1 AND class_id = $2', [req.params.quizId, req.params.classId]);
     res.json({ message: 'Quiz deleted.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 

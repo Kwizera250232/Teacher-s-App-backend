@@ -39,7 +39,7 @@ router.get('/:classId/leaderboard', authenticateToken, async (req, res) => {
       [req.params.classId]
     );
     res.json(result.rows);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Internal server error.' }); }
 });
 
 // GET leaderboard for a specific quiz
@@ -61,7 +61,7 @@ router.get('/:classId/quizzes/:quizId/leaderboard', authenticateToken, async (re
       quiz_title: quizInfo.rows[0]?.title || '',
       entries: result.rows,
     });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Internal server error.' }); }
 });
 
 // GET my badges
@@ -76,7 +76,7 @@ router.get('/my-badges', authenticateToken, async (req, res) => {
       [req.user.id]
     );
     res.json(result.rows);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Internal server error.' }); }
 });
 
 // GET top scorer per quiz for a class (used on dashboard cards)
@@ -98,7 +98,7 @@ router.get('/:classId/top-scorers', authenticateToken, async (req, res) => {
       [req.params.classId]
     );
     res.json(result.rows);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Internal server error.' }); }
 });
 
 module.exports = router;
