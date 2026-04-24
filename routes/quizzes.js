@@ -129,6 +129,15 @@ router.post('/:classId/quizzes/:quizId/submit', authenticateToken, requireRole('
     return res.status(400).json({ error: 'Answers are required.' });
   }
   try {
+    // Block retake — one attempt per student per quiz
+    const existing = await pool.query(
+      'SELECT id FROM quiz_attempts WHERE quiz_id=$1 AND student_id=$2',
+      [req.params.quizId, req.user.id]
+    );
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: 'already_submitted' });
+    }
+
     const questions = await pool.query(
       'SELECT id, correct_answer FROM quiz_questions WHERE quiz_id = $1',
       [req.params.quizId]

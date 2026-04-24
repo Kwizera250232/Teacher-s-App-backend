@@ -79,4 +79,26 @@ router.get('/my-badges', authenticateToken, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// GET top scorer per quiz for a class (used on dashboard cards)
+router.get('/:classId/top-scorers', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT DISTINCT ON (q.id)
+         q.id AS quiz_id,
+         q.title AS quiz_title,
+         u.name AS top_student,
+         qa.score,
+         qa.total,
+         ROUND(qa.score::numeric / NULLIF(qa.total,0) * 100) AS percentage
+       FROM quizzes q
+       JOIN quiz_attempts qa ON qa.quiz_id = q.id
+       JOIN users u ON u.id = qa.student_id
+       WHERE q.class_id = $1
+       ORDER BY q.id, qa.score DESC, qa.attempted_at ASC`,
+      [req.params.classId]
+    );
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;
