@@ -43,6 +43,12 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json());
+// Allow uploads to be embedded in iframes (for PDF preview)
+app.use('/uploads', (req, res, next) => {
+  res.removeHeader('X-Frame-Options');
+  res.setHeader('Content-Security-Policy', "frame-ancestors *");
+  next();
+});
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Proxy download route for stamping headers
