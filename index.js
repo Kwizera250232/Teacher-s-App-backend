@@ -14,6 +14,8 @@ const adminRoutes = require('./routes/admin');
 const studentNotesRoutes = require('./routes/student_notes');
 const leaderboardRoutes = require('./routes/leaderboard');
 
+const downloadRoutes = require('./routes/download');
+
 const app = express();
 
 // Security headers
@@ -42,6 +44,9 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Proxy download route for stamping headers
+app.use('/download', downloadRoutes);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/classes', classRoutes);
