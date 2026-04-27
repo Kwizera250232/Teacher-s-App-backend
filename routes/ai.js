@@ -26,7 +26,7 @@ router.post('/chat', authenticateToken, aiRateLimit, async (req, res) => {
   if (!Array.isArray(history) || history.length > 20)
     return res.status(400).json({ error: 'Invalid history.' });
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey)
     return res.status(503).json({ error: 'AI service not configured.' });
 
@@ -108,29 +108,33 @@ router.post('/chat', authenticateToken, aiRateLimit, async (req, res) => {
     ].join('\n');
 
     // Validate history entries to prevent role injection
-    const contents = [];
+    const messages = [{ role: 'system', content: systemPrompt }];
     for (const msg of history.slice(-10)) {
       if (VALID_ROLES.includes(msg.role) && typeof msg.content === 'string' && msg.content.trim().length > 0) {
-        contents.push({ role: msg.role === 'assistant' ? 'model' : 'user', parts: [{ text: msg.content }] });
+        messages.push({ role: msg.role, content: msg.content });
       }
     }
-    contents.push({ role: 'user', parts: [{ text: cleanMessage }] });
+    messages.push({ role: 'user', content: cleanMessage });
 
-    // 10s timeout to prevent hanging
+    // 15s timeout to prevent hanging
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-    let geminiRes;
+    let aiRes;
     try {
-      geminiRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      aiRes = await fetch(
+        'https://api.groq.com/openai/v1/chat/completions',
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+          },
           body: JSON.stringify({
-            system_instruction: { parts: [{ text: systemPrompt }] },
-            contents,
-            generationConfig: { maxOutputTokens: 1024, temperature: 0.3 },
+            model: 'llama-3.3-70b-versatile',
+            messages,
+            max_tokens: 1024,
+            temperature: 0.3,
           }),
           signal: controller.signal,
         }
@@ -139,14 +143,14 @@ router.post('/chat', authenticateToken, aiRateLimit, async (req, res) => {
       clearTimeout(timeoutId);
     }
 
-    if (!geminiRes.ok) {
-      const errBody = await geminiRes.json().catch(() => ({}));
-      console.error('Gemini API error status:', geminiRes.status, JSON.stringify(errBody).slice(0, 300));
+    if (!aiRes.ok) {
+      const errBody = await aiRes.json().catch(() => ({}));
+      console.error('Groq API error status:', aiRes.status, JSON.stringify(errBody).slice(0, 300));
       return res.status(502).json({ error: 'AI service error. Gerageza nanone.' });
     }
 
-    const geminiData = await geminiRes.json();
-    const replyText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    const aiData = await aiRes.json();
+    const replyText = aiData?.choices?.[0]?.message?.content?.trim();
 
     if (!replyText)
       return res.json({ reply: 'Ntabwo nabonye igisubizo cyumvikana neza. Ongera ubaze neza.' });
