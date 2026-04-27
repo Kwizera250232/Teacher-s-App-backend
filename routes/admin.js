@@ -103,7 +103,7 @@ router.delete('/schools/:id', ...adminOnly, async (req, res) => {
 router.get('/teachers', ...adminOnly, async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT u.id, u.name, u.email, u.is_suspended, u.is_approved, u.created_at,
+      SELECT u.id, u.name, u.email, u.phone, u.is_suspended, u.is_approved, u.created_at,
              s.name AS school_name,
              COUNT(DISTINCT c.id) AS class_count
       FROM users u
@@ -169,7 +169,7 @@ router.delete('/teachers/:id', ...adminOnly, async (req, res) => {
 router.get('/students', ...adminOnly, async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT u.id, u.name, u.email, u.is_suspended, u.created_at,
+      SELECT u.id, u.name, u.email, u.phone, u.is_suspended, u.created_at,
              s.name AS school_name,
              COUNT(DISTINCT cm.class_id) AS class_count
       FROM users u
@@ -338,6 +338,25 @@ router.put('/reports/:id/reply', ...adminOnly, async (req, res) => {
       [reply, req.params.id]
     );
     res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ─── USER-FACING ANNOUNCEMENTS (any authenticated user) ──────────────────────
+router.get('/user-announcements', authenticateToken, async (req, res) => {
+  try {
+    const roleTarget = req.user.role + 's'; // 'teacher' -> 'teachers', 'student' -> 'students'
+    const result = await pool.query(`
+      SELECT a.id, a.title, a.message, a.target, a.created_at, u.name AS admin_name
+      FROM admin_announcements a
+      JOIN users u ON a.admin_id = u.id
+      WHERE a.target = 'all'
+         OR a.target = $1
+         OR (a.target = 'school' AND a.school_id = (SELECT school_id FROM users WHERE id = $2))
+      ORDER BY a.created_at DESC
+    `, [roleTarget, req.user.id]);
+    res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
   }

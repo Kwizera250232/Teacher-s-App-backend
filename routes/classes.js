@@ -157,8 +157,9 @@ router.get('/:id/students', authenticateToken, requireRole('teacher'), async (re
     if (classCheck.rows[0].teacher_id !== req.user.id) return res.status(403).json({ error: 'Forbidden.' });
 
     const result = await pool.query(
-      `SELECT u.id, u.name, u.email, cm.joined_at
+      `SELECT u.id, u.name, u.email, cm.joined_at, s.name AS school_name
        FROM class_members cm JOIN users u ON cm.student_id = u.id
+       LEFT JOIN schools s ON u.school_id = s.id
        WHERE cm.class_id = $1 ORDER BY cm.joined_at`,
       [req.params.id]
     );

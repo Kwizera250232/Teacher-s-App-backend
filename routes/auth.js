@@ -125,6 +125,7 @@ router.post('/schools', async (req, res) => {
 router.post('/register', authLimiter, async (req, res) => {
   const name = (req.body.name || '').trim();
   const email = (req.body.email || '').trim().toLowerCase();
+  const phone = (req.body.phone || '').trim();
   const { password, role, school_id } = req.body;
 
   if (!name || !email || !password || !role) {
@@ -140,6 +141,9 @@ router.post('/register', authLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Password must be at least 8 characters and include letters and numbers.' });
   }
   if (name.length > 150) return res.status(400).json({ error: 'Name is too long.' });
+  if (phone && !/^[\d\s\+\-\(\)]{7,20}$/.test(phone)) {
+    return res.status(400).json({ error: 'Invalid phone number.' });
+  }
 
   try {
     const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
@@ -150,8 +154,8 @@ router.post('/register', authLimiter, async (req, res) => {
     // Teachers require admin approval before they can log in
     const isApproved = role !== 'teacher';
     const result = await pool.query(
-      'INSERT INTO users (name, email, password, role, school_id, is_approved) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, name, email, role, school_id, is_approved',
-      [name, email, hashed, role, school_id || null, isApproved]
+      'INSERT INTO users (name, email, password, role, school_id, is_approved, phone) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, name, email, role, school_id, is_approved',
+      [name, email, hashed, role, school_id || null, isApproved, phone || null]
     );
     const user = result.rows[0];
     if (!isApproved) {

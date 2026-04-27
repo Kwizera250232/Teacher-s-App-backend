@@ -15,6 +15,8 @@ const studentNotesRoutes = require('./routes/student_notes');
 const leaderboardRoutes = require('./routes/leaderboard');
 
 const downloadRoutes = require('./routes/download');
+const aiRoutes = require('./routes/ai');
+const textbookRoutes = require('./routes/textbooks');
 
 const app = express();
 
@@ -63,6 +65,8 @@ app.use('/api/classes', contentRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/student', studentNotesRoutes);
 app.use('/api/classes', leaderboardRoutes);
+app.use('/api/ai', aiRoutes);
+app.use('/api/textbooks', textbookRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
