@@ -1,5 +1,6 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const Groq = require('groq-sdk');
 const pool = require('../db');
 const { authenticateToken } = require('../middleware/auth');
 
@@ -29,6 +30,7 @@ router.post('/chat', authenticateToken, aiRateLimit, async (req, res) => {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey)
     return res.status(503).json({ error: 'AI service not configured.' });
+  const groq = new Groq({ apiKey });
 
   try {
     const classResult = await pool.query(
@@ -116,51 +118,22 @@ router.post('/chat', authenticateToken, aiRateLimit, async (req, res) => {
     }
     messages.push({ role: 'user', content: cleanMessage });
 
-    // 15s timeout to prevent hanging
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const completion = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages,
+      max_tokens: 1024,
+      temperature: 0.3,
+    });
 
-    let aiRes;
-    try {
-      aiRes = await fetch(
-        'https://api.groq.com/openai/v1/chat/completions',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
-            messages,
-            max_tokens: 1024,
-            temperature: 0.3,
-          }),
-          signal: controller.signal,
-        }
-      );
-    } finally {
-      clearTimeout(timeoutId);
-    }
-
-    if (!aiRes.ok) {
-      const errBody = await aiRes.json().catch(() => ({}));
-      console.error('Groq API error status:', aiRes.status, JSON.stringify(errBody).slice(0, 300));
-      return res.status(502).json({ error: 'AI service error. Gerageza nanone.' });
-    }
-
-    const aiData = await aiRes.json();
-    const replyText = aiData?.choices?.[0]?.message?.content?.trim();
+    const replyText = completion.choices[0]?.message?.content?.trim();
 
     if (!replyText)
       return res.json({ reply: 'Ntabwo nabonye igisubizo cyumvikana neza. Ongera ubaze neza.' });
 
     res.json({ reply: replyText });
   } catch (err) {
-    if (err.name === 'AbortError')
-      return res.status(504).json({ error: 'AI yatwaye igihe kinini. Gerageza nanone.' });
-    console.error('AI route error:', err);
-    res.status(500).json({ error: 'Internal server error.' });
+    console.error('Groq SDK error:', err?.status, err?.message);
+    res.status(502).json({ error: 'AI service error. Gerageza nanone.' });
   }
 });
 
