@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const path = require('path');
-require('dotenv').config();
+require('dotenv').config({ override: true });
 
 const authRoutes = require('./routes/auth');
 const classRoutes = require('./routes/classes');
