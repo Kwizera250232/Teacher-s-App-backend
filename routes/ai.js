@@ -140,7 +140,8 @@ router.post('/chat', authenticateToken, aiRateLimit, async (req, res) => {
     }
 
     if (!geminiRes.ok) {
-      console.error('Gemini API error status:', geminiRes.status);
+      const errBody = await geminiRes.json().catch(() => ({}));
+      console.error('Gemini API error status:', geminiRes.status, JSON.stringify(errBody).slice(0, 300));
       return res.status(502).json({ error: 'AI service error. Gerageza nanone.' });
     }
 
