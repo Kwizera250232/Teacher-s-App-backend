@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS class_members (
   joined_at TIMESTAMP DEFAULT NOW(),
   UNIQUE(class_id, student_id)
 );
+CREATE INDEX IF NOT EXISTS idx_class_members_student ON class_members(student_id);
+CREATE INDEX IF NOT EXISTS idx_class_members_class ON class_members(class_id);
 
 -- Notes
 CREATE TABLE IF NOT EXISTS notes (
