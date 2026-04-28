@@ -212,5 +212,44 @@ router.get('/:id/classmates', authenticateToken, async (req, res) => {
   }
 });
 
+// DELETE /:id/students/:studentId — teacher removes a student from class
+router.delete('/:id/students/:studentId', authenticateToken, requireRole('teacher'), async (req, res) => {
+  const classId = parseInt(req.params.id);
+  const studentId = parseInt(req.params.studentId);
+  if (Number.isNaN(classId) || Number.isNaN(studentId)) return res.status(400).json({ error: 'Invalid ID.' });
+  try {
+    const cls = await pool.query('SELECT teacher_id FROM classes WHERE id=$1', [classId]);
+    if (!cls.rowCount) return res.status(404).json({ error: 'Class not found.' });
+    if (cls.rows[0].teacher_id !== req.user.id) return res.status(403).json({ error: 'Forbidden.' });
+    await pool.query('DELETE FROM class_members WHERE class_id=$1 AND student_id=$2', [classId, studentId]);
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// POST /:id/students — teacher adds a student by email
+router.post('/:id/students', authenticateToken, requireRole('teacher'), async (req, res) => {
+  const classId = parseInt(req.params.id);
+  const { email } = req.body;
+  if (!email || typeof email !== 'string') return res.status(400).json({ error: 'Email is required.' });
+  try {
+    const cls = await pool.query('SELECT teacher_id FROM classes WHERE id=$1', [classId]);
+    if (!cls.rowCount) return res.status(404).json({ error: 'Class not found.' });
+    if (cls.rows[0].teacher_id !== req.user.id) return res.status(403).json({ error: 'Forbidden.' });
+
+    const user = await pool.query(`SELECT id, name FROM users WHERE email=$1 AND role='student'`, [email.trim().toLowerCase()]);
+    if (!user.rowCount) return res.status(404).json({ error: 'No student found with that email.' });
+
+    await pool.query(
+      'INSERT INTO class_members (class_id, student_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+      [classId, user.rows[0].id]
+    );
+    res.json({ ok: true, student: user.rows[0] });
+  } catch {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 module.exports = router;
 
