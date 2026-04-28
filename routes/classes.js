@@ -169,4 +169,44 @@ router.get('/:id/students', authenticateToken, requireRole('teacher'), async (re
   }
 });
 
+// GET classmates — accessible to any member of the class (student or teacher)
+router.get('/:id/classmates', authenticateToken, async (req, res) => {
+  const classId = parseInt(req.params.id);
+  try {
+    // Verify requester is a member or the teacher
+    const access = await pool.query(
+      `SELECT 1 FROM class_members WHERE class_id=$1 AND student_id=$2
+       UNION
+       SELECT 1 FROM classes WHERE id=$1 AND teacher_id=$2`,
+      [classId, req.user.id]
+    );
+    if (!access.rowCount) return res.status(403).json({ error: 'Forbidden.' });
+
+    // Return all members (students + teacher) with avatar
+    const result = await pool.query(
+      `SELECT u.id, u.name, u.role, u.email, cm.joined_at,
+              p.avatar_path, p.dreams, p.favorite_lessons, p.hobbies, p.fears,
+              p.phone, p.home_address, p.schools
+       FROM class_members cm
+       JOIN users u ON cm.student_id = u.id
+       LEFT JOIN user_profiles p ON p.user_id = u.id
+       WHERE cm.class_id = $1
+       UNION
+       SELECT u.id, u.name, u.role, u.email, c.created_at AS joined_at,
+              p.avatar_path, p.dreams, p.favorite_lessons, p.hobbies, p.fears,
+              p.phone, p.home_address, p.schools
+       FROM classes c
+       JOIN users u ON u.id = c.teacher_id
+       LEFT JOIN user_profiles p ON p.user_id = u.id
+       WHERE c.id = $1
+       ORDER BY name`,
+      [classId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 module.exports = router;
+
