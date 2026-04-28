@@ -82,7 +82,7 @@ router.post('/image', auth, uploadMsgImage.single('image'), async (req, res) => 
   }
 });
 
-  — my received messages (grouped by sender)
+// GET /api/messages/inbox  — my received messages (grouped by sender)
 router.get('/inbox', auth, async (req, res) => {
   try {
     const result = await pool.query(
