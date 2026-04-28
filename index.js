@@ -50,10 +50,11 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json());
-// Allow uploads to be embedded in iframes (for PDF preview)
+// Allow uploads to be embedded in iframes and loaded cross-origin (avatars, PDFs)
 app.use('/uploads', (req, res, next) => {
   res.removeHeader('X-Frame-Options');
   res.setHeader('Content-Security-Policy', "frame-ancestors *");
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   next();
 });
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
