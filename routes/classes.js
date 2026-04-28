@@ -221,7 +221,9 @@ router.delete('/:id/students/:studentId', authenticateToken, requireRole('teache
     const cls = await pool.query('SELECT teacher_id FROM classes WHERE id=$1', [classId]);
     if (!cls.rowCount) return res.status(404).json({ error: 'Class not found.' });
     if (cls.rows[0].teacher_id !== req.user.id) return res.status(403).json({ error: 'Forbidden.' });
-    await pool.query('DELETE FROM class_members WHERE class_id=$1 AND student_id=$2', [classId, studentId]);
+    // Delete the user account entirely so they can re-register with the same email.
+    // ON DELETE CASCADE will remove all class_members rows automatically.
+    await pool.query("DELETE FROM users WHERE id=$1 AND role='student'", [studentId]);
     res.json({ ok: true });
   } catch {
     res.status(500).json({ error: 'Internal server error.' });
