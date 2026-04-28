@@ -179,3 +179,10 @@ CREATE TABLE IF NOT EXISTS ai_logs (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- PWA Installations
+CREATE TABLE IF NOT EXISTS pwa_installs (
+  id SERIAL PRIMARY KEY,
+  user_agent TEXT,
+  installed_at TIMESTAMP DEFAULT NOW()
+);
+

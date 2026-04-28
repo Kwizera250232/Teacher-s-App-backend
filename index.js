@@ -68,6 +68,18 @@ app.use('/api/classes', leaderboardRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/textbooks', textbookRoutes);
 
+// PWA install tracking (public, no auth)
+app.post('/api/pwa/install', async (req, res) => {
+  try {
+    const pool = require('./db');
+    const ua = (req.body && req.body.user_agent) ? String(req.body.user_agent).slice(0, 500) : null;
+    await pool.query('INSERT INTO pwa_installs (user_agent) VALUES ($1)', [ua]);
+    res.json({ ok: true });
+  } catch {
+    res.json({ ok: false });
+  }
+});
+
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 // Central error handler — never leak internal error details to clients

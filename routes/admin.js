@@ -9,7 +9,7 @@ const adminOnly = [authenticateToken, requireRole('admin')];
 // ─── DASHBOARD STATS ──────────────────────────────────────────────────────────
 router.get('/stats', ...adminOnly, async (req, res) => {
   try {
-    const [schools, teachers, students, classes, quizzes, homework, pending] = await Promise.all([
+    const [schools, teachers, students, classes, quizzes, homework, pending, installs] = await Promise.all([
       pool.query("SELECT COUNT(*) FROM schools"),
       pool.query("SELECT COUNT(*) FROM users WHERE role='teacher' AND is_approved=TRUE"),
       pool.query("SELECT COUNT(*) FROM users WHERE role='student'"),
@@ -17,6 +17,7 @@ router.get('/stats', ...adminOnly, async (req, res) => {
       pool.query("SELECT COUNT(*) FROM quizzes"),
       pool.query("SELECT COUNT(*) FROM homework"),
       pool.query("SELECT COUNT(*) FROM users WHERE role='teacher' AND is_approved=FALSE"),
+      pool.query("SELECT COUNT(*) FROM pwa_installs"),
     ]);
     res.json({
       schools: parseInt(schools.rows[0].count),
@@ -26,6 +27,7 @@ router.get('/stats', ...adminOnly, async (req, res) => {
       quizzes: parseInt(quizzes.rows[0].count),
       homework: parseInt(homework.rows[0].count),
       pending_teachers: parseInt(pending.rows[0].count),
+      installations: parseInt(installs.rows[0].count),
     });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
