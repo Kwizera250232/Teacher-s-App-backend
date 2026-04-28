@@ -186,3 +186,30 @@ CREATE TABLE IF NOT EXISTS pwa_installs (
   installed_at TIMESTAMP DEFAULT NOW()
 );
 
+-- User Profiles (extended info for students & teachers)
+CREATE TABLE IF NOT EXISTS user_profiles (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  avatar_path VARCHAR(500),
+  phone VARCHAR(30),
+  home_address TEXT,
+  schools TEXT,            -- JSON array of school names
+  dreams TEXT,
+  favorite_lessons TEXT,   -- JSON array
+  hobbies TEXT,            -- JSON array (min 2)
+  fears TEXT,
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Private Messages (between users in same class or student↔teacher)
+CREATE TABLE IF NOT EXISTS messages (
+  id SERIAL PRIMARY KEY,
+  sender_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  receiver_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  is_read BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver_id);
+CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id);
+

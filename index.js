@@ -17,6 +17,8 @@ const leaderboardRoutes = require('./routes/leaderboard');
 const downloadRoutes = require('./routes/download');
 const aiRoutes = require('./routes/ai');
 const textbookRoutes = require('./routes/textbooks');
+const profileRoutes = require('./routes/profile');
+const messageRoutes = require('./routes/messages');
 
 const app = express();
 
@@ -67,6 +69,11 @@ app.use('/api/student', studentNotesRoutes);
 app.use('/api/classes', leaderboardRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/textbooks', textbookRoutes);
+app.use('/api/profile', profileRoutes);
+app.use('/api/messages', messageRoutes);
+
+// Serve avatars
+app.use('/uploads/avatars', express.static(require('path').join(__dirname, 'uploads/avatars')));
 
 // PWA install tracking (public, no auth)
 app.post('/api/pwa/install', async (req, res) => {
