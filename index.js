@@ -22,6 +22,9 @@ const messageRoutes = require('./routes/messages');
 
 const app = express();
 
+// Trust Nginx reverse proxy (needed for express-rate-limit behind proxy)
+app.set('trust proxy', 1);
+
 // Security headers
 app.use(helmet());
 app.use(helmet.contentSecurityPolicy({
