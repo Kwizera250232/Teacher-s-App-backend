@@ -2,11 +2,16 @@
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+const rateLimit = require('express-rate-limit');
 const pool = require('../db');
 const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
 const auth = authenticateToken;
+
+// ── Rate limiters ────────────────────────────────────────────────────────────
+const avatarLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: 'Too many uploads, try again later.' } });
+const subscribeLimiter = rateLimit({ windowMs: 60 * 1000, max: 20, message: { error: 'Too many requests, slow down.' } });
 
 // â”€â”€ Ensure upload directory exists â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const uploadDir = path.join(__dirname, '../uploads/avatars');
@@ -23,7 +28,7 @@ const ALLOWED_EXT = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
 const storage = multer.diskStorage({
   destination: uploadDir,
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
+    const ext = path.extname(file.originalname).toLowerCase().replace(/[^a-z0-9.]/g, '');
     cb(null, `avatar_${req.user.id}_${Date.now()}${ext}`);
   },
 });
@@ -120,7 +125,7 @@ router.get('/contacts/list', auth, async (req, res) => {
 router.get('/:id', auth, async (req, res) => {
   try {
     const targetId = parseInt(req.params.id);
-    if (!targetId || isNaN(targetId)) return res.status(400).json({ error: 'Invalid user ID.' });
+    if (Number.isNaN(targetId) || targetId <= 0) return res.status(400).json({ error: 'Invalid user ID.' });
 
     // Allow only if they share a class (or requester is admin)
     const shared = await pool.query(
@@ -193,25 +198,32 @@ router.put('/me', auth, async (req, res) => {
 });
 
 // â”€â”€ POST /api/profile/me/avatar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-router.post('/me/avatar', auth, upload.single('avatar'), async (req, res) => {
+router.post('/me/avatar', auth, avatarLimiter, upload.single('avatar'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
   const avatarPath = `/uploads/avatars/${req.file.filename}`;
   try {
+    // Delete old avatar file before saving new one
+    const old = await pool.query('SELECT avatar_path FROM user_profiles WHERE user_id=$1', [req.user.id]);
+    if (old.rows[0]?.avatar_path) {
+      const oldFilePath = path.join(__dirname, '..', old.rows[0].avatar_path);
+      fs.unlink(oldFilePath, () => {}); // ignore errors if file missing
+    }
     await pool.query(
       `INSERT INTO user_profiles (user_id, avatar_path, updated_at) VALUES ($1,$2,NOW())
        ON CONFLICT (user_id) DO UPDATE SET avatar_path = EXCLUDED.avatar_path, updated_at = NOW()`,
       [req.user.id, avatarPath]
     );
     res.json({ avatar_path: avatarPath });
-  } catch {
+  } catch (err) {
+    console.error('Avatar upload error:', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
 // â”€â”€ POST /api/profile/:id/subscribe  â€” atomic toggle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-router.post('/:id/subscribe', auth, async (req, res) => {
+router.post('/:id/subscribe', auth, subscribeLimiter, async (req, res) => {
   const targetId = parseInt(req.params.id);
-  if (!targetId || isNaN(targetId)) return res.status(400).json({ error: 'Invalid user ID.' });
+  if (Number.isNaN(targetId) || targetId <= 0) return res.status(400).json({ error: 'Invalid user ID.' });
   if (targetId === req.user.id) return res.status(400).json({ error: 'Cannot subscribe to yourself.' });
 
   const client = await pool.connect();
@@ -241,7 +253,8 @@ router.post('/:id/subscribe', auth, async (req, res) => {
     await client.query('COMMIT');
 
     res.json({ subscribed: !existing.rowCount, subscriber_count: parseInt(count.rows[0].count) });
-  } catch {
+  } catch (err) {
+    console.error('Subscribe error:', err);
     await client.query('ROLLBACK');
     res.status(500).json({ error: 'Internal server error.' });
   } finally {

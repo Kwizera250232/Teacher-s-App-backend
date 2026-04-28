@@ -182,11 +182,13 @@ router.get('/:id/classmates', authenticateToken, async (req, res) => {
     );
     if (!access.rowCount) return res.status(403).json({ error: 'Forbidden.' });
 
-    // Return all members (students + teacher) with avatar
+    // Return all members (students + teacher) with avatar + subscription info
     const result = await pool.query(
       `SELECT u.id, u.name, u.role, u.email, cm.joined_at,
               p.avatar_path, p.dreams, p.favorite_lessons, p.hobbies, p.fears,
-              p.phone, p.home_address, p.schools
+              p.phone, p.home_address, p.schools,
+              (SELECT COUNT(*) FROM subscriptions WHERE target_id = u.id) AS subscriber_count,
+              EXISTS(SELECT 1 FROM subscriptions WHERE subscriber_id = $2 AND target_id = u.id) AS i_subscribed
        FROM class_members cm
        JOIN users u ON cm.student_id = u.id
        LEFT JOIN user_profiles p ON p.user_id = u.id
@@ -194,13 +196,15 @@ router.get('/:id/classmates', authenticateToken, async (req, res) => {
        UNION
        SELECT u.id, u.name, u.role, u.email, c.created_at AS joined_at,
               p.avatar_path, p.dreams, p.favorite_lessons, p.hobbies, p.fears,
-              p.phone, p.home_address, p.schools
+              p.phone, p.home_address, p.schools,
+              (SELECT COUNT(*) FROM subscriptions WHERE target_id = u.id) AS subscriber_count,
+              EXISTS(SELECT 1 FROM subscriptions WHERE subscriber_id = $2 AND target_id = u.id) AS i_subscribed
        FROM classes c
        JOIN users u ON u.id = c.teacher_id
        LEFT JOIN user_profiles p ON p.user_id = u.id
        WHERE c.id = $1
        ORDER BY name`,
-      [classId]
+      [classId, req.user.id]
     );
     res.json(result.rows);
   } catch (err) {
