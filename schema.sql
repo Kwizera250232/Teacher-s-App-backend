@@ -231,3 +231,14 @@ CREATE TABLE IF NOT EXISTS discussion_comments (
   content TEXT NOT NULL,
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Subscriptions (follow system)
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id SERIAL PRIMARY KEY,
+  subscriber_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  target_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(subscriber_id, target_id)
+);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_target ON subscriptions(target_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_subscriber ON subscriptions(subscriber_id);

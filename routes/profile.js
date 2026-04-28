@@ -30,7 +30,9 @@ router.get('/me', auth, async (req, res) => {
     const result = await pool.query(
       `SELECT u.id, u.name, u.email, u.role,
               p.avatar_path, p.phone, p.home_address, p.schools,
-              p.dreams, p.favorite_lessons, p.hobbies, p.fears
+              p.dreams, p.favorite_lessons, p.hobbies, p.fears,
+              (SELECT COUNT(*) FROM subscriptions WHERE target_id = u.id) AS subscriber_count,
+              (SELECT COUNT(*) FROM subscriptions WHERE subscriber_id = u.id) AS following_count
        FROM users u
        LEFT JOIN user_profiles p ON p.user_id = u.id
        WHERE u.id = $1`,
@@ -63,11 +65,14 @@ router.get('/:id', auth, async (req, res) => {
     }
     const result = await pool.query(
       `SELECT u.id, u.name, u.role,
-              p.avatar_path, p.dreams, p.favorite_lessons, p.hobbies
+              p.avatar_path, p.dreams, p.favorite_lessons, p.hobbies,
+              p.phone, p.home_address, p.schools, p.fears,
+              (SELECT COUNT(*) FROM subscriptions WHERE target_id = u.id) AS subscriber_count,
+              EXISTS(SELECT 1 FROM subscriptions WHERE subscriber_id = $1 AND target_id = u.id) AS i_subscribed
        FROM users u
        LEFT JOIN user_profiles p ON p.user_id = u.id
-       WHERE u.id = $1`,
-      [targetId]
+       WHERE u.id = $2`,
+      [req.user.id, targetId]
     );
     if (!result.rowCount) return res.status(404).json({ error: 'User not found.' });
     res.json(result.rows[0]);
@@ -164,6 +169,27 @@ router.get('/contacts/list', auth, async (req, res) => {
       rows = [];
     }
     res.json(rows);
+  } catch {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// POST /api/profile/:id/subscribe  — toggle subscribe/unsubscribe
+router.post('/:id/subscribe', auth, async (req, res) => {
+  const targetId = parseInt(req.params.id);
+  if (targetId === req.user.id) return res.status(400).json({ error: 'Cannot subscribe to yourself.' });
+  try {
+    const existing = await pool.query(
+      'SELECT 1 FROM subscriptions WHERE subscriber_id=$1 AND target_id=$2',
+      [req.user.id, targetId]
+    );
+    if (existing.rowCount) {
+      await pool.query('DELETE FROM subscriptions WHERE subscriber_id=$1 AND target_id=$2', [req.user.id, targetId]);
+    } else {
+      await pool.query('INSERT INTO subscriptions (subscriber_id, target_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [req.user.id, targetId]);
+    }
+    const count = await pool.query('SELECT COUNT(*) FROM subscriptions WHERE target_id=$1', [targetId]);
+    res.json({ subscribed: !existing.rowCount, subscriber_count: parseInt(count.rows[0].count) });
   } catch {
     res.status(500).json({ error: 'Internal server error.' });
   }
