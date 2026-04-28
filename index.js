@@ -74,6 +74,7 @@ app.use('/api/messages', messageRoutes);
 
 // Serve avatars
 app.use('/uploads/avatars', express.static(require('path').join(__dirname, 'uploads/avatars')));
+app.use('/uploads/msg_images', express.static(require('path').join(__dirname, 'uploads/msg_images')));
 
 // PWA install tracking (public, no auth)
 app.post('/api/pwa/install', async (req, res) => {

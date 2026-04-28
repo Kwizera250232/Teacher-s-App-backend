@@ -206,10 +206,28 @@ CREATE TABLE IF NOT EXISTS messages (
   id SERIAL PRIMARY KEY,
   sender_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   receiver_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  content TEXT NOT NULL,
+  content TEXT NOT NULL DEFAULT '',
+  image_path VARCHAR(500),
   is_read BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver_id);
 CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id);
 
+-- Discussion Likes
+CREATE TABLE IF NOT EXISTS discussion_likes (
+  id SERIAL PRIMARY KEY,
+  discussion_id INTEGER NOT NULL REFERENCES discussions(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(discussion_id, user_id)
+);
+
+-- Discussion Comments
+CREATE TABLE IF NOT EXISTS discussion_comments (
+  id SERIAL PRIMARY KEY,
+  discussion_id INTEGER NOT NULL REFERENCES discussions(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
