@@ -4,6 +4,12 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Auto-migrate new columns
+pool.query(`
+  ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS question_type VARCHAR(20) DEFAULT 'multiple_choice';
+  ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS passage TEXT;
+`).catch(e => console.error('[quizzes] migration error:', e.message));
+
 // GET quizzes for a class (includes attempt_count so teacher knows if editable)
 router.get('/:classId/quizzes', authenticateToken, async (req, res) => {
   try {
@@ -39,9 +45,10 @@ router.post('/:classId/quizzes', authenticateToken, requireRole('teacher'), asyn
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
       await client.query(
-        `INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, order_num)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [quiz.id, q.question, q.option_a, q.option_b, q.option_c || null, q.option_d || null, q.correct_answer.toLowerCase(), i]
+        `INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, order_num)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [quiz.id, q.question, q.option_a||null, q.option_b||null, q.option_c||null, q.option_d||null,
+         (q.correct_answer||'a').toLowerCase(), q.question_type||'multiple_choice', q.passage||null, i]
       );
     }
     await client.query('COMMIT');
@@ -58,7 +65,7 @@ router.post('/:classId/quizzes', authenticateToken, requireRole('teacher'), asyn
 router.get('/:classId/quizzes/:quizId/questions-edit', authenticateToken, requireRole('teacher'), async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, question, option_a, option_b, option_c, option_d, correct_answer, order_num
+      `SELECT id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, order_num
        FROM quiz_questions WHERE quiz_id = $1 ORDER BY order_num`,
       [req.params.quizId]
     );
@@ -93,9 +100,10 @@ router.put('/:classId/quizzes/:quizId', authenticateToken, requireRole('teacher'
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
       await client.query(
-        `INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, order_num)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [req.params.quizId, q.question, q.option_a, q.option_b, q.option_c || null, q.option_d || null, q.correct_answer.toLowerCase(), i]
+        `INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, order_num)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [req.params.quizId, q.question, q.option_a||null, q.option_b||null, q.option_c||null, q.option_d||null,
+         (q.correct_answer||'a').toLowerCase(), q.question_type||'multiple_choice', q.passage||null, i]
       );
     }
     await client.query('COMMIT');
@@ -112,7 +120,7 @@ router.put('/:classId/quizzes/:quizId', authenticateToken, requireRole('teacher'
 router.get('/:classId/quizzes/:quizId/questions', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, question, option_a, option_b, option_c, option_d, order_num
+      `SELECT id, question, option_a, option_b, option_c, option_d, question_type, passage, order_num
        FROM quiz_questions WHERE quiz_id = $1 ORDER BY order_num`,
       [req.params.quizId]
     );
@@ -145,9 +153,22 @@ router.post('/:classId/quizzes/:quizId/submit', authenticateToken, requireRole('
     let score = 0;
     const results = {};
     for (const q of questions.rows) {
-      const given = (answers[q.id] || '').toLowerCase();
+      const given = String(answers[q.id] ?? '');
       const correct = q.correct_answer;
-      const isCorrect = given === correct;
+      let isCorrect = false;
+      if (q.question_type === 'fill_blank') {
+        isCorrect = given.trim().toLowerCase() === (correct || '').trim().toLowerCase();
+      } else if (q.question_type === 'matching') {
+        try {
+          const pairs = JSON.parse(q.passage || '[]');
+          const givenParts = given.split('|');
+          isCorrect = pairs.length > 0 && pairs.every((pair, idx) =>
+            (givenParts[idx] || '').trim().toLowerCase() === pair.right.trim().toLowerCase()
+          );
+        } catch { isCorrect = false; }
+      } else {
+        isCorrect = given.toLowerCase() === (correct || '').toLowerCase();
+      }
       if (isCorrect) score++;
       results[q.id] = { given, correct, isCorrect };
     }
@@ -224,27 +245,46 @@ router.get('/:classId/quizzes/:quizId/my-result', authenticateToken, async (req,
     const answers = attempt.answers || {};
 
     const questionsResult = await pool.query(
-      `SELECT id, question, option_a, option_b, option_c, option_d, correct_answer, order_num
+      `SELECT id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, order_num
        FROM quiz_questions WHERE quiz_id = $1 ORDER BY order_num`,
       [req.params.quizId]
     );
 
     const optionMap = { a: 'option_a', b: 'option_b', c: 'option_c', d: 'option_d' };
     const detailed = questionsResult.rows.map((q, idx) => {
-      const studentAnswer = (answers[String(q.id)] || '').toLowerCase();
+      const studentAnswer = String(answers[String(q.id)] ?? '');
       const correctAnswer = q.correct_answer;
+      const qtype = q.question_type || 'multiple_choice';
+      let isCorrect = false;
+      if (qtype === 'fill_blank') {
+        isCorrect = studentAnswer.trim().toLowerCase() === (correctAnswer||'').trim().toLowerCase();
+      } else if (qtype === 'matching') {
+        try {
+          const pairs = JSON.parse(q.passage || '[]');
+          const parts = studentAnswer.split('|');
+          isCorrect = pairs.length > 0 && pairs.every((p, i) =>
+            (parts[i]||'').trim().toLowerCase() === p.right.trim().toLowerCase());
+        } catch { isCorrect = false; }
+      } else {
+        isCorrect = studentAnswer.toLowerCase() === (correctAnswer||'').toLowerCase();
+      }
       return {
         number: idx + 1,
         question: q.question,
+        question_type: qtype,
+        passage: q.passage,
         option_a: q.option_a,
         option_b: q.option_b,
         option_c: q.option_c,
         option_d: q.option_d,
         student_answer: studentAnswer || 'No answer',
-        student_answer_text: studentAnswer ? (q[optionMap[studentAnswer]] || studentAnswer) : 'No answer',
+        student_answer_text: qtype === 'fill_blank' || qtype === 'matching' ? (studentAnswer || 'No answer') :
+          (studentAnswer ? (q[optionMap[studentAnswer]] || studentAnswer) : 'No answer'),
         correct_answer: correctAnswer,
-        correct_answer_text: q[optionMap[correctAnswer]],
-        is_correct: studentAnswer === correctAnswer,
+        correct_answer_text: qtype === 'fill_blank' ? correctAnswer :
+          qtype === 'matching' ? (q.passage || '') :
+          (q[optionMap[correctAnswer]] || correctAnswer),
+        is_correct: isCorrect,
       };
     });
 

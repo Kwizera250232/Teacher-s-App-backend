@@ -17,44 +17,60 @@ pool.query(`
   )
 `).catch(console.error);
 
-// GET leaderboard for a class (best score per student across all quizzes)
+// GET leaderboard for a class (best score per student per quiz, then summed)
 router.get('/:classId/leaderboard', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT
+      `WITH best_attempts AS (
+         SELECT DISTINCT ON (quiz_id, student_id)
+           quiz_id, student_id, score, total
+         FROM quiz_attempts
+         WHERE quiz_id IN (SELECT id FROM quizzes WHERE class_id = $1)
+         ORDER BY quiz_id, student_id, score DESC, attempted_at ASC
+       )
+       SELECT
          u.id AS student_id,
          u.name AS student_name,
-         COUNT(DISTINCT qa.quiz_id)::int AS quizzes_taken,
-         SUM(qa.score)::int AS total_score,
-         SUM(qa.total)::int AS total_possible,
-         ROUND(SUM(qa.score)::numeric / NULLIF(SUM(qa.total),0) * 100) AS avg_percentage,
-         MAX(qa.score::numeric / NULLIF(qa.total,0) * 100) AS best_percentage
+         COUNT(DISTINCT ba.quiz_id)::int AS quizzes_taken,
+         COALESCE(SUM(ba.score)::int, 0) AS total_score,
+         COALESCE(SUM(ba.total)::int, 0) AS total_possible,
+         ROUND(SUM(ba.score)::numeric / NULLIF(SUM(ba.total),0) * 100) AS avg_percentage,
+         MAX(ba.score::numeric / NULLIF(ba.total,0) * 100) AS best_percentage
        FROM class_members cm
        JOIN users u ON u.id = cm.student_id
-       LEFT JOIN quiz_attempts qa ON qa.student_id = u.id
-         AND qa.quiz_id IN (SELECT id FROM quizzes WHERE class_id = $1)
+       LEFT JOIN best_attempts ba ON ba.student_id = u.id
        WHERE cm.class_id = $1
        GROUP BY u.id, u.name
        ORDER BY total_score DESC NULLS LAST, avg_percentage DESC NULLS LAST`,
       [req.params.classId]
     );
-    res.json(result.rows);
+    // Add numeric rank (1-based)
+    const rows = result.rows.map((r, i) => ({ ...r, rank: i + 1 }));
+    res.json(rows);
   } catch (err) { console.error(err); res.status(500).json({ error: 'Internal server error.' }); }
 });
 
-// GET leaderboard for a specific quiz
+// GET leaderboard for a specific quiz (deduplicated: best score per student)
 router.get('/:classId/quizzes/:quizId/leaderboard', authenticateToken, async (req, res) => {
   try {
     const quizInfo = await pool.query('SELECT title FROM quizzes WHERE id=$1', [req.params.quizId]);
     const result = await pool.query(
-      `SELECT qa.id AS attempt_id, u.id AS student_id, u.name AS student_name,
-              qa.score, qa.total,
-              ROUND(qa.score::numeric / NULLIF(qa.total,0) * 100) AS percentage,
-              qa.attempted_at
-       FROM quiz_attempts qa
-       JOIN users u ON u.id = qa.student_id
-       WHERE qa.quiz_id = $1
-       ORDER BY qa.score DESC, qa.attempted_at ASC`,
+      `WITH best_attempts AS (
+         SELECT DISTINCT ON (student_id)
+           id AS attempt_id, student_id, score, total, attempted_at
+         FROM quiz_attempts
+         WHERE quiz_id = $1
+         ORDER BY student_id, score DESC, attempted_at ASC
+       )
+       SELECT
+         ba.attempt_id, u.id AS student_id, u.name AS student_name,
+         ba.score, ba.total,
+         ROUND(ba.score::numeric / NULLIF(ba.total,0) * 100) AS percentage,
+         ba.attempted_at,
+         ROW_NUMBER() OVER (ORDER BY ba.score DESC, ba.attempted_at ASC)::int AS rank
+       FROM best_attempts ba
+       JOIN users u ON u.id = ba.student_id
+       ORDER BY ba.score DESC, ba.attempted_at ASC`,
       [req.params.quizId]
     );
     res.json({

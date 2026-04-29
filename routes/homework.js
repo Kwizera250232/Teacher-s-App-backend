@@ -92,6 +92,9 @@ router.post('/:classId/homework/:hwId/submit', authenticateToken, requireRole('s
   if (!filePath && !text_response) {
     return res.status(400).json({ error: 'Please provide a file or written response.' });
   }
+  if (text_response && text_response.trim().length < 200) {
+    return res.status(400).json({ error: 'Written response must be at least 200 characters. Please write a more complete answer.' });
+  }
   try {
     // Upsert — update if already submitted
     const result = await pool.query(
@@ -112,7 +115,7 @@ router.post('/:classId/homework/:hwId/submit', authenticateToken, requireRole('s
 
 // PUT grade a submission (teacher)
 router.put('/:classId/homework/:hwId/submissions/:subId/grade', authenticateToken, requireRole('teacher'), async (req, res) => {
-  const { grade, feedback } = req.body;
+  const { grade, feedback, teacher_answer } = req.body;
   if (grade === undefined || grade === null) return res.status(400).json({ error: 'Grade is required.' });
   const gradeNum = parseInt(grade);
   if (isNaN(gradeNum) || gradeNum < 0 || gradeNum > 100) {
@@ -120,9 +123,9 @@ router.put('/:classId/homework/:hwId/submissions/:subId/grade', authenticateToke
   }
   try {
     const result = await pool.query(
-      `UPDATE homework_submissions SET grade = $1, feedback = $2, graded_at = NOW()
-       WHERE id = $3 RETURNING *`,
-      [gradeNum, feedback || null, req.params.subId]
+      `UPDATE homework_submissions SET grade = $1, feedback = $2, teacher_answer = $3, graded_at = NOW()
+       WHERE id = $4 RETURNING *`,
+      [gradeNum, feedback || null, teacher_answer || null, req.params.subId]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Submission not found.' });
     res.json(result.rows[0]);

@@ -13,6 +13,7 @@ const contentRoutes = require('./routes/content');
 const adminRoutes = require('./routes/admin');
 const studentNotesRoutes = require('./routes/student_notes');
 const leaderboardRoutes = require('./routes/leaderboard');
+const studentSharesRoutes = require('./routes/student_shares');
 
 const downloadRoutes = require('./routes/download');
 const aiRoutes = require('./routes/ai');
@@ -75,6 +76,7 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/textbooks', textbookRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/messages', messageRoutes);
+app.use('/api/student-shares', studentSharesRoutes);
 
 // Serve avatars
 app.use('/uploads/avatars', express.static(require('path').join(__dirname, 'uploads/avatars')));
@@ -102,4 +104,19 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  // One-time cleanup: remove duplicate quiz attempts, keeping only the best score
+  // per student per quiz (if equal score, keep the earliest attempt).
+  const pool = require('./db');
+  pool.query(`
+    DELETE FROM quiz_attempts
+    WHERE id NOT IN (
+      SELECT DISTINCT ON (quiz_id, student_id) id
+      FROM quiz_attempts
+      ORDER BY quiz_id, student_id, score DESC, attempted_at ASC
+    )
+  `).then(r => {
+    if (r.rowCount > 0) console.log(`[cleanup] Removed ${r.rowCount} duplicate quiz attempt(s).`);
+  }).catch(e => console.error('[cleanup] Error removing duplicate quiz attempts:', e.message));
+});
