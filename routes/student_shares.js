@@ -101,13 +101,15 @@ router.post('/:id/like', authenticateToken, requireRole('student'), async (req, 
   }
 });
 
-// GET /user/:userId — get a specific user's shares (own or subscribed only)
-router.get('/user/:userId', authenticateToken, requireRole('student'), async (req, res) => {
+// GET /user/:userId — get a specific user's shares (own, subscribed, or teacher)
+router.get('/user/:userId', authenticateToken, async (req, res) => {
   const targetId = parseInt(req.params.userId);
   const viewerId = req.user.id;
+  const viewerRole = req.user.role;
   if (isNaN(targetId)) return res.status(400).json({ error: 'Invalid user.' });
 
-  if (targetId !== viewerId) {
+  // Students must be subscribed (or viewing own). Teachers can view anyone.
+  if (viewerRole === 'student' && targetId !== viewerId) {
     try {
       const sub = await pool.query(
         `SELECT 1 FROM subscriptions WHERE subscriber_id = $1 AND target_id = $2`,
