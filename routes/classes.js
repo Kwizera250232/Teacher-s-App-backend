@@ -169,4 +169,43 @@ router.get('/:id/students', authenticateToken, requireRole('teacher'), async (re
   }
 });
 
+// GET classmates for class page (student/teacher)
+router.get('/:id/classmates', authenticateToken, async (req, res) => {
+  try {
+    const classResult = await pool.query(
+      'SELECT id, teacher_id FROM classes WHERE id = $1',
+      [req.params.id]
+    );
+    if (classResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Class not found.' });
+    }
+
+    const cls = classResult.rows[0];
+
+    if (req.user.role === 'teacher') {
+      if (cls.teacher_id !== req.user.id) return res.status(403).json({ error: 'Forbidden.' });
+    } else if (req.user.role === 'student') {
+      const member = await pool.query(
+        'SELECT 1 FROM class_members WHERE class_id = $1 AND student_id = $2',
+        [cls.id, req.user.id]
+      );
+      if (member.rows.length === 0) return res.status(403).json({ error: 'Forbidden.' });
+    }
+
+    const result = await pool.query(
+      `SELECT u.id, u.name, u.role, u.avatar_path
+       FROM class_members cm
+       JOIN users u ON u.id = cm.student_id
+       WHERE cm.class_id = $1
+       ORDER BY cm.joined_at ASC`,
+      [cls.id]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[classes] classmates error:', err.message);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 module.exports = router;
