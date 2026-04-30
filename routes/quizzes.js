@@ -8,6 +8,10 @@ const router = express.Router();
 pool.query(`
   ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS question_type VARCHAR(20) DEFAULT 'multiple_choice';
   ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS passage TEXT;
+  ALTER TABLE quiz_questions ALTER COLUMN correct_answer TYPE VARCHAR(500);
+  ALTER TABLE quiz_questions DROP CONSTRAINT IF EXISTS quiz_questions_correct_answer_check;
+  ALTER TABLE quiz_questions ALTER COLUMN option_a DROP NOT NULL;
+  ALTER TABLE quiz_questions ALTER COLUMN option_b DROP NOT NULL;
 `).catch(e => console.error('[quizzes] migration error:', e.message));
 
 // GET quizzes for a class (includes attempt_count so teacher knows if editable)
@@ -44,18 +48,37 @@ router.post('/:classId/quizzes', authenticateToken, requireRole('teacher'), asyn
     const quiz = quizResult.rows[0];
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
+      const qtype = q.question_type || 'multiple_choice';
+      // For fill_blank: store actual answer in passage, use 'a' as correct_answer placeholder
+      // For matching: correct_answer 'a' (grading uses passage JSON)
+      // This ensures compatibility with CHAR(1) schema before migration runs
+      let dbCorrectAnswer, dbPassage;
+      if (qtype === 'fill_blank') {
+        dbCorrectAnswer = 'a';
+        dbPassage = q.correct_answer || '';
+      } else if (qtype === 'matching') {
+        dbCorrectAnswer = 'a';
+        dbPassage = q.passage || null;
+      } else {
+        dbCorrectAnswer = (q.correct_answer || 'a').toLowerCase().charAt(0);
+        dbPassage = q.passage || null;
+      }
+      // option_a/option_b are NOT NULL in old schema — use placeholder for non-MC types
+      const dbOptionA = q.option_a || (qtype === 'multiple_choice' || qtype === 'true_false' ? '' : '-');
+      const dbOptionB = q.option_b || (qtype === 'multiple_choice' || qtype === 'true_false' ? '' : '-');
       await client.query(
         `INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, order_num)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-        [quiz.id, q.question, q.option_a||null, q.option_b||null, q.option_c||null, q.option_d||null,
-         (q.correct_answer||'a').toLowerCase(), q.question_type||'multiple_choice', q.passage||null, i]
+        [quiz.id, q.question, dbOptionA, dbOptionB, q.option_c||null, q.option_d||null,
+         dbCorrectAnswer, qtype, dbPassage, i]
       );
     }
     await client.query('COMMIT');
     res.status(201).json({ ...quiz, question_count: questions.length });
   } catch (err) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: 'Internal server error.' });
+    console.error('[quizzes] create quiz error:', err.message, err.stack);
+    res.status(500).json({ error: err.message || 'Internal server error.' });
   } finally {
     client.release();
   }
@@ -69,7 +92,13 @@ router.get('/:classId/quizzes/:quizId/questions-edit', authenticateToken, requir
        FROM quiz_questions WHERE quiz_id = $1 ORDER BY order_num`,
       [req.params.quizId]
     );
-    res.json(result.rows);
+    // For fill_blank: restore actual answer from passage back to correct_answer for the edit UI
+    const rows = result.rows.map(r =>
+      r.question_type === 'fill_blank'
+        ? { ...r, correct_answer: r.passage || r.correct_answer }
+        : r
+    );
+    res.json(rows);
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
   }
@@ -99,11 +128,25 @@ router.put('/:classId/quizzes/:quizId', authenticateToken, requireRole('teacher'
     await client.query('DELETE FROM quiz_questions WHERE quiz_id = $1', [req.params.quizId]);
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
+      const qtype = q.question_type || 'multiple_choice';
+      let dbCorrectAnswer, dbPassage;
+      if (qtype === 'fill_blank') {
+        dbCorrectAnswer = 'a';
+        dbPassage = q.correct_answer || '';
+      } else if (qtype === 'matching') {
+        dbCorrectAnswer = 'a';
+        dbPassage = q.passage || null;
+      } else {
+        dbCorrectAnswer = (q.correct_answer || 'a').toLowerCase().charAt(0);
+        dbPassage = q.passage || null;
+      }
+      const dbOptionA = q.option_a || (qtype === 'multiple_choice' || qtype === 'true_false' ? '' : '-');
+      const dbOptionB = q.option_b || (qtype === 'multiple_choice' || qtype === 'true_false' ? '' : '-');
       await client.query(
         `INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, order_num)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-        [req.params.quizId, q.question, q.option_a||null, q.option_b||null, q.option_c||null, q.option_d||null,
-         (q.correct_answer||'a').toLowerCase(), q.question_type||'multiple_choice', q.passage||null, i]
+        [req.params.quizId, q.question, dbOptionA, dbOptionB, q.option_c||null, q.option_d||null,
+         dbCorrectAnswer, qtype, dbPassage, i]
       );
     }
     await client.query('COMMIT');
@@ -157,7 +200,9 @@ router.post('/:classId/quizzes/:quizId/submit', authenticateToken, requireRole('
       const correct = q.correct_answer;
       let isCorrect = false;
       if (q.question_type === 'fill_blank') {
-        isCorrect = given.trim().toLowerCase() === (correct || '').trim().toLowerCase();
+        // Answer is stored in passage (correct_answer is placeholder 'a')
+        const fillAnswer = (q.passage || correct || '').trim().toLowerCase();
+        isCorrect = given.trim().toLowerCase() === fillAnswer;
       } else if (q.question_type === 'matching') {
         try {
           const pairs = JSON.parse(q.passage || '[]');
