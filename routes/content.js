@@ -52,7 +52,8 @@ router.get('/:classId/announcements', authenticateToken, async (req, res) => {
 
 // POST create announcement (teacher)
 router.post('/:classId/announcements', authenticateToken, requireRole('teacher'), uploadAnnouncementImage.single('image'), async (req, res) => {
-  const content = (req.body.content || '').trim();
+  const body = req.body || {};
+  const content = (body.content || '').trim();
   const imagePath = req.file ? `/uploads/announcement_images/${req.file.filename}` : null;
   const imageName = req.file ? req.file.originalname : null;
   if (!content && !imagePath) {
