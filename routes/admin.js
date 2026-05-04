@@ -396,6 +396,71 @@ router.put('/reports/:id/reply', ...adminOnly, async (req, res) => {
   }
 });
 
+// ─── STUDENT ARTICLE MODERATION ─────────────────────────────────────────────
+router.get('/student-shares/pending-count', ...adminOnly, async (req, res) => {
+  try {
+    const r = await pool.query("SELECT COUNT(*)::int AS count FROM student_shares WHERE status='pending'");
+    res.json({ count: r.rows[0].count });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.get('/student-shares', ...adminOnly, async (req, res) => {
+  const status = (req.query.status || 'pending').toString();
+  if (!['pending', 'approved', 'declined', 'all'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT s.id, s.type, s.content, s.status, s.school, s.class_name, s.teacher_name,
+              s.created_at, s.review_note, s.reviewed_at,
+              u.name AS student_name, u.email AS student_email,
+              r.name AS reviewed_by_name
+       FROM student_shares s
+       JOIN users u ON u.id = s.student_id
+       LEFT JOIN users r ON r.id = s.reviewed_by
+       WHERE ($1 = 'all' OR s.status = $1)
+       ORDER BY CASE s.status WHEN 'pending' THEN 0 WHEN 'declined' THEN 1 ELSE 2 END,
+                s.created_at DESC
+       LIMIT 300`,
+      [status]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.put('/student-shares/:id/moderate', ...adminOnly, async (req, res) => {
+  const decision = (req.body.decision || '').toString();
+  const reviewNote = (req.body.review_note || '').toString().trim();
+  if (!['approved', 'declined'].includes(decision)) {
+    return res.status(400).json({ error: 'decision must be approved or declined.' });
+  }
+  if (decision === 'declined' && !reviewNote) {
+    return res.status(400).json({ error: 'Decline reason is required.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE student_shares
+       SET status = $1,
+           reviewed_by = $2,
+           reviewed_at = NOW(),
+           review_note = CASE WHEN $1 = 'declined' THEN $3 ELSE NULL END
+       WHERE id = $4
+       RETURNING id, status, review_note, reviewed_at`,
+      [decision, req.user.id, reviewNote || null, req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Article not found.' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // ─── USER-FACING ANNOUNCEMENTS (any authenticated user) ──────────────────────
 router.get('/user-announcements', authenticateToken, async (req, res) => {
   try {
