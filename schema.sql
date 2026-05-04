@@ -116,6 +116,8 @@ CREATE TABLE IF NOT EXISTS announcements (
   class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
   teacher_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   content TEXT NOT NULL,
+  image_path VARCHAR(500),
+  image_name VARCHAR(255),
   created_at TIMESTAMP DEFAULT NOW()
 );
 

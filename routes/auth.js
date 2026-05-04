@@ -8,6 +8,7 @@ const { authenticateToken } = require('../middleware/auth');
 require('dotenv').config();
 
 const router = express.Router();
+const EXPOSE_RESET_CODE = process.env.EXPOSE_RESET_CODE === 'true';
 
 // ── Rate limiters ─────────────────────────────────────────────────────────────
 const authLimiter = rateLimit({
@@ -40,6 +41,10 @@ function isStrongPassword(pw) {
   if (!/[a-zA-Z]/.test(pw)) return false;
   if (!/[0-9]/.test(pw)) return false;
   return true;
+}
+
+function hashResetToken(token) {
+  return crypto.createHash('sha256').update(String(token)).digest('hex');
 }
 
 // ── Account lockout (in-memory, resets on restart) ─────────────────────────
@@ -234,18 +239,71 @@ router.post('/forgot-password', forgotLimiter, async (req, res) => {
     }
     const userId = result.rows[0].id;
     // Use crypto.randomInt for secure token generation (NOT Math.random)
-    const token = String(crypto.randomInt(100000, 999999));
+    const resetCode = String(crypto.randomInt(100000, 999999));
+    const hashedToken = hashResetToken(resetCode);
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 min
     await pool.query('DELETE FROM password_reset_tokens WHERE user_id=$1', [userId]);
     await pool.query(
       `INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES ($1,$2,$3)`,
-      [userId, token, expiresAt]
+      [userId, hashedToken, expiresAt]
     );
-    // In production you'd send email; here we return the token directly for in-app flow
+
     audit('password_reset_requested', { email });
-    res.json({ message: 'Reset code generated.', token });
+    const payload = { message: 'Reset code generated.' };
+    if (EXPOSE_RESET_CODE) payload.token = resetCode;
+    res.json(payload);
   } catch (err) {
     console.error('[forgot-password]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// POST /api/auth/check-email — verify account email exists for no-code reset flow
+router.post('/check-email', forgotLimiter, async (req, res) => {
+  const email = (req.body.email || '').trim().toLowerCase();
+  if (!email) return res.status(400).json({ error: 'Email is required.' });
+  if (!isValidEmail(email)) return res.status(400).json({ error: 'Invalid email address.' });
+
+  try {
+    const result = await pool.query('SELECT id FROM users WHERE email=$1', [email]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'No account found with this email.' });
+    }
+    res.json({ exists: true });
+  } catch (err) {
+    console.error('[check-email]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// POST /api/auth/reset-password-direct — reset password using registered email only
+router.post('/reset-password-direct', forgotLimiter, async (req, res) => {
+  const email = (req.body.email || '').trim().toLowerCase();
+  const { newPassword } = req.body;
+
+  if (!email || !newPassword) {
+    return res.status(400).json({ error: 'Email and new password are required.' });
+  }
+  if (!isValidEmail(email)) return res.status(400).json({ error: 'Invalid email address.' });
+  if (!isStrongPassword(newPassword)) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters and include letters and numbers.' });
+  }
+
+  try {
+    const userResult = await pool.query('SELECT id FROM users WHERE email=$1', [email]);
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No account found with this email.' });
+    }
+
+    const userId = userResult.rows[0].id;
+    const hashed = await bcrypt.hash(newPassword, 12);
+    await pool.query('UPDATE users SET password=$1 WHERE id=$2', [hashed, userId]);
+    await pool.query('DELETE FROM password_reset_tokens WHERE user_id=$1', [userId]);
+
+    audit('password_reset_direct', { email });
+    res.json({ message: 'Password updated successfully.' });
+  } catch (err) {
+    console.error('[reset-password-direct]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
@@ -266,6 +324,7 @@ router.post('/reset-password', forgotLimiter, async (req, res) => {
   if (!/^\d{6}$/.test(String(token))) {
     return res.status(400).json({ error: 'Invalid or expired reset code.' });
   }
+  const tokenHash = hashResetToken(token);
 
   try {
     const userResult = await pool.query('SELECT id FROM users WHERE email=$1', [email]);
@@ -275,7 +334,7 @@ router.post('/reset-password', forgotLimiter, async (req, res) => {
     const tokenResult = await pool.query(
       `SELECT * FROM password_reset_tokens
        WHERE user_id=$1 AND token=$2 AND used=FALSE AND expires_at > NOW()`,
-      [userId, token]
+      [userId, tokenHash]
     );
     if (tokenResult.rows.length === 0) {
       return res.status(400).json({ error: 'Invalid or expired reset code.' });

@@ -78,6 +78,33 @@ router.get('/my', authenticateToken, requireRole('student'), async (req, res) =>
   }
 });
 
+// GET recent announcements across joined classes (student dashboard bottom section)
+router.get('/my-announcements', authenticateToken, requireRole('student'), async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT a.id,
+              a.class_id,
+              a.content,
+              a.image_path,
+              a.image_name,
+              a.created_at,
+              c.name AS class_name,
+              u.name AS teacher_name
+       FROM announcements a
+       JOIN classes c ON c.id = a.class_id
+       JOIN class_members cm ON cm.class_id = a.class_id
+       JOIN users u ON u.id = a.teacher_id
+       WHERE cm.student_id = $1
+       ORDER BY a.created_at DESC
+       LIMIT 30`,
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // POST create class (teacher)
 router.post('/', authenticateToken, requireRole('teacher'), async (req, res) => {
   const name = (req.body.name || '').trim();
