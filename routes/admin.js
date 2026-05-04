@@ -1,10 +1,61 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 const adminOnly = [authenticateToken, requireRole('admin')];
+
+// ─── ADMIN IMPERSONATION (View as Teacher/Student) ─────────────────────────
+router.post('/impersonate', ...adminOnly, async (req, res) => {
+  const targetId = parseInt(req.body.user_id, 10);
+  if (!targetId) return res.status(400).json({ error: 'Valid user_id is required.' });
+
+  try {
+    const result = await pool.query(
+      `SELECT id, name, email, role, school_id, is_suspended
+       FROM users
+       WHERE id = $1`,
+      [targetId]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'User not found.' });
+
+    const target = result.rows[0];
+    if (!['teacher', 'student'].includes(target.role)) {
+      return res.status(400).json({ error: 'You can only view teacher or student accounts.' });
+    }
+    if (target.is_suspended) {
+      return res.status(403).json({ error: 'This account is suspended.' });
+    }
+    if (!process.env.JWT_SECRET) {
+      return res.status(500).json({ error: 'Server misconfiguration: JWT secret missing.' });
+    }
+
+    const token = jwt.sign(
+      {
+        id: target.id,
+        role: target.role,
+        impersonated_by: req.user.id,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '2h' }
+    );
+
+    res.json({
+      token,
+      user: {
+        id: target.id,
+        name: target.name,
+        email: target.email,
+        role: target.role,
+        school_id: target.school_id,
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
 
 // ─── DASHBOARD STATS ──────────────────────────────────────────────────────────
 router.get('/stats', ...adminOnly, async (req, res) => {
