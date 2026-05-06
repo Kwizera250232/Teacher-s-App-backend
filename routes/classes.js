@@ -17,6 +17,14 @@ function generateClassCode() {
   return code;
 }
 
+function safeEqualText(a, b) {
+  const left = Buffer.from(String(a || ''), 'utf8');
+  const right = Buffer.from(String(b || ''), 'utf8');
+  if (left.length === 0 || right.length === 0) return false;
+  if (left.length !== right.length) return false;
+  return crypto.timingSafeEqual(left, right);
+}
+
 // Rate limiter for public preview endpoint (prevent brute-force of class codes)
 const previewLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -109,10 +117,33 @@ router.get('/my-announcements', authenticateToken, requireRole('student'), async
 router.post('/', authenticateToken, requireRole('teacher'), async (req, res) => {
   const name = (req.body.name || '').trim();
   const subject = (req.body.subject || '').trim();
+  const headTeacherCode = (req.body.head_teacher_code || '').trim().toUpperCase();
   if (!name) return res.status(400).json({ error: 'Class name is required.' });
   if (name.length > 150) return res.status(400).json({ error: 'Class name is too long.' });
   if (subject.length > 150) return res.status(400).json({ error: 'Subject name is too long.' });
+  if (!headTeacherCode) return res.status(400).json({ error: 'Head Teacher Code is required.' });
   try {
+    const teacherSchool = await pool.query(
+      `SELECT s.code
+       FROM users u
+       LEFT JOIN schools s ON s.id = u.school_id
+       WHERE u.id = $1`,
+      [req.user.id]
+    );
+
+    if (teacherSchool.rows.length === 0) {
+      return res.status(404).json({ error: 'Teacher account not found.' });
+    }
+
+    const schoolCode = (teacherSchool.rows[0].code || '').trim().toUpperCase();
+    if (!schoolCode) {
+      return res.status(403).json({ error: 'Your school does not have a Head Teacher Code configured yet. Contact admin.' });
+    }
+
+    if (!safeEqualText(headTeacherCode, schoolCode)) {
+      return res.status(403).json({ error: 'Invalid Head Teacher Code.' });
+    }
+
     let code;
     let unique = false;
     for (let attempt = 0; attempt < 10; attempt++) {

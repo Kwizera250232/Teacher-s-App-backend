@@ -6,6 +6,46 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 const adminOnly = [authenticateToken, requireRole('admin')];
+const schoolBoardRoles = [authenticateToken, requireRole('admin', 'teacher')];
+
+async function ensureCatBoardTables() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS cat_mark_sheets (
+      id SERIAL PRIMARY KEY,
+      class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+      teacher_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      subject VARCHAR(80) NOT NULL,
+      lesson_title VARCHAR(255),
+      lesson_topic VARCHAR(255),
+      cat_count INTEGER NOT NULL DEFAULT 10,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE (class_id, teacher_id, subject)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS cat_student_marks (
+      id SERIAL PRIMARY KEY,
+      sheet_id INTEGER NOT NULL REFERENCES cat_mark_sheets(id) ON DELETE CASCADE,
+      student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      cat_1 NUMERIC(5,2),
+      cat_2 NUMERIC(5,2),
+      cat_3 NUMERIC(5,2),
+      cat_4 NUMERIC(5,2),
+      cat_5 NUMERIC(5,2),
+      cat_6 NUMERIC(5,2),
+      cat_7 NUMERIC(5,2),
+      cat_8 NUMERIC(5,2),
+      cat_9 NUMERIC(5,2),
+      cat_10 NUMERIC(5,2),
+      total NUMERIC(6,2) NOT NULL DEFAULT 0,
+      percentage NUMERIC(6,2) NOT NULL DEFAULT 0,
+      updated_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE (sheet_id, student_id)
+    )
+  `);
+}
 
 // ─── ADMIN IMPERSONATION (View as Teacher/Student) ─────────────────────────
 router.post('/impersonate', ...adminOnly, async (req, res) => {
@@ -116,12 +156,18 @@ router.get('/schools', ...adminOnly, async (req, res) => {
 });
 
 router.post('/schools', ...adminOnly, async (req, res) => {
-  const { name, location, code } = req.body;
+  const name = String(req.body.name || '').trim();
+  const location = String(req.body.location || '').trim();
+  const rawCode = String(req.body.code || '').trim();
+  const code = rawCode ? rawCode.toUpperCase() : null;
   if (!name) return res.status(400).json({ error: 'School name is required.' });
+  if (code && !/^[A-Z0-9_-]{4,20}$/.test(code)) {
+    return res.status(400).json({ error: 'School code must be 4-20 chars (A-Z, 0-9, _ or -).' });
+  }
   try {
     const result = await pool.query(
       'INSERT INTO schools (name, location, code) VALUES ($1,$2,$3) RETURNING *',
-      [name, location || null, code || null]
+      [name, location || null, code]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -130,11 +176,18 @@ router.post('/schools', ...adminOnly, async (req, res) => {
 });
 
 router.put('/schools/:id', ...adminOnly, async (req, res) => {
-  const { name, location, code } = req.body;
+  const name = String(req.body.name || '').trim();
+  const location = String(req.body.location || '').trim();
+  const rawCode = String(req.body.code || '').trim();
+  const code = rawCode ? rawCode.toUpperCase() : null;
+  if (!name) return res.status(400).json({ error: 'School name is required.' });
+  if (code && !/^[A-Z0-9_-]{4,20}$/.test(code)) {
+    return res.status(400).json({ error: 'School code must be 4-20 chars (A-Z, 0-9, _ or -).' });
+  }
   try {
     const result = await pool.query(
       'UPDATE schools SET name=$1, location=$2, code=$3 WHERE id=$4 RETURNING *',
-      [name, location || null, code || null, req.params.id]
+      [name, location || null, code, req.params.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
     res.json(result.rows[0]);
@@ -510,6 +563,105 @@ router.put('/settings', ...adminOnly, async (req, res) => {
     );
     res.json(result.rows[0]);
   } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ─── SCHOOL BOARD (admin/teacher) ───────────────────────────────────────────
+router.get('/my-school-board', ...schoolBoardRoles, async (req, res) => {
+  try {
+    await ensureCatBoardTables();
+
+    let schoolId = null;
+    if (req.user.role === 'admin') {
+      const requested = parseInt(req.query.school_id, 10);
+      if (!Number.isInteger(requested) || requested <= 0) {
+        return res.status(400).json({ error: 'school_id is required for admin access.' });
+      }
+      schoolId = requested;
+    } else {
+      const me = await pool.query('SELECT school_id FROM users WHERE id = $1', [req.user.id]);
+      if (me.rows.length === 0) return res.status(404).json({ error: 'User not found.' });
+      schoolId = me.rows[0].school_id;
+      if (!schoolId) return res.status(400).json({ error: 'Your account is not linked to a school.' });
+    }
+
+    const schoolRes = await pool.query(
+      'SELECT id, name, location, code, created_at FROM schools WHERE id = $1',
+      [schoolId]
+    );
+    if (schoolRes.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
+
+    const summaryRes = await pool.query(
+      `SELECT
+         (SELECT COUNT(*)::int FROM users WHERE school_id = $1 AND role = 'teacher') AS teachers,
+         (SELECT COUNT(*)::int FROM users WHERE school_id = $1 AND role = 'student') AS students,
+         (SELECT COUNT(*)::int FROM classes c JOIN users u ON u.id = c.teacher_id WHERE u.school_id = $1) AS classes,
+         (SELECT COUNT(*)::int FROM notes n JOIN classes c ON c.id = n.class_id JOIN users u ON u.id = c.teacher_id WHERE u.school_id = $1) AS notes,
+         (SELECT COUNT(*)::int FROM homework h JOIN classes c ON c.id = h.class_id JOIN users u ON u.id = c.teacher_id WHERE u.school_id = $1) AS homework,
+         (SELECT COUNT(*)::int FROM quizzes q JOIN classes c ON c.id = q.class_id JOIN users u ON u.id = c.teacher_id WHERE u.school_id = $1) AS quizzes,
+         (SELECT COUNT(*)::int FROM cat_mark_sheets s JOIN classes c ON c.id = s.class_id JOIN users u ON u.id = c.teacher_id WHERE u.school_id = $1) AS cat_sheets,
+         (SELECT COALESCE(ROUND(AVG(m.percentage)::numeric, 2), 0)::float AS value
+            FROM cat_student_marks m
+            JOIN cat_mark_sheets s ON s.id = m.sheet_id
+            JOIN classes c ON c.id = s.class_id
+            JOIN users u ON u.id = c.teacher_id
+           WHERE u.school_id = $1) AS average_cat_percentage`,
+      [schoolId]
+    );
+
+    const teachersRes = await pool.query(
+      `SELECT u.id, u.name, u.email, u.is_approved, u.is_suspended,
+              COUNT(DISTINCT c.id)::int AS classes_count,
+              COUNT(DISTINCT n.id)::int AS notes_count,
+              COUNT(DISTINCT h.id)::int AS homework_count,
+              COUNT(DISTINCT q.id)::int AS quizzes_count,
+              COUNT(DISTINCT cms.id)::int AS cat_sheets_count
+       FROM users u
+       LEFT JOIN classes c ON c.teacher_id = u.id
+       LEFT JOIN notes n ON n.class_id = c.id
+       LEFT JOIN homework h ON h.class_id = c.id
+       LEFT JOIN quizzes q ON q.class_id = c.id
+       LEFT JOIN cat_mark_sheets cms ON cms.class_id = c.id
+       WHERE u.school_id = $1 AND u.role = 'teacher'
+       GROUP BY u.id
+       ORDER BY u.created_at DESC
+       LIMIT 120`,
+      [schoolId]
+    );
+
+    const classesRes = await pool.query(
+      `SELECT c.id, c.name, c.subject, c.class_code, c.created_at,
+              u.name AS teacher_name,
+              COUNT(DISTINCT cm.student_id)::int AS students_count,
+              COUNT(DISTINCT n.id)::int AS notes_count,
+              COUNT(DISTINCT h.id)::int AS homework_count,
+              COUNT(DISTINCT q.id)::int AS quizzes_count,
+              COUNT(DISTINCT cms.id)::int AS cat_sheets_count,
+              COALESCE(ROUND(AVG(csm.percentage)::numeric, 2), 0)::float AS cat_avg_percentage
+       FROM classes c
+       JOIN users u ON u.id = c.teacher_id
+       LEFT JOIN class_members cm ON cm.class_id = c.id
+       LEFT JOIN notes n ON n.class_id = c.id
+       LEFT JOIN homework h ON h.class_id = c.id
+       LEFT JOIN quizzes q ON q.class_id = c.id
+       LEFT JOIN cat_mark_sheets cms ON cms.class_id = c.id
+       LEFT JOIN cat_student_marks csm ON csm.sheet_id = cms.id
+       WHERE u.school_id = $1
+       GROUP BY c.id, u.name
+       ORDER BY c.created_at DESC
+       LIMIT 180`,
+      [schoolId]
+    );
+
+    res.json({
+      school: schoolRes.rows[0],
+      summary: summaryRes.rows[0],
+      teachers: teachersRes.rows,
+      classes: classesRes.rows,
+    });
+  } catch (err) {
+    console.error('[admin/my-school-board]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
