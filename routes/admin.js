@@ -158,15 +158,22 @@ router.get('/teachers', ...adminOnly, async (req, res) => {
     const result = await pool.query(`
       SELECT u.id, u.name, u.email, u.phone, u.school_id, u.is_suspended, u.is_approved, u.created_at,
              s.name AS school_name,
-             COUNT(DISTINCT c.id) AS class_count
+             COUNT(DISTINCT c.id)  AS class_count,
+             COUNT(DISTINCT n.id)  AS notes_count,
+             COUNT(DISTINCT h.id)  AS homework_count,
+             COUNT(DISTINCT q.id)  AS quiz_count
       FROM users u
-      LEFT JOIN schools s ON u.school_id = s.id
-      LEFT JOIN classes c ON c.teacher_id = u.id
+      LEFT JOIN schools s        ON u.school_id = s.id
+      LEFT JOIN classes c        ON c.teacher_id = u.id
+      LEFT JOIN notes n          ON n.class_id   = c.id
+      LEFT JOIN homework h       ON h.class_id   = c.id
+      LEFT JOIN quizzes q        ON q.class_id   = c.id
       WHERE u.role = 'teacher'
       GROUP BY u.id, s.name ORDER BY u.is_approved ASC, u.created_at DESC
     `);
     res.json(result.rows);
   } catch (err) {
+    console.error('[admin/teachers]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
@@ -233,6 +240,7 @@ router.get('/students', ...adminOnly, async (req, res) => {
     `);
     res.json(result.rows);
   } catch (err) {
+    console.error('[admin/students]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
