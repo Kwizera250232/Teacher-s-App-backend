@@ -1,8 +1,9 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const path = require('path');
-require('dotenv').config({ override: true });
+require('dotenv').config();
 
 const authRoutes = require('./routes/auth');
 const classRoutes = require('./routes/classes');
@@ -20,8 +21,29 @@ const aiRoutes = require('./routes/ai');
 const textbookRoutes = require('./routes/textbooks');
 const profileRoutes = require('./routes/profile');
 const messageRoutes = require('./routes/messages');
+const catMarksRoutes = require('./routes/cat_marks');
 
 const app = express();
+app.disable('x-powered-by');
+
+const DEFAULT_ALLOWED_ORIGINS = [
+  'https://umunsi.com',
+  'https://www.umunsi.com',
+  'https://student.umunsi.com',
+  'https://studentapi.umunsi.com',
+  'https://frontend-six-henna-68.vercel.app',
+  'http://localhost:3000',
+  'http://localhost:5173',
+];
+
+const allowedOrigins = new Set([
+  ...DEFAULT_ALLOWED_ORIGINS,
+  ...String(process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean),
+]);
+const allowVercelPreview = process.env.ALLOW_VERCEL_PREVIEW === 'true';
 
 // Trust Nginx reverse proxy (needed for express-rate-limit behind proxy)
 app.set('trust proxy', 1);
@@ -38,24 +60,32 @@ app.use(helmet.contentSecurityPolicy({
 }));
 
 app.use(cors({
-  origin: [
-    'https://umunsi.com',
-    'https://www.umunsi.com',
-    'https://student.umunsi.com',
-    'https://studentapi.umunsi.com',
-    'https://frontend-six-henna-68.vercel.app',
-    'http://localhost:3000',
-    'http://localhost:5173',
-    /\.vercel\.app$/
-  ],
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.has(origin)) return cb(null, true);
+    if (allowVercelPreview && /\.vercel\.app$/.test(origin)) return cb(null, true);
+    return cb(new Error('Not allowed by CORS'));
+  },
   credentials: true
 }));
-app.use(express.json());
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_MAX || 300),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Try again later.' },
+});
+
+app.use('/api', apiLimiter);
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 // Allow uploads to be embedded in iframes and loaded cross-origin (avatars, PDFs)
 app.use('/uploads', (req, res, next) => {
   res.removeHeader('X-Frame-Options');
-  res.setHeader('Content-Security-Policy', "frame-ancestors *");
+  res.setHeader('Content-Security-Policy', `frame-ancestors ${process.env.UPLOAD_FRAME_ANCESTORS || "'self'"}`);
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   next();
 });
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -65,6 +95,7 @@ app.use('/download', downloadRoutes);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/classes', classRoutes);
+app.use('/api/classes', catMarksRoutes);
 app.use('/api/classes', noteRoutes);
 app.use('/api/classes', homeworkRoutes);
 app.use('/api/classes', quizRoutes);
@@ -96,9 +127,16 @@ app.post('/api/pwa/install', async (req, res) => {
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
+app.use((req, res) => {
+  res.status(404).json({ error: 'Route not found.' });
+});
+
 // Central error handler — never leak internal error details to clients
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
+  if (err && err.message === 'Not allowed by CORS') {
+    return res.status(403).json({ error: 'CORS blocked this origin.' });
+  }
   console.error('[UNHANDLED]', err);
   res.status(500).json({ error: 'Internal server error.' });
 });

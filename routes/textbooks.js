@@ -2,6 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 
@@ -14,7 +15,7 @@ const storage = multer.diskStorage({
     cb(null, dir);
   },
   filename: (req, file, cb) => {
-    const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const unique = `${Date.now()}-${crypto.randomUUID()}`;
     cb(null, unique + path.extname(file.originalname));
   },
 });
