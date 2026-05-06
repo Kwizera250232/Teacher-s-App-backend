@@ -47,6 +47,26 @@ function hashResetToken(token) {
   return crypto.createHash('sha256').update(String(token)).digest('hex');
 }
 
+function generateSchoolCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = crypto.randomBytes(8);
+  let code = '';
+  for (let i = 0; i < 8; i++) {
+    code += chars[bytes[i] % chars.length];
+  }
+  return code;
+}
+
+function cleanText(value, maxLen = 255) {
+  return String(value || '').trim().slice(0, maxLen);
+}
+
+function cleanCount(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.floor(n);
+}
+
 // ── Account lockout (in-memory, resets on restart) ─────────────────────────
 // Map: email → { attempts: number, lockedUntil: Date|null }
 const loginAttempts = new Map();
@@ -98,10 +118,20 @@ pool.query(`
   ALTER TABLE users ADD COLUMN IF NOT EXISTS is_approved BOOLEAN NOT NULL DEFAULT TRUE
 `).catch(console.error);
 
+pool.query(`ALTER TABLE schools ADD COLUMN IF NOT EXISTS district VARCHAR(120)`).catch(console.error);
+pool.query(`ALTER TABLE schools ADD COLUMN IF NOT EXISTS sector VARCHAR(120)`).catch(console.error);
+pool.query(`ALTER TABLE schools ADD COLUMN IF NOT EXISTS cell VARCHAR(120)`).catch(console.error);
+pool.query(`ALTER TABLE schools ADD COLUMN IF NOT EXISTS village VARCHAR(120)`).catch(console.error);
+pool.query(`ALTER TABLE schools ADD COLUMN IF NOT EXISTS student_count INTEGER NOT NULL DEFAULT 0`).catch(console.error);
+pool.query(`ALTER TABLE schools ADD COLUMN IF NOT EXISTS head_teacher_name VARCHAR(200)`).catch(console.error);
+pool.query(`ALTER TABLE schools ADD COLUMN IF NOT EXISTS head_teacher_phone VARCHAR(30)`).catch(console.error);
+pool.query(`ALTER TABLE schools ADD COLUMN IF NOT EXISTS head_teacher_email VARCHAR(255)`).catch(console.error);
+pool.query(`ALTER TABLE schools ADD COLUMN IF NOT EXISTS welcome_message TEXT`).catch(console.error);
+
 // GET all schools (for dropdown)
 router.get('/schools', async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, name FROM schools ORDER BY name');
+    const result = await pool.query('SELECT id, name, district, sector, cell, village, code FROM schools ORDER BY name');
     res.json(result.rows);
   } catch (err) {
     console.error('[schools GET]', err);
@@ -111,13 +141,44 @@ router.get('/schools', async (req, res) => {
 
 // POST create school
 router.post('/schools', async (req, res) => {
-  const name = (req.body.name || '').trim();
+  const name = cleanText(req.body.name, 200);
+  const district = cleanText(req.body.district, 120);
+  const sector = cleanText(req.body.sector, 120);
+  const cell = cleanText(req.body.cell, 120);
+  const village = cleanText(req.body.village, 120);
+  const studentCount = cleanCount(req.body.student_count);
+  const headTeacherName = cleanText(req.body.head_teacher_name, 200);
+  const headTeacherPhone = cleanText(req.body.head_teacher_phone, 30);
+  const headTeacherEmail = cleanText(req.body.head_teacher_email, 255).toLowerCase();
+
   if (!name) return res.status(400).json({ error: 'School name is required.' });
   if (name.length > 200) return res.status(400).json({ error: 'School name is too long.' });
+  if (headTeacherEmail && !isValidEmail(headTeacherEmail)) {
+    return res.status(400).json({ error: 'Head teacher email is invalid.' });
+  }
   try {
+    const existing = await pool.query('SELECT * FROM schools WHERE LOWER(name) = LOWER($1) LIMIT 1', [name]);
+    if (existing.rows.length > 0) return res.status(201).json(existing.rows[0]);
+
+    const code = generateSchoolCode();
+    const welcomeMessage = `Murakaza neza kuri ${name}. School Code yanyu ni ${code}. UClass ibifurije umwaka mwiza w'amasomo.`;
     const result = await pool.query(
-      'INSERT INTO schools (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name=EXCLUDED.name RETURNING *',
-      [name]
+      `INSERT INTO schools (name, district, sector, cell, village, student_count, head_teacher_name, head_teacher_phone, head_teacher_email, code, welcome_message)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       RETURNING *`,
+      [
+        name,
+        district || null,
+        sector || null,
+        cell || null,
+        village || null,
+        studentCount,
+        headTeacherName || null,
+        headTeacherPhone || null,
+        headTeacherEmail || null,
+        code,
+        welcomeMessage,
+      ]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -132,6 +193,9 @@ router.post('/register', authLimiter, async (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();
   const phone = (req.body.phone || '').trim();
   const { password, role, school_id } = req.body;
+  const schoolProfile = req.body.school_profile && typeof req.body.school_profile === 'object'
+    ? req.body.school_profile
+    : null;
 
   if (!name || !email || !password || !role) {
     return res.status(400).json({ error: 'All fields are required.' });
@@ -155,21 +219,126 @@ router.post('/register', authLimiter, async (req, res) => {
     if (existing.rows.length > 0) {
       return res.status(409).json({ error: 'Email already registered.' });
     }
+
+    let resolvedSchoolId = school_id || null;
+    let schoolWelcomeMessage = null;
+    let schoolCode = null;
+
+    if (role === 'teacher') {
+      if (schoolProfile) {
+        const schoolName = cleanText(schoolProfile.name, 200);
+        const district = cleanText(schoolProfile.district, 120);
+        const sector = cleanText(schoolProfile.sector, 120);
+        const cell = cleanText(schoolProfile.cell, 120);
+        const village = cleanText(schoolProfile.village, 120);
+        const studentCount = cleanCount(schoolProfile.student_count);
+        const headTeacherName = cleanText(schoolProfile.head_teacher_name, 200);
+        const headTeacherPhone = cleanText(schoolProfile.head_teacher_phone, 30);
+        const headTeacherEmail = cleanText(schoolProfile.head_teacher_email, 255).toLowerCase();
+
+        if (!schoolName || !district || !sector || !cell || !village || !headTeacherName || !headTeacherPhone || !headTeacherEmail) {
+          return res.status(400).json({ error: 'Complete school profile is required for teacher signup.' });
+        }
+        if (!isValidEmail(headTeacherEmail)) {
+          return res.status(400).json({ error: 'School head teacher email is invalid.' });
+        }
+        if (!/^[\d\s\+\-\(\)]{7,20}$/.test(headTeacherPhone)) {
+          return res.status(400).json({ error: 'School head teacher phone is invalid.' });
+        }
+
+        const existingSchool = await pool.query('SELECT * FROM schools WHERE LOWER(name) = LOWER($1) LIMIT 1', [schoolName]);
+        if (existingSchool.rows.length > 0) {
+          const s = existingSchool.rows[0];
+          const nextCode = s.code || generateSchoolCode();
+          const nextWelcome = s.welcome_message || `Murakaza neza kuri ${schoolName}. School Code yanyu ni ${nextCode}. UClass ibifurije umwaka mwiza w'amasomo.`;
+          const updated = await pool.query(
+            `UPDATE schools
+             SET district = COALESCE(NULLIF($1, ''), district),
+                 sector = COALESCE(NULLIF($2, ''), sector),
+                 cell = COALESCE(NULLIF($3, ''), cell),
+                 village = COALESCE(NULLIF($4, ''), village),
+                 student_count = CASE WHEN $5 >= 0 THEN $5 ELSE student_count END,
+                 head_teacher_name = COALESCE(NULLIF($6, ''), head_teacher_name),
+                 head_teacher_phone = COALESCE(NULLIF($7, ''), head_teacher_phone),
+                 head_teacher_email = COALESCE(NULLIF($8, ''), head_teacher_email),
+                 code = COALESCE(code, $9),
+                 welcome_message = COALESCE(welcome_message, $10)
+             WHERE id = $11
+             RETURNING *`,
+            [
+              district,
+              sector,
+              cell,
+              village,
+              studentCount,
+              headTeacherName,
+              headTeacherPhone,
+              headTeacherEmail,
+              nextCode,
+              nextWelcome,
+              s.id,
+            ]
+          );
+          resolvedSchoolId = updated.rows[0].id;
+          schoolCode = updated.rows[0].code;
+          schoolWelcomeMessage = updated.rows[0].welcome_message;
+        } else {
+          const newCode = generateSchoolCode();
+          const welcomeMessage = `Murakaza neza kuri ${schoolName}. School Code yanyu ni ${newCode}. UClass ibifurije umwaka mwiza w'amasomo.`;
+          const inserted = await pool.query(
+            `INSERT INTO schools (name, district, sector, cell, village, student_count, head_teacher_name, head_teacher_phone, head_teacher_email, code, welcome_message)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+             RETURNING *`,
+            [
+              schoolName,
+              district,
+              sector,
+              cell,
+              village,
+              studentCount,
+              headTeacherName,
+              headTeacherPhone,
+              headTeacherEmail,
+              newCode,
+              welcomeMessage,
+            ]
+          );
+          resolvedSchoolId = inserted.rows[0].id;
+          schoolCode = inserted.rows[0].code;
+          schoolWelcomeMessage = inserted.rows[0].welcome_message;
+        }
+      }
+
+      if (resolvedSchoolId) {
+        const schoolCheck = await pool.query('SELECT id, code, welcome_message FROM schools WHERE id=$1', [resolvedSchoolId]);
+        if (schoolCheck.rows.length === 0) {
+          return res.status(400).json({ error: 'Selected school does not exist.' });
+        }
+        schoolCode = schoolCode || schoolCheck.rows[0].code;
+        schoolWelcomeMessage = schoolWelcomeMessage || schoolCheck.rows[0].welcome_message;
+      }
+    }
+
     const hashed = await bcrypt.hash(password, 12);
     // Teachers require admin approval before they can log in
     const isApproved = role !== 'teacher';
     const result = await pool.query(
       'INSERT INTO users (name, email, password, role, school_id, is_approved, phone) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, name, email, role, school_id, is_approved',
-      [name, email, hashed, role, school_id || null, isApproved, phone || null]
+      [name, email, hashed, role, resolvedSchoolId, isApproved, phone || null]
     );
     const user = result.rows[0];
     if (!isApproved) {
       audit('register', { email, role, status: 'pending_approval' });
-      return res.status(202).json({ pending: true, message: 'Konti yawe yoherejwe. Tegereza ko umuyobozi ayemera mbere yo kwinjira.' });
+      return res.status(202).json({
+        pending: true,
+        message: 'Konti yawe yoherejwe. Tegereza ko umuyobozi ayemera mbere yo kwinjira.',
+        school_code: schoolCode,
+        school_welcome_message: schoolWelcomeMessage,
+      });
     }
     const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
     audit('register', { email, role });
-    res.status(201).json({ token, user });
+    res.status(201).json({ token, user, school_code: schoolCode, school_welcome_message: schoolWelcomeMessage });
   } catch (err) {
     console.error('[register]', err);
     res.status(500).json({ error: 'Internal server error.' });

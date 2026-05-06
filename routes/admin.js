@@ -6,7 +6,6 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 const adminOnly = [authenticateToken, requireRole('admin')];
-const schoolBoardRoles = [authenticateToken, requireRole('admin', 'teacher')];
 
 async function ensureCatBoardTables() {
   await pool.query(`
@@ -568,26 +567,22 @@ router.put('/settings', ...adminOnly, async (req, res) => {
 });
 
 // ─── SCHOOL BOARD (admin/teacher) ───────────────────────────────────────────
-router.get('/my-school-board', ...schoolBoardRoles, async (req, res) => {
+router.get('/my-school-board', ...adminOnly, async (req, res) => {
   try {
     await ensureCatBoardTables();
 
-    let schoolId = null;
-    if (req.user.role === 'admin') {
-      const requested = parseInt(req.query.school_id, 10);
-      if (!Number.isInteger(requested) || requested <= 0) {
-        return res.status(400).json({ error: 'school_id is required for admin access.' });
-      }
-      schoolId = requested;
-    } else {
-      const me = await pool.query('SELECT school_id FROM users WHERE id = $1', [req.user.id]);
-      if (me.rows.length === 0) return res.status(404).json({ error: 'User not found.' });
-      schoolId = me.rows[0].school_id;
-      if (!schoolId) return res.status(400).json({ error: 'Your account is not linked to a school.' });
+    const requested = parseInt(req.query.school_id, 10);
+    if (!Number.isInteger(requested) || requested <= 0) {
+      return res.status(400).json({ error: 'school_id is required for admin access.' });
     }
+    const schoolId = requested;
 
     const schoolRes = await pool.query(
-      'SELECT id, name, location, code, created_at FROM schools WHERE id = $1',
+      `SELECT id, name, location, code, district, sector, cell, village,
+              student_count, head_teacher_name, head_teacher_phone,
+              head_teacher_email, welcome_message, created_at
+       FROM schools
+       WHERE id = $1`,
       [schoolId]
     );
     if (schoolRes.rows.length === 0) return res.status(404).json({ error: 'School not found.' });

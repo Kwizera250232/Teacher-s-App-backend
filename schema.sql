@@ -4,6 +4,15 @@ CREATE TABLE IF NOT EXISTS schools (
   name VARCHAR(255) NOT NULL UNIQUE,
   location VARCHAR(255),
   code VARCHAR(50),
+  district VARCHAR(120),
+  sector VARCHAR(120),
+  cell VARCHAR(120),
+  village VARCHAR(120),
+  student_count INTEGER NOT NULL DEFAULT 0,
+  head_teacher_name VARCHAR(200),
+  head_teacher_phone VARCHAR(30),
+  head_teacher_email VARCHAR(255),
+  welcome_message TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
 
