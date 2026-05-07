@@ -68,7 +68,6 @@ function sanitizeCat(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return null;
   if (n < 0) return 0;
-  if (n > 10) return 10;
   return Math.round(n * 100) / 100;
 }
 
