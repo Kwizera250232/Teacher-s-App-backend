@@ -29,22 +29,18 @@ async function ensureCatBoardTables() {
       id SERIAL PRIMARY KEY,
       sheet_id INTEGER NOT NULL REFERENCES cat_mark_sheets(id) ON DELETE CASCADE,
       student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      cat_1 NUMERIC(5,2),
-      cat_2 NUMERIC(5,2),
-      cat_3 NUMERIC(5,2),
-      cat_4 NUMERIC(5,2),
-      cat_5 NUMERIC(5,2),
-      cat_6 NUMERIC(5,2),
-      cat_7 NUMERIC(5,2),
-      cat_8 NUMERIC(5,2),
-      cat_9 NUMERIC(5,2),
-      cat_10 NUMERIC(5,2),
+      marks JSONB,
       total NUMERIC(6,2) NOT NULL DEFAULT 0,
       percentage NUMERIC(6,2) NOT NULL DEFAULT 0,
       updated_at TIMESTAMP DEFAULT NOW(),
       UNIQUE (sheet_id, student_id)
     )
   `);
+
+  await pool.query(`
+    ALTER TABLE cat_student_marks ADD COLUMN IF NOT EXISTS marks JSONB
+  `).catch(() => {});
+
 }
 
 // ─── ADMIN IMPERSONATION (View as Teacher/Student) ─────────────────────────

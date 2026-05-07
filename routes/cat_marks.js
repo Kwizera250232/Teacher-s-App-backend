@@ -34,22 +34,17 @@ async function ensureCatTables() {
         id SERIAL PRIMARY KEY,
         sheet_id INTEGER NOT NULL REFERENCES cat_mark_sheets(id) ON DELETE CASCADE,
         student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        cat_1 NUMERIC(5,2),
-        cat_2 NUMERIC(5,2),
-        cat_3 NUMERIC(5,2),
-        cat_4 NUMERIC(5,2),
-        cat_5 NUMERIC(5,2),
-        cat_6 NUMERIC(5,2),
-        cat_7 NUMERIC(5,2),
-        cat_8 NUMERIC(5,2),
-        cat_9 NUMERIC(5,2),
-        cat_10 NUMERIC(5,2),
+        marks JSONB,
         total NUMERIC(6,2) NOT NULL DEFAULT 0,
         percentage NUMERIC(6,2) NOT NULL DEFAULT 0,
         updated_at TIMESTAMP DEFAULT NOW(),
         UNIQUE (sheet_id, student_id)
       )
     `);
+    
+    await pool.query(`
+      ALTER TABLE cat_student_marks ADD COLUMN IF NOT EXISTS marks JSONB
+    `).catch(() => {});
   } catch (e) {
     console.error('[cat] table migration error:', e.message);
   }
@@ -71,13 +66,11 @@ function sanitizeCat(value) {
   return Math.round(n * 100) / 100;
 }
 
-function calcTotalAndPercentage(cats, catCount) {
+function calcTotalAndPercentage(cats) {
   const total = cats.reduce((sum, v) => sum + (v == null ? 0 : Number(v)), 0);
-  const maxTotal = catCount * 10;
-  const percentage = maxTotal > 0 ? (total / maxTotal) * 100 : 0;
   return {
     total: Math.round(total * 100) / 100,
-    percentage: Math.round(percentage * 100) / 100,
+    percentage: 0,
   };
 }
 
@@ -192,7 +185,7 @@ router.get('/cat/:classId/sheet', authenticateToken, requireRole('teacher'), asy
 
     const sheet = sheetResult.rows[0];
     const marksResult = await pool.query(
-      `SELECT student_id, cat_1, cat_2, cat_3, cat_4, cat_5, cat_6, cat_7, cat_8, cat_9, cat_10, total, percentage
+      `SELECT student_id, marks, total, percentage
        FROM cat_student_marks
        WHERE sheet_id = $1`,
       [sheet.id]
@@ -207,16 +200,17 @@ router.get('/cat/:classId/sheet', authenticateToken, requireRole('teacher'), asy
           number: i + 1,
           student_id: s.id,
           student_name: s.name,
-          cats: Array(10).fill(null),
+          cats: [],
           total: 0,
           percentage: 0,
         };
       }
+      const cats = Array.isArray(m.marks) ? m.marks.map((v) => v == null ? null : Number(v)) : [];
       return {
         number: i + 1,
         student_id: s.id,
         student_name: s.name,
-        cats: [m.cat_1, m.cat_2, m.cat_3, m.cat_4, m.cat_5, m.cat_6, m.cat_7, m.cat_8, m.cat_9, m.cat_10].map((v) => v == null ? null : Number(v)),
+        cats,
         total: Number(m.total),
         percentage: Number(m.percentage),
       };
@@ -262,31 +256,22 @@ router.post('/cat/:classId/sheet', authenticateToken, requireRole('teacher'), as
       const studentId = Number(row.student_id);
       if (!Number.isInteger(studentId)) continue;
 
-      const rawCats = Array.isArray(row.cats) ? row.cats.slice(0, 10) : [];
-      const cats = Array.from({ length: 10 }, (_, i) => sanitizeCat(rawCats[i]));
-      const { total, percentage } = calcTotalAndPercentage(cats, 10);
+      const rawCats = Array.isArray(row.cats) ? row.cats : [];
+      const cats = rawCats.map((v) => sanitizeCat(v));
+      const { total, percentage } = calcTotalAndPercentage(cats);
 
       await client.query(
         `INSERT INTO cat_student_marks
-          (sheet_id, student_id, cat_1, cat_2, cat_3, cat_4, cat_5, cat_6, cat_7, cat_8, cat_9, cat_10, total, percentage, updated_at)
+          (sheet_id, student_id, marks, total, percentage, updated_at)
          VALUES
-          ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+          ($1, $2, $3, $4, $5, NOW())
          ON CONFLICT (sheet_id, student_id)
          DO UPDATE SET
-            cat_1 = EXCLUDED.cat_1,
-            cat_2 = EXCLUDED.cat_2,
-            cat_3 = EXCLUDED.cat_3,
-            cat_4 = EXCLUDED.cat_4,
-            cat_5 = EXCLUDED.cat_5,
-            cat_6 = EXCLUDED.cat_6,
-            cat_7 = EXCLUDED.cat_7,
-            cat_8 = EXCLUDED.cat_8,
-            cat_9 = EXCLUDED.cat_9,
-            cat_10 = EXCLUDED.cat_10,
+            marks = EXCLUDED.marks,
             total = EXCLUDED.total,
             percentage = EXCLUDED.percentage,
             updated_at = NOW()`,
-        [sheet.id, studentId, ...cats, total, percentage]
+        [sheet.id, studentId, JSON.stringify(cats), total, percentage]
       );
     }
 
