@@ -6,6 +6,7 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 const adminOnly = [authenticateToken, requireRole('admin')];
+const schoolBoardAccess = [authenticateToken, requireRole('admin', 'head_teacher')];
 
 async function ensureCatBoardTables() {
   await pool.query(`
@@ -567,15 +568,25 @@ router.put('/settings', ...adminOnly, async (req, res) => {
 });
 
 // ─── SCHOOL BOARD (admin/teacher) ───────────────────────────────────────────
-router.get('/my-school-board', ...adminOnly, async (req, res) => {
+router.get('/my-school-board', ...schoolBoardAccess, async (req, res) => {
   try {
     await ensureCatBoardTables();
 
-    const requested = parseInt(req.query.school_id, 10);
-    if (!Number.isInteger(requested) || requested <= 0) {
-      return res.status(400).json({ error: 'school_id is required for admin access.' });
+    let schoolId;
+    if (req.user.role === 'head_teacher') {
+      // head_teacher can only see their own school
+      const userRes = await pool.query('SELECT school_id FROM users WHERE id=$1', [req.user.id]);
+      if (!userRes.rows[0]?.school_id) {
+        return res.status(400).json({ error: 'Your account is not linked to a school yet.' });
+      }
+      schoolId = userRes.rows[0].school_id;
+    } else {
+      const requested = parseInt(req.query.school_id, 10);
+      if (!Number.isInteger(requested) || requested <= 0) {
+        return res.status(400).json({ error: 'school_id is required for admin access.' });
+      }
+      schoolId = requested;
     }
-    const schoolId = requested;
 
     const schoolRes = await pool.query(
       `SELECT id, name, location, code, district, sector, cell, village,

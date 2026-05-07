@@ -128,6 +128,23 @@ pool.query(`ALTER TABLE schools ADD COLUMN IF NOT EXISTS head_teacher_phone VARC
 pool.query(`ALTER TABLE schools ADD COLUMN IF NOT EXISTS head_teacher_email VARCHAR(255)`).catch(console.error);
 pool.query(`ALTER TABLE schools ADD COLUMN IF NOT EXISTS welcome_message TEXT`).catch(console.error);
 
+// Expand role CHECK constraint to include head_teacher
+pool.query(`
+  DO $$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conname = 'users_role_check'
+        AND consrc LIKE '%head_teacher%'
+    ) THEN
+      ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+      ALTER TABLE users ADD CONSTRAINT users_role_check
+        CHECK (role IN ('teacher', 'student', 'admin', 'head_teacher'));
+    END IF;
+  END
+  $$;
+`).catch(console.error);
+
 // GET all schools (for dropdown)
 router.get('/schools', async (req, res) => {
   try {
@@ -203,8 +220,8 @@ router.post('/register', authLimiter, async (req, res) => {
   if (!isValidEmail(email)) {
     return res.status(400).json({ error: 'Invalid email address.' });
   }
-  if (!['teacher', 'student'].includes(role)) {
-    return res.status(400).json({ error: 'Role must be teacher or student.' });
+  if (!['teacher', 'student', 'head_teacher'].includes(role)) {
+    return res.status(400).json({ error: 'Role must be teacher, student, or head_teacher.' });
   }
   if (!isStrongPassword(password)) {
     return res.status(400).json({ error: 'Password must be at least 8 characters and include letters and numbers.' });
@@ -224,7 +241,7 @@ router.post('/register', authLimiter, async (req, res) => {
     let schoolWelcomeMessage = null;
     let schoolCode = null;
 
-    if (role === 'teacher') {
+    if (role === 'teacher' || role === 'head_teacher') {
       if (schoolProfile) {
         const schoolName = cleanText(schoolProfile.name, 200);
         const district = cleanText(schoolProfile.district, 120);
@@ -320,7 +337,7 @@ router.post('/register', authLimiter, async (req, res) => {
     }
 
     const hashed = await bcrypt.hash(password, 12);
-    // Teachers require admin approval before they can log in
+    // Teachers require admin approval; head_teacher is auto-approved
     const isApproved = role !== 'teacher';
     const result = await pool.query(
       'INSERT INTO users (name, email, password, role, school_id, is_approved, phone) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, name, email, role, school_id, is_approved',
