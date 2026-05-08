@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS schools (
   name VARCHAR(255) NOT NULL UNIQUE,
   location VARCHAR(255),
   code VARCHAR(50),
+  email_domain VARCHAR(255),
   district VARCHAR(120),
   sector VARCHAR(120),
   cell VARCHAR(120),
@@ -160,6 +161,31 @@ CREATE TABLE IF NOT EXISTS platform_settings (
   logo_url VARCHAR(500),
   updated_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Nursery media auto-rotation settings
+CREATE TABLE IF NOT EXISTS nursery_media_settings (
+  id SERIAL PRIMARY KEY,
+  interval_days INTEGER NOT NULL DEFAULT 3 CHECK (interval_days BETWEEN 1 AND 30),
+  items_per_group INTEGER NOT NULL DEFAULT 2 CHECK (items_per_group BETWEEN 1 AND 10),
+  rotation_anchor TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Nursery songs and recorded subjects
+CREATE TABLE IF NOT EXISTS nursery_media_items (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(200) NOT NULL,
+  subject VARCHAR(120),
+  lesson_kind VARCHAR(20) NOT NULL CHECK (lesson_kind IN ('song', 'subject')),
+  media_type VARCHAR(10) NOT NULL CHECK (media_type IN ('audio', 'video')),
+  media_url TEXT NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_nursery_media_items_enabled ON nursery_media_items(enabled);
+CREATE INDEX IF NOT EXISTS idx_nursery_media_items_sort ON nursery_media_items(sort_order, id);
 
 -- Discussions
 CREATE TABLE IF NOT EXISTS discussions (

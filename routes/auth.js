@@ -34,6 +34,37 @@ function isValidEmail(email) {
   return typeof email === 'string' && EMAIL_RE.test(email.trim());
 }
 
+function normalizeEmailDomain(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+
+  const noProtocol = raw.replace(/^https?:\/\//, '').replace(/^mailto:/, '');
+  const fromEmail = noProtocol.includes('@') ? noProtocol.split('@').pop() : noProtocol;
+  const domain = fromEmail
+    .split('/')[0]
+    .replace(/[^a-z0-9.-]/g, '')
+    .replace(/^\.+|\.+$/g, '')
+    .replace(/\.{2,}/g, '.');
+
+  if (!/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i.test(domain)) {
+    return '';
+  }
+  return domain;
+}
+
+function emailDomainOf(email) {
+  const val = String(email || '').trim().toLowerCase();
+  if (!val.includes('@')) return '';
+  return normalizeEmailDomain(val.split('@').pop());
+}
+
+function schoolEmailPolicyError(expectedDomain) {
+  if (expectedDomain) {
+    return `Only school email addresses ending with @${expectedDomain} are allowed. Contact School IT for your official school email.`;
+  }
+  return 'School email domain is not configured. Contact School IT or Head Teacher to configure your school domain.';
+}
+
 // Password must be ≥8 chars, contain at least one letter and one number
 function isStrongPassword(pw) {
   if (typeof pw !== 'string') return false;
@@ -126,6 +157,7 @@ pool.query(`ALTER TABLE schools ADD COLUMN IF NOT EXISTS student_count INTEGER N
 pool.query(`ALTER TABLE schools ADD COLUMN IF NOT EXISTS head_teacher_name VARCHAR(200)`).catch(console.error);
 pool.query(`ALTER TABLE schools ADD COLUMN IF NOT EXISTS head_teacher_phone VARCHAR(30)`).catch(console.error);
 pool.query(`ALTER TABLE schools ADD COLUMN IF NOT EXISTS head_teacher_email VARCHAR(255)`).catch(console.error);
+pool.query(`ALTER TABLE schools ADD COLUMN IF NOT EXISTS email_domain VARCHAR(255)`).catch(console.error);
 pool.query(`ALTER TABLE schools ADD COLUMN IF NOT EXISTS welcome_message TEXT`).catch(console.error);
 
 // Expand role CHECK constraint to include head_teacher
@@ -167,11 +199,16 @@ router.post('/schools', async (req, res) => {
   const headTeacherName = cleanText(req.body.head_teacher_name, 200);
   const headTeacherPhone = cleanText(req.body.head_teacher_phone, 30);
   const headTeacherEmail = cleanText(req.body.head_teacher_email, 255).toLowerCase();
+  const rawEmailDomain = cleanText(req.body.email_domain, 255).toLowerCase();
+  const emailDomain = normalizeEmailDomain(rawEmailDomain);
 
   if (!name) return res.status(400).json({ error: 'School name is required.' });
   if (name.length > 200) return res.status(400).json({ error: 'School name is too long.' });
   if (headTeacherEmail && !isValidEmail(headTeacherEmail)) {
     return res.status(400).json({ error: 'Head teacher email is invalid.' });
+  }
+  if (rawEmailDomain && !emailDomain) {
+    return res.status(400).json({ error: 'Email domain must look like brightschool.edu.' });
   }
   try {
     const existing = await pool.query('SELECT * FROM schools WHERE LOWER(name) = LOWER($1) LIMIT 1', [name]);
@@ -180,8 +217,8 @@ router.post('/schools', async (req, res) => {
     const code = generateSchoolCode();
     const welcomeMessage = `Murakaza neza kuri ${name}. School Code yanyu ni ${code}. UClass ibifurije umwaka mwiza w'amasomo.`;
     const result = await pool.query(
-      `INSERT INTO schools (name, district, sector, cell, village, student_count, head_teacher_name, head_teacher_phone, head_teacher_email, code, welcome_message)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      `INSERT INTO schools (name, district, sector, cell, village, student_count, head_teacher_name, head_teacher_phone, head_teacher_email, email_domain, code, welcome_message)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        RETURNING *`,
       [
         name,
@@ -193,6 +230,7 @@ router.post('/schools', async (req, res) => {
         headTeacherName || null,
         headTeacherPhone || null,
         headTeacherEmail || null,
+        emailDomain || null,
         code,
         welcomeMessage,
       ]
@@ -220,8 +258,11 @@ router.post('/register', authLimiter, async (req, res) => {
   if (!isValidEmail(email)) {
     return res.status(400).json({ error: 'Invalid email address.' });
   }
-  if (!['teacher', 'student', 'head_teacher'].includes(role)) {
-    return res.status(400).json({ error: 'Role must be teacher, student, or head_teacher.' });
+  if (role === 'teacher') {
+    return res.status(403).json({ error: 'Teacher self-signup is disabled. Contact School IT or Head Teacher for teacher account provisioning.' });
+  }
+  if (!['student', 'head_teacher'].includes(role)) {
+    return res.status(400).json({ error: 'Role must be student or head_teacher.' });
   }
   if (!isStrongPassword(password)) {
     return res.status(400).json({ error: 'Password must be at least 8 characters and include letters and numbers.' });
@@ -241,7 +282,7 @@ router.post('/register', authLimiter, async (req, res) => {
     let schoolWelcomeMessage = null;
     let schoolCode = null;
 
-    if (role === 'teacher' || role === 'head_teacher') {
+    if (role === 'head_teacher') {
       if (schoolProfile) {
         const schoolName = cleanText(schoolProfile.name, 200);
         const district = cleanText(schoolProfile.district, 120);
@@ -252,12 +293,17 @@ router.post('/register', authLimiter, async (req, res) => {
         const headTeacherName = cleanText(schoolProfile.head_teacher_name, 200);
         const headTeacherPhone = cleanText(schoolProfile.head_teacher_phone, 30);
         const headTeacherEmail = cleanText(schoolProfile.head_teacher_email, 255).toLowerCase();
+        const rawEmailDomain = cleanText(schoolProfile.email_domain, 255).toLowerCase();
+        const emailDomain = normalizeEmailDomain(rawEmailDomain);
 
         if (!schoolName || !district || !sector || !cell || !village || !headTeacherName || !headTeacherPhone || !headTeacherEmail) {
-          return res.status(400).json({ error: 'Complete school profile is required for teacher signup.' });
+          return res.status(400).json({ error: 'Complete school profile is required for head teacher signup.' });
         }
         if (!isValidEmail(headTeacherEmail)) {
           return res.status(400).json({ error: 'School head teacher email is invalid.' });
+        }
+        if (rawEmailDomain && !emailDomain) {
+          return res.status(400).json({ error: 'School email domain must look like brightschool.edu.' });
         }
         if (!/^[\d\s\+\-\(\)]{7,20}$/.test(headTeacherPhone)) {
           return res.status(400).json({ error: 'School head teacher phone is invalid.' });
@@ -278,9 +324,10 @@ router.post('/register', authLimiter, async (req, res) => {
                  head_teacher_name = COALESCE(NULLIF($6, ''), head_teacher_name),
                  head_teacher_phone = COALESCE(NULLIF($7, ''), head_teacher_phone),
                  head_teacher_email = COALESCE(NULLIF($8, ''), head_teacher_email),
-                 code = COALESCE(code, $9),
-                 welcome_message = COALESCE(welcome_message, $10)
-             WHERE id = $11
+                 email_domain = COALESCE(NULLIF($9, ''), email_domain),
+                 code = COALESCE(code, $10),
+                 welcome_message = COALESCE(welcome_message, $11)
+               WHERE id = $12
              RETURNING *`,
             [
               district,
@@ -291,6 +338,7 @@ router.post('/register', authLimiter, async (req, res) => {
               headTeacherName,
               headTeacherPhone,
               headTeacherEmail,
+              emailDomain,
               nextCode,
               nextWelcome,
               s.id,
@@ -303,8 +351,8 @@ router.post('/register', authLimiter, async (req, res) => {
           const newCode = generateSchoolCode();
           const welcomeMessage = `Murakaza neza kuri ${schoolName}. School Code yanyu ni ${newCode}. UClass ibifurije umwaka mwiza w'amasomo.`;
           const inserted = await pool.query(
-            `INSERT INTO schools (name, district, sector, cell, village, student_count, head_teacher_name, head_teacher_phone, head_teacher_email, code, welcome_message)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+            `INSERT INTO schools (name, district, sector, cell, village, student_count, head_teacher_name, head_teacher_phone, head_teacher_email, email_domain, code, welcome_message)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
              RETURNING *`,
             [
               schoolName,
@@ -316,6 +364,7 @@ router.post('/register', authLimiter, async (req, res) => {
               headTeacherName,
               headTeacherPhone,
               headTeacherEmail,
+              emailDomain || null,
               newCode,
               welcomeMessage,
             ]
@@ -327,12 +376,32 @@ router.post('/register', authLimiter, async (req, res) => {
       }
 
       if (resolvedSchoolId) {
-        const schoolCheck = await pool.query('SELECT id, code, welcome_message FROM schools WHERE id=$1', [resolvedSchoolId]);
+        const schoolCheck = await pool.query('SELECT id, code, welcome_message, email_domain FROM schools WHERE id=$1', [resolvedSchoolId]);
         if (schoolCheck.rows.length === 0) {
           return res.status(400).json({ error: 'Selected school does not exist.' });
         }
+        const requiredDomain = normalizeEmailDomain(schoolCheck.rows[0].email_domain);
+        const userDomain = emailDomainOf(email);
+        if (!requiredDomain || userDomain !== requiredDomain) {
+          return res.status(403).json({ error: schoolEmailPolicyError(requiredDomain) });
+        }
         schoolCode = schoolCode || schoolCheck.rows[0].code;
         schoolWelcomeMessage = schoolWelcomeMessage || schoolCheck.rows[0].welcome_message;
+      } else if (role === 'head_teacher') {
+        return res.status(400).json({ error: 'Head teacher signup requires a school selection or full school profile.' });
+      }
+    } else if (role === 'student') {
+      if (!resolvedSchoolId) {
+        return res.status(400).json({ error: 'Students must select an existing school.' });
+      }
+      const schoolCheck = await pool.query('SELECT id, email_domain FROM schools WHERE id=$1', [resolvedSchoolId]);
+      if (schoolCheck.rows.length === 0) {
+        return res.status(400).json({ error: 'Selected school does not exist.' });
+      }
+      const requiredDomain = normalizeEmailDomain(schoolCheck.rows[0].email_domain);
+      const userDomain = emailDomainOf(email);
+      if (!requiredDomain || userDomain !== requiredDomain) {
+        return res.status(403).json({ error: schoolEmailPolicyError(requiredDomain) });
       }
     }
 
@@ -391,6 +460,24 @@ router.post('/login', authLimiter, async (req, res) => {
       audit('login_fail', { email, reason: 'bad_password' });
       return res.status(401).json({ error: 'Invalid credentials.' });
     }
+    if (['student', 'teacher', 'head_teacher'].includes(user.role)) {
+      if (!user.school_id) {
+        audit('login_fail', { email, reason: 'missing_school_for_role', role: user.role });
+        return res.status(403).json({ error: 'Your account is missing a school assignment. Contact School IT or Head Teacher.' });
+      }
+      const schoolCheck = await pool.query('SELECT id, email_domain FROM schools WHERE id=$1', [user.school_id]);
+      if (schoolCheck.rows.length === 0) {
+        audit('login_fail', { email, reason: 'school_not_found', role: user.role });
+        return res.status(403).json({ error: 'Your school record could not be found. Contact School IT or Head Teacher.' });
+      }
+      const requiredDomain = normalizeEmailDomain(schoolCheck.rows[0].email_domain);
+      const userDomain = emailDomainOf(user.email);
+      if (!requiredDomain || userDomain !== requiredDomain) {
+        audit('login_fail', { email, reason: 'email_domain_policy', role: user.role, requiredDomain });
+        return res.status(403).json({ error: schoolEmailPolicyError(requiredDomain) });
+      }
+    }
+
     // Check teacher approval
     if (user.role === 'teacher' && !user.is_approved) {
       audit('login_fail', { email, reason: 'pending_approval' });

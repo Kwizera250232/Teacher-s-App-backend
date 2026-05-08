@@ -6,7 +6,232 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 const adminOnly = [authenticateToken, requireRole('admin')];
-const schoolBoardAccess = [authenticateToken, requireRole('admin', 'head_teacher')];
+const schoolBoardAccess = [authenticateToken, requireRole('head_teacher')];
+const schoolProvisionAccess = [authenticateToken, requireRole('head_teacher', 'teacher')];
+const headTeacherOnly = [authenticateToken, requireRole('head_teacher')];
+
+pool.query(`ALTER TABLE schools ADD COLUMN IF NOT EXISTS email_domain VARCHAR(255)`).catch(console.error);
+pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_school_it BOOLEAN NOT NULL DEFAULT FALSE`).catch(console.error);
+
+function sanitizeEmailPart(value, fallback = 'student') {
+  const cleaned = String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '.')
+    .replace(/^\.+|\.+$/g, '')
+    .replace(/\.{2,}/g, '.');
+  return cleaned || fallback;
+}
+
+function schoolDomainFromName(schoolName) {
+  const compact = sanitizeEmailPart(schoolName, 'school').replace(/\./g, '');
+  const root = compact.length >= 3 ? compact : 'school';
+  return `${root}.edu`;
+}
+
+function normalizeEmailDomain(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+
+  const noProtocol = raw.replace(/^https?:\/\//, '').replace(/^mailto:/, '');
+  const fromEmail = noProtocol.includes('@') ? noProtocol.split('@').pop() : noProtocol;
+  const domain = fromEmail
+    .split('/')[0]
+    .replace(/[^a-z0-9.-]/g, '')
+    .replace(/^\.+|\.+$/g, '')
+    .replace(/\.{2,}/g, '.');
+
+  if (!/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i.test(domain)) {
+    return '';
+  }
+  return domain;
+}
+
+function emailDomainOf(email) {
+  const val = String(email || '').trim().toLowerCase();
+  if (!val.includes('@')) return '';
+  return normalizeEmailDomain(val.split('@').pop());
+}
+
+function schoolEmailPolicyError(expectedDomain) {
+  if (expectedDomain) {
+    return `Only school email addresses ending with @${expectedDomain} are allowed. Contact School IT for an official school email.`;
+  }
+  return 'School email domain is not configured. Contact School IT or Head Teacher first.';
+}
+
+function generateStrongPassword(length = 10) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  let out = '';
+  for (let i = 0; i < length; i += 1) {
+    out += chars[Math.floor(Math.random() * chars.length)];
+  }
+  if (!/[A-Za-z]/.test(out)) out = `A${out.slice(1)}`;
+  if (!/\d/.test(out)) out = `${out.slice(0, -1)}7`;
+  return out;
+}
+
+async function generateUniqueStudentEmail(client, studentName, school) {
+  return generateUniqueStudentEmailWithLocal(client, sanitizeEmailPart(studentName, 'student'), school);
+}
+
+async function generateUniqueStudentEmailWithLocal(client, preferredLocalPart, school) {
+  const localBase = sanitizeEmailPart(preferredLocalPart, 'student');
+  const domain = normalizeEmailDomain(school?.email_domain) || schoolDomainFromName(school?.name);
+  let suffix = 1;
+  while (suffix <= 9999) {
+    const local = suffix === 1 ? localBase : `${localBase}${suffix}`;
+    const candidate = `${local}@${domain}`;
+    const exists = await client.query('SELECT 1 FROM users WHERE email=$1 LIMIT 1', [candidate]);
+    if (exists.rows.length === 0) return candidate;
+    suffix += 1;
+  }
+  throw new Error('Could not generate unique school email.');
+}
+
+async function getProvisionContext(userId) {
+  const result = await pool.query(
+    `SELECT u.id, u.role, u.school_id, u.is_school_it,
+            s.id AS school_id_ref, s.name AS school_name, s.email_domain
+       FROM users u
+  LEFT JOIN schools s ON s.id = u.school_id
+      WHERE u.id = $1
+      LIMIT 1`,
+    [userId]
+  );
+
+  if (result.rows.length === 0) return null;
+  const row = result.rows[0];
+  const allowed = row.role === 'head_teacher' || (row.role === 'teacher' && row.is_school_it === true);
+  return {
+    userId: row.id,
+    role: row.role,
+    schoolId: row.school_id,
+    schoolName: row.school_name,
+    emailDomain: normalizeEmailDomain(row.email_domain),
+    isSchoolIT: row.is_school_it === true,
+    allowed,
+  };
+}
+
+async function createTeacherAccount({
+  schoolId,
+  schoolName,
+  schoolEmailDomain,
+  name,
+  phone,
+  emailLocalPart,
+  manualEmail,
+  autoGenerateEmail,
+  manualPassword,
+  isSchoolIT = false,
+}) {
+  const requiredDomain = normalizeEmailDomain(schoolEmailDomain);
+  if (!requiredDomain) {
+    throw new Error('School email domain is not configured. Contact School IT or Head Teacher first.');
+  }
+
+  let email = manualEmail;
+  if (!email && autoGenerateEmail) {
+    email = await generateUniqueStudentEmailWithLocal(
+      pool,
+      emailLocalPart || name,
+      { id: schoolId, name: schoolName, email_domain: requiredDomain }
+    );
+  }
+  if (!email) {
+    throw new Error('Email is required when auto generation is off.');
+  }
+
+  if (manualEmail) {
+    const manualDomain = emailDomainOf(email);
+    if (manualDomain !== requiredDomain) {
+      throw new Error(`Only school email addresses ending with @${requiredDomain} are allowed. Contact School IT for an official school email.`);
+    }
+  }
+
+  const existing = await pool.query('SELECT id FROM users WHERE email=$1 LIMIT 1', [email]);
+  if (existing.rows.length > 0) {
+    throw new Error('Email already exists.');
+  }
+
+  const rawPassword = manualPassword || generateStrongPassword();
+  const hashed = await bcrypt.hash(rawPassword, 12);
+
+  const inserted = await pool.query(
+    `INSERT INTO users (name, email, password, role, school_id, is_approved, phone, is_school_it)
+     VALUES ($1,$2,$3,'teacher',$4,TRUE,$5,$6)
+     RETURNING id, name, email, role, school_id, phone, is_school_it, created_at`,
+    [name, email, hashed, schoolId, phone || null, isSchoolIT === true]
+  );
+
+  return {
+    teacher: inserted.rows[0],
+    credentials: {
+      email,
+      password: rawPassword,
+      generated_email: !manualEmail,
+      generated_password: !manualPassword,
+    },
+  };
+}
+
+async function ensureNurseryMediaTables() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS nursery_media_settings (
+      id SERIAL PRIMARY KEY,
+      interval_days INTEGER NOT NULL DEFAULT 3 CHECK (interval_days BETWEEN 1 AND 30),
+      items_per_group INTEGER NOT NULL DEFAULT 2 CHECK (items_per_group BETWEEN 1 AND 10),
+      rotation_anchor TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS nursery_media_items (
+      id SERIAL PRIMARY KEY,
+      title VARCHAR(200) NOT NULL,
+      subject VARCHAR(120),
+      lesson_kind VARCHAR(20) NOT NULL CHECK (lesson_kind IN ('song', 'subject')),
+      media_type VARCHAR(10) NOT NULL CHECK (media_type IN ('audio', 'video')),
+      media_url TEXT NOT NULL,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_nursery_media_items_enabled ON nursery_media_items(enabled)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_nursery_media_items_sort ON nursery_media_items(sort_order, id)');
+
+  const settings = await pool.query('SELECT id FROM nursery_media_settings LIMIT 1');
+  if (settings.rows.length === 0) {
+    await pool.query('INSERT INTO nursery_media_settings DEFAULT VALUES');
+  }
+}
+
+function rotateItems(items, startIndex, takeCount) {
+  if (!Array.isArray(items) || items.length === 0 || takeCount <= 0) return [];
+  const out = [];
+  for (let i = 0; i < Math.min(takeCount, items.length); i += 1) {
+    out.push(items[(startIndex + i) % items.length]);
+  }
+  return out;
+}
+
+function getRotationMeta(intervalDays, anchorDate) {
+  const safeInterval = Number.isFinite(intervalDays) && intervalDays > 0 ? intervalDays : 3;
+  const anchor = anchorDate ? new Date(anchorDate) : new Date();
+  const now = new Date();
+  const msPerWindow = safeInterval * 24 * 60 * 60 * 1000;
+  const elapsedMs = Math.max(0, now.getTime() - anchor.getTime());
+  const windowIndex = Math.floor(elapsedMs / msPerWindow);
+  const currentWindowStart = new Date(anchor.getTime() + windowIndex * msPerWindow);
+  const nextChangeAt = new Date(currentWindowStart.getTime() + msPerWindow);
+  return { windowIndex, currentWindowStart, nextChangeAt };
+}
 
 async function ensureCatBoardTables() {
   await pool.query(`
@@ -155,15 +380,20 @@ router.post('/schools', ...adminOnly, async (req, res) => {
   const name = String(req.body.name || '').trim();
   const location = String(req.body.location || '').trim();
   const rawCode = String(req.body.code || '').trim();
+  const rawEmailDomain = String(req.body.email_domain || '').trim();
+  const emailDomain = normalizeEmailDomain(rawEmailDomain);
   const code = rawCode ? rawCode.toUpperCase() : null;
   if (!name) return res.status(400).json({ error: 'School name is required.' });
   if (code && !/^[A-Z0-9_-]{4,20}$/.test(code)) {
     return res.status(400).json({ error: 'School code must be 4-20 chars (A-Z, 0-9, _ or -).' });
   }
+  if (rawEmailDomain && !emailDomain) {
+    return res.status(400).json({ error: 'Email domain must look like brightschool.edu.' });
+  }
   try {
     const result = await pool.query(
-      'INSERT INTO schools (name, location, code) VALUES ($1,$2,$3) RETURNING *',
-      [name, location || null, code]
+      'INSERT INTO schools (name, location, code, email_domain) VALUES ($1,$2,$3,$4) RETURNING *',
+      [name, location || null, code, emailDomain || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -175,15 +405,20 @@ router.put('/schools/:id', ...adminOnly, async (req, res) => {
   const name = String(req.body.name || '').trim();
   const location = String(req.body.location || '').trim();
   const rawCode = String(req.body.code || '').trim();
+  const rawEmailDomain = String(req.body.email_domain || '').trim();
+  const emailDomain = normalizeEmailDomain(rawEmailDomain);
   const code = rawCode ? rawCode.toUpperCase() : null;
   if (!name) return res.status(400).json({ error: 'School name is required.' });
   if (code && !/^[A-Z0-9_-]{4,20}$/.test(code)) {
     return res.status(400).json({ error: 'School code must be 4-20 chars (A-Z, 0-9, _ or -).' });
   }
+  if (rawEmailDomain && !emailDomain) {
+    return res.status(400).json({ error: 'Email domain must look like brightschool.edu.' });
+  }
   try {
     const result = await pool.query(
-      'UPDATE schools SET name=$1, location=$2, code=$3 WHERE id=$4 RETURNING *',
-      [name, location || null, code, req.params.id]
+      'UPDATE schools SET name=$1, location=$2, code=$3, email_domain=$4 WHERE id=$5 RETURNING *',
+      [name, location || null, code, emailDomain || null, req.params.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
     res.json(result.rows[0]);
@@ -265,6 +500,86 @@ router.put('/teachers/:id/school', ...adminOnly, async (req, res) => {
   }
 });
 
+router.post('/teachers', ...adminOnly, async (req, res) => {
+  const name = String(req.body.name || '').trim();
+  const schoolId = parseInt(req.body.school_id, 10);
+  const phone = String(req.body.phone || '').trim();
+  const emailLocalPart = String(req.body.email_local_part || '').trim();
+  const manualEmail = String(req.body.email || '').trim().toLowerCase();
+  const autoGenerateEmail = req.body.auto_generate_email !== false;
+  const manualPassword = String(req.body.password || '').trim();
+  const isSchoolIT = req.body.is_school_it === true;
+
+  if (!name) return res.status(400).json({ error: 'Teacher full name is required.' });
+  if (!Number.isInteger(schoolId) || schoolId <= 0) return res.status(400).json({ error: 'Valid school_id is required.' });
+
+  try {
+    const schoolRes = await pool.query('SELECT id, name, email_domain FROM schools WHERE id=$1', [schoolId]);
+    if (schoolRes.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
+    const school = schoolRes.rows[0];
+
+    const created = await createTeacherAccount({
+      schoolId,
+      schoolName: school.name,
+      schoolEmailDomain: school.email_domain,
+      name,
+      phone,
+      emailLocalPart,
+      manualEmail,
+      autoGenerateEmail,
+      manualPassword,
+      isSchoolIT,
+    });
+
+    res.status(201).json(created);
+  } catch (err) {
+    const message = err?.message || 'Failed to create teacher account.';
+    const status = /exists|required|allowed|configured/i.test(message) ? 400 : 500;
+    res.status(status).json({ error: message });
+  }
+});
+
+router.post('/school/teachers', ...headTeacherOnly, async (req, res) => {
+  const name = String(req.body.name || '').trim();
+  const phone = String(req.body.phone || '').trim();
+  const emailLocalPart = String(req.body.email_local_part || '').trim();
+  const manualEmail = String(req.body.email || '').trim().toLowerCase();
+  const autoGenerateEmail = req.body.auto_generate_email !== false;
+  const manualPassword = String(req.body.password || '').trim();
+  const isSchoolIT = req.body.is_school_it === true;
+
+  if (!name) return res.status(400).json({ error: 'Teacher full name is required.' });
+
+  try {
+    const access = await getProvisionContext(req.user.id);
+    if (!access || access.role !== 'head_teacher') {
+      return res.status(403).json({ error: 'Only Head Teacher can create teacher accounts in school dashboard.' });
+    }
+    if (!access.schoolId) {
+      return res.status(400).json({ error: 'Your account is not linked to a school.' });
+    }
+
+    const created = await createTeacherAccount({
+      schoolId: access.schoolId,
+      schoolName: access.schoolName,
+      schoolEmailDomain: access.emailDomain,
+      name,
+      phone,
+      emailLocalPart,
+      manualEmail,
+      autoGenerateEmail,
+      manualPassword,
+      isSchoolIT,
+    });
+
+    res.status(201).json(created);
+  } catch (err) {
+    const message = err?.message || 'Failed to create teacher account.';
+    const status = /exists|required|allowed|configured/i.test(message) ? 400 : 500;
+    res.status(status).json({ error: message });
+  }
+});
+
 router.delete('/teachers/:id', ...adminOnly, async (req, res) => {
   try {
     await pool.query('DELETE FROM users WHERE id=$1 AND role=\'teacher\'', [req.params.id]);
@@ -290,6 +605,245 @@ router.get('/students', ...adminOnly, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error('[admin/students]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.put('/students/:id', ...adminOnly, async (req, res) => {
+  const name = String(req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Student name is required.' });
+  if (name.length > 150) return res.status(400).json({ error: 'Student name is too long.' });
+
+  try {
+    const result = await pool.query(
+      `UPDATE users
+       SET name = $1
+       WHERE id = $2 AND role = 'student'
+       RETURNING id, name, email, phone, school_id`,
+      [name, req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Student not found.' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/students/:id PUT]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.post('/students', ...adminOnly, async (req, res) => {
+  const name = String(req.body.name || '').trim();
+  const schoolId = parseInt(req.body.school_id, 10);
+  const phone = String(req.body.phone || '').trim();
+  const emailLocalPart = String(req.body.email_local_part || '').trim();
+  const manualEmail = String(req.body.email || '').trim().toLowerCase();
+  const autoGenerateEmail = req.body.auto_generate_email !== false;
+  const manualPassword = String(req.body.password || '').trim();
+
+  if (!name) return res.status(400).json({ error: 'Student name is required.' });
+  if (!Number.isInteger(schoolId) || schoolId <= 0) return res.status(400).json({ error: 'Valid school_id is required.' });
+
+  try {
+    const schoolRes = await pool.query('SELECT id, name, email_domain FROM schools WHERE id=$1', [schoolId]);
+    if (schoolRes.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
+    const school = schoolRes.rows[0];
+
+    const requiredDomain = normalizeEmailDomain(school.email_domain);
+    let email = manualEmail;
+    if (!email && autoGenerateEmail) {
+      email = await generateUniqueStudentEmailWithLocal(pool, emailLocalPart || name, school);
+    }
+    if (!email) return res.status(400).json({ error: 'Email is required when auto generation is off.' });
+    if (!requiredDomain) return res.status(400).json({ error: schoolEmailPolicyError(requiredDomain) });
+
+    const manualDomain = emailDomainOf(email);
+    if (manualEmail && manualDomain !== requiredDomain) {
+      return res.status(403).json({ error: schoolEmailPolicyError(requiredDomain) });
+    }
+
+    const existing = await pool.query('SELECT id FROM users WHERE email=$1 LIMIT 1', [email]);
+    if (existing.rows.length > 0) return res.status(409).json({ error: 'Email already exists.' });
+
+    const rawPassword = manualPassword || generateStrongPassword();
+    const hashed = await bcrypt.hash(rawPassword, 12);
+
+    const inserted = await pool.query(
+      `INSERT INTO users (name, email, password, role, school_id, is_approved, phone)
+       VALUES ($1,$2,$3,'student',$4,TRUE,$5)
+       RETURNING id, name, email, role, school_id, phone, created_at`,
+      [name, email, hashed, schoolId, phone || null]
+    );
+
+    res.status(201).json({
+      student: inserted.rows[0],
+      credentials: {
+        email,
+        password: rawPassword,
+        generated_email: !manualEmail,
+        generated_password: !manualPassword,
+      },
+    });
+  } catch (err) {
+    console.error('[admin/students POST]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.post('/students/bulk-create', ...adminOnly, async (req, res) => {
+  const schoolId = parseInt(req.body.school_id, 10);
+  const namesFromArray = Array.isArray(req.body.students) ? req.body.students : [];
+  const namesText = String(req.body.names_text || '');
+  const defaultPassword = String(req.body.default_password || '').trim();
+  const phone = String(req.body.phone || '').trim();
+
+  const names = [
+    ...namesFromArray.map((n) => String(n || '').trim()),
+    ...namesText
+      .split(/\r?\n|,/)
+      .map((n) => String(n || '').trim()),
+  ].filter(Boolean);
+
+  if (!Number.isInteger(schoolId) || schoolId <= 0) return res.status(400).json({ error: 'Valid school_id is required.' });
+  if (names.length === 0) return res.status(400).json({ error: 'Provide at least one student name.' });
+  if (names.length > 300) return res.status(400).json({ error: 'Bulk create limit is 300 students per request.' });
+
+  try {
+    const schoolRes = await pool.query('SELECT id, name, email_domain FROM schools WHERE id=$1', [schoolId]);
+    if (schoolRes.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
+    const school = schoolRes.rows[0];
+    const requiredDomain = normalizeEmailDomain(school.email_domain);
+    if (!requiredDomain) {
+      return res.status(400).json({ error: schoolEmailPolicyError(requiredDomain) });
+    }
+
+    const created = [];
+    const skipped = [];
+
+    for (const studentName of names) {
+      try {
+        const email = await generateUniqueStudentEmail(pool, studentName, school);
+        const rawPassword = defaultPassword || generateStrongPassword();
+        const hashed = await bcrypt.hash(rawPassword, 12);
+
+        const inserted = await pool.query(
+          `INSERT INTO users (name, email, password, role, school_id, is_approved, phone)
+           VALUES ($1,$2,$3,'student',$4,TRUE,$5)
+           RETURNING id, name, email, role, school_id, created_at`,
+          [studentName, email, hashed, schoolId, phone || null]
+        );
+
+        created.push({
+          ...inserted.rows[0],
+          password: rawPassword,
+        });
+      } catch (err) {
+        skipped.push({ name: studentName, reason: err.message || 'Failed to create student.' });
+      }
+    }
+
+    res.status(201).json({
+      created_count: created.length,
+      skipped_count: skipped.length,
+      created,
+      skipped,
+    });
+  } catch (err) {
+    console.error('[admin/students/bulk-create POST]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.post('/school/students', ...schoolProvisionAccess, async (req, res) => {
+  const name = String(req.body.name || '').trim();
+  const phone = String(req.body.phone || '').trim();
+  const emailLocalPart = String(req.body.email_local_part || '').trim();
+  const manualEmail = String(req.body.email || '').trim().toLowerCase();
+  const autoGenerateEmail = req.body.auto_generate_email !== false;
+  const manualPassword = String(req.body.password || '').trim();
+
+  if (!name) return res.status(400).json({ error: 'Student name is required.' });
+
+  try {
+    const access = await getProvisionContext(req.user.id);
+    if (!access || !access.allowed) {
+      return res.status(403).json({ error: 'Only Head Teacher or authorized School IT can create student accounts.' });
+    }
+    if (!access.schoolId) {
+      return res.status(400).json({ error: 'Your account is not linked to a school.' });
+    }
+    if (!access.emailDomain) {
+      return res.status(400).json({ error: schoolEmailPolicyError('') });
+    }
+
+    const school = { id: access.schoolId, name: access.schoolName, email_domain: access.emailDomain };
+
+    let email = manualEmail;
+    if (!email && autoGenerateEmail) {
+      email = await generateUniqueStudentEmailWithLocal(pool, emailLocalPart || name, school);
+    }
+    if (!email) return res.status(400).json({ error: 'Email is required when auto generation is off.' });
+
+    const manualDomain = emailDomainOf(email);
+    if (manualEmail && manualDomain !== access.emailDomain) {
+      return res.status(403).json({ error: schoolEmailPolicyError(access.emailDomain) });
+    }
+
+    const existing = await pool.query('SELECT id FROM users WHERE email=$1 LIMIT 1', [email]);
+    if (existing.rows.length > 0) return res.status(409).json({ error: 'Email already exists.' });
+
+    const rawPassword = manualPassword || generateStrongPassword();
+    const hashed = await bcrypt.hash(rawPassword, 12);
+
+    const inserted = await pool.query(
+      `INSERT INTO users (name, email, password, role, school_id, is_approved, phone)
+       VALUES ($1,$2,$3,'student',$4,TRUE,$5)
+       RETURNING id, name, email, role, school_id, phone, created_at`,
+      [name, email, hashed, access.schoolId, phone || null]
+    );
+
+    res.status(201).json({
+      student: inserted.rows[0],
+      credentials: {
+        email,
+        password: rawPassword,
+        generated_email: !manualEmail,
+        generated_password: !manualPassword,
+      },
+    });
+  } catch (err) {
+    console.error('[admin/school/students POST]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.put('/school/teachers/:id/school-it', ...headTeacherOnly, async (req, res) => {
+  const teacherId = parseInt(req.params.id, 10);
+  const enabled = req.body.enabled === true;
+  if (!Number.isInteger(teacherId) || teacherId <= 0) {
+    return res.status(400).json({ error: 'Valid teacher id is required.' });
+  }
+
+  try {
+    const ht = await pool.query('SELECT school_id FROM users WHERE id=$1 AND role=\'head_teacher\' LIMIT 1', [req.user.id]);
+    const schoolId = ht.rows[0]?.school_id;
+    if (!schoolId) return res.status(400).json({ error: 'Head Teacher account is not linked to a school.' });
+
+    const updated = await pool.query(
+      `UPDATE users
+          SET is_school_it = $1
+        WHERE id = $2
+          AND role = 'teacher'
+          AND school_id = $3
+      RETURNING id, name, email, is_school_it`,
+      [enabled, teacherId, schoolId]
+    );
+
+    if (updated.rows.length === 0) {
+      return res.status(404).json({ error: 'Teacher not found in your school.' });
+    }
+
+    res.json(updated.rows[0]);
+  } catch (err) {
+    console.error('[admin/school/teachers/:id/school-it PUT]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
@@ -563,30 +1117,192 @@ router.put('/settings', ...adminOnly, async (req, res) => {
   }
 });
 
-// ─── SCHOOL BOARD (admin/teacher) ───────────────────────────────────────────
+// ─── NURSERY MEDIA (public feed + admin management) ─────────────────────────
+router.get('/nursery-media/public', async (req, res) => {
+  try {
+    await ensureNurseryMediaTables();
+
+    const settingsRes = await pool.query('SELECT * FROM nursery_media_settings LIMIT 1');
+    const settings = settingsRes.rows[0];
+
+    const itemsRes = await pool.query(
+      `SELECT *
+       FROM nursery_media_items
+       WHERE enabled = TRUE
+       ORDER BY sort_order ASC, id ASC`
+    );
+
+    const allItems = itemsRes.rows;
+    const songs = allItems.filter((x) => x.lesson_kind === 'song');
+    const subjects = allItems.filter((x) => x.lesson_kind === 'subject');
+    const audioSongs = songs.filter((x) => x.media_type === 'audio');
+    const videoSubjects = subjects.filter((x) => x.media_type === 'video');
+
+    const rotation = getRotationMeta(settings.interval_days, settings.rotation_anchor);
+    const itemsPerGroup = Number(settings.items_per_group) || 2;
+
+    const selectedAudio = rotateItems(audioSongs, rotation.windowIndex, itemsPerGroup);
+    const selectedVideo = rotateItems(videoSubjects, rotation.windowIndex, itemsPerGroup);
+
+    res.json({
+      interval_days: settings.interval_days,
+      items_per_group: settings.items_per_group,
+      window_start: rotation.currentWindowStart,
+      next_change_at: rotation.nextChangeAt,
+      audio_lessons: selectedAudio.map((x) => ({
+        id: x.id,
+        title: x.title,
+        subject: x.subject,
+        src: x.media_url,
+        lesson_kind: x.lesson_kind,
+      })),
+      video_lessons: selectedVideo.map((x) => ({
+        id: x.id,
+        title: x.title,
+        subject: x.subject,
+        src: x.media_url,
+        lesson_kind: x.lesson_kind,
+      })),
+    });
+  } catch (err) {
+    console.error('[admin/nursery-media/public]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.get('/nursery-media', ...adminOnly, async (req, res) => {
+  try {
+    await ensureNurseryMediaTables();
+    const settingsRes = await pool.query('SELECT * FROM nursery_media_settings LIMIT 1');
+    const itemsRes = await pool.query('SELECT * FROM nursery_media_items ORDER BY sort_order ASC, id ASC');
+    res.json({ settings: settingsRes.rows[0], items: itemsRes.rows });
+  } catch (err) {
+    console.error('[admin/nursery-media GET]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.post('/nursery-media', ...adminOnly, async (req, res) => {
+  const title = String(req.body.title || '').trim();
+  const subject = String(req.body.subject || '').trim();
+  const lessonKind = String(req.body.lesson_kind || '').trim();
+  const mediaType = String(req.body.media_type || '').trim();
+  const mediaUrl = String(req.body.media_url || '').trim();
+  const enabled = req.body.enabled !== false;
+  const sortOrder = Number.isFinite(Number(req.body.sort_order)) ? Number(req.body.sort_order) : 0;
+
+  if (!title || !mediaUrl) return res.status(400).json({ error: 'title and media_url are required.' });
+  if (!['song', 'subject'].includes(lessonKind)) return res.status(400).json({ error: 'lesson_kind must be song or subject.' });
+  if (!['audio', 'video'].includes(mediaType)) return res.status(400).json({ error: 'media_type must be audio or video.' });
+
+  try {
+    await ensureNurseryMediaTables();
+    const result = await pool.query(
+      `INSERT INTO nursery_media_items (title, subject, lesson_kind, media_type, media_url, enabled, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       RETURNING *`,
+      [title, subject || null, lessonKind, mediaType, mediaUrl, enabled, sortOrder]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/nursery-media POST]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.put('/nursery-media/:id', ...adminOnly, async (req, res) => {
+  const title = String(req.body.title || '').trim();
+  const subject = String(req.body.subject || '').trim();
+  const lessonKind = String(req.body.lesson_kind || '').trim();
+  const mediaType = String(req.body.media_type || '').trim();
+  const mediaUrl = String(req.body.media_url || '').trim();
+  const enabled = req.body.enabled !== false;
+  const sortOrder = Number.isFinite(Number(req.body.sort_order)) ? Number(req.body.sort_order) : 0;
+
+  if (!title || !mediaUrl) return res.status(400).json({ error: 'title and media_url are required.' });
+  if (!['song', 'subject'].includes(lessonKind)) return res.status(400).json({ error: 'lesson_kind must be song or subject.' });
+  if (!['audio', 'video'].includes(mediaType)) return res.status(400).json({ error: 'media_type must be audio or video.' });
+
+  try {
+    await ensureNurseryMediaTables();
+    const result = await pool.query(
+      `UPDATE nursery_media_items
+       SET title=$1,
+           subject=$2,
+           lesson_kind=$3,
+           media_type=$4,
+           media_url=$5,
+           enabled=$6,
+           sort_order=$7,
+           updated_at=NOW()
+       WHERE id=$8
+       RETURNING *`,
+      [title, subject || null, lessonKind, mediaType, mediaUrl, enabled, sortOrder, req.params.id]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: 'Item not found.' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/nursery-media PUT]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.delete('/nursery-media/:id', ...adminOnly, async (req, res) => {
+  try {
+    await ensureNurseryMediaTables();
+    await pool.query('DELETE FROM nursery_media_items WHERE id=$1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[admin/nursery-media DELETE]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.put('/nursery-media/settings', ...adminOnly, async (req, res) => {
+  const intervalDays = Number(req.body.interval_days);
+  const itemsPerGroup = Number(req.body.items_per_group);
+  const resetCycle = req.body.reset_cycle === true;
+
+  if (!Number.isInteger(intervalDays) || intervalDays < 1 || intervalDays > 30) {
+    return res.status(400).json({ error: 'interval_days must be an integer between 1 and 30.' });
+  }
+  if (!Number.isInteger(itemsPerGroup) || itemsPerGroup < 1 || itemsPerGroup > 10) {
+    return res.status(400).json({ error: 'items_per_group must be an integer between 1 and 10.' });
+  }
+
+  try {
+    await ensureNurseryMediaTables();
+    const result = await pool.query(
+      `UPDATE nursery_media_settings
+       SET interval_days=$1,
+           items_per_group=$2,
+           rotation_anchor=CASE WHEN $3 THEN NOW() ELSE rotation_anchor END,
+           updated_at=NOW()
+       WHERE id = (SELECT id FROM nursery_media_settings ORDER BY id ASC LIMIT 1)
+       RETURNING *`,
+      [intervalDays, itemsPerGroup, resetCycle]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/nursery-media/settings PUT]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ─── SCHOOL BOARD (head teacher only) ───────────────────────────────────────
 router.get('/my-school-board', ...schoolBoardAccess, async (req, res) => {
   try {
     await ensureCatBoardTables();
 
-    let schoolId;
-    if (req.user.role === 'head_teacher') {
-      // head_teacher can only see their own school
-      const userRes = await pool.query('SELECT school_id FROM users WHERE id=$1', [req.user.id]);
-      if (!userRes.rows[0]?.school_id) {
-        return res.status(400).json({ error: 'Your account is not linked to a school yet.' });
-      }
-      schoolId = userRes.rows[0].school_id;
-    } else {
-      const requested = parseInt(req.query.school_id, 10);
-      if (!Number.isInteger(requested) || requested <= 0) {
-        return res.status(400).json({ error: 'school_id is required for admin access.' });
-      }
-      schoolId = requested;
+    const userRes = await pool.query('SELECT school_id FROM users WHERE id=$1', [req.user.id]);
+    if (!userRes.rows[0]?.school_id) {
+      return res.status(400).json({ error: 'Your account is not linked to a school yet.' });
     }
+    const schoolId = userRes.rows[0].school_id;
 
     const schoolRes = await pool.query(
-      `SELECT id, name, location, code, district, sector, cell, village,
-              student_count, head_teacher_name, head_teacher_phone,
+            `SELECT id, name, location, code, district, sector, cell, village,
+              email_domain, student_count, head_teacher_name, head_teacher_phone,
               head_teacher_email, welcome_message, created_at
        FROM schools
        WHERE id = $1`,
@@ -613,7 +1329,7 @@ router.get('/my-school-board', ...schoolBoardAccess, async (req, res) => {
     );
 
     const teachersRes = await pool.query(
-      `SELECT u.id, u.name, u.email, u.is_approved, u.is_suspended,
+      `SELECT u.id, u.name, u.email, u.is_approved, u.is_suspended, u.is_school_it,
               COUNT(DISTINCT c.id)::int AS classes_count,
               COUNT(DISTINCT n.id)::int AS notes_count,
               COUNT(DISTINCT h.id)::int AS homework_count,
