@@ -83,7 +83,7 @@ function schoolEmailPolicyError(expectedDomain) {
   if (expectedDomain) {
     return `Only school email addresses ending with @${expectedDomain} are allowed. Contact School IT for your official school email.`;
   }
-  return 'School email domain is invalid. Contact School IT or Head Teacher to configure your school domain.';
+  return 'Only school email addresses ending with your school .edu domain are allowed. Contact School IT or Head Teacher for your official school email.';
 }
 
 // Password must be ≥8 chars, contain at least one letter and one number
