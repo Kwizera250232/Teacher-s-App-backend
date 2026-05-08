@@ -858,7 +858,42 @@ router.put('/school/teachers/:id/school-it', ...headTeacherOnly, async (req, res
   }
 });
 
-router.put('/students/:id/suspend', ...adminOnly, async (req, res) => {
+// PUT /school/teachers/:id/approve — HT approves or suspends a teacher
+router.put('/school/teachers/:id/approve', ...headTeacherOnly, async (req, res) => {
+  const teacherId = parseInt(req.params.id, 10);
+  const { approve, suspend } = req.body;
+  if (!Number.isInteger(teacherId) || teacherId <= 0) {
+    return res.status(400).json({ error: 'Valid teacher id is required.' });
+  }
+
+  try {
+    const ht = await pool.query('SELECT school_id FROM users WHERE id=$1 AND role=\'head_teacher\' LIMIT 1', [req.user.id]);
+    const schoolId = ht.rows[0]?.school_id;
+    if (!schoolId) return res.status(400).json({ error: 'Head Teacher account is not linked to a school.' });
+
+    const sets = [];
+    const vals = [];
+    let idx = 1;
+    if (typeof approve === 'boolean') { sets.push(`is_approved=$${idx++}`); vals.push(approve); }
+    if (typeof suspend === 'boolean') { sets.push(`is_suspended=$${idx++}`); vals.push(suspend); }
+    if (sets.length === 0) return res.status(400).json({ error: 'Provide approve or suspend boolean.' });
+
+    vals.push(teacherId, schoolId);
+    const updated = await pool.query(
+      `UPDATE users SET ${sets.join(', ')}
+        WHERE id=$${idx} AND role='teacher' AND school_id=$${idx + 1}
+        RETURNING id, name, email, is_approved, is_suspended, is_school_it`,
+      vals
+    );
+    if (updated.rows.length === 0) return res.status(404).json({ error: 'Teacher not found in your school.' });
+    res.json(updated.rows[0]);
+  } catch (err) {
+    console.error('[admin/school/teachers/:id/approve PUT]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+
   try {
     const result = await pool.query(
       'UPDATE users SET is_suspended=$1 WHERE id=$2 AND role=\'student\' RETURNING id, name, is_suspended',
@@ -1351,10 +1386,19 @@ router.get('/my-school-board', ...schoolBoardAccess, async (req, res) => {
        LEFT JOIN homework h ON h.class_id = c.id
        LEFT JOIN quizzes q ON q.class_id = c.id
        LEFT JOIN cat_mark_sheets cms ON cms.class_id = c.id
-       WHERE u.school_id = $1 AND u.role = 'teacher'
+       WHERE u.school_id = $1 AND u.role = 'teacher' AND u.is_approved = TRUE AND (u.is_suspended IS NULL OR u.is_suspended = FALSE)
        GROUP BY u.id
        ORDER BY u.created_at DESC
        LIMIT 120`,
+      [schoolId]
+    );
+
+    const pendingTeachersRes = await pool.query(
+      `SELECT id, name, email, is_approved, is_suspended, created_at
+       FROM users
+       WHERE school_id=$1 AND role='teacher' AND is_approved=FALSE
+       ORDER BY created_at DESC
+       LIMIT 50`,
       [schoolId]
     );
 
@@ -1386,6 +1430,7 @@ router.get('/my-school-board', ...schoolBoardAccess, async (req, res) => {
       school: schoolRes.rows[0],
       summary: summaryRes.rows[0],
       teachers: teachersRes.rows,
+      pending_teachers: pendingTeachersRes.rows,
       classes: classesRes.rows,
     });
   } catch (err) {

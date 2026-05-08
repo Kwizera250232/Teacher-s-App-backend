@@ -198,6 +198,41 @@ pool.query(`
   $$;
 `).catch(console.error);
 
+// GET /validate-school-code?code=XXX — validate a school code before signup
+router.get('/validate-school-code', async (req, res) => {
+  const code = String(req.query.code || '').trim().toUpperCase();
+  if (!code) return res.status(400).json({ error: 'School code is required.' });
+
+  try {
+    const result = await pool.query(
+      'SELECT id, name, email_domain, welcome_message FROM schools WHERE code = $1 LIMIT 1',
+      [code]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Invalid school code. Please check and try again.' });
+    }
+    const school = result.rows[0];
+    const emailDomain = resolveSchoolDomain(school.name, school.email_domain);
+    const htCheck = await pool.query(
+      "SELECT id FROM users WHERE school_id=$1 AND role='head_teacher' AND is_approved=TRUE LIMIT 1",
+      [school.id]
+    );
+    res.json({
+      valid: true,
+      school: {
+        id: school.id,
+        name: school.name,
+        email_domain: emailDomain,
+        welcome_message: school.welcome_message,
+        has_head_teacher: htCheck.rows.length > 0,
+      },
+    });
+  } catch (err) {
+    console.error('[validate-school-code]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // GET all schools (for dropdown)
 router.get('/schools', async (req, res) => {
   try {
@@ -275,11 +310,12 @@ router.post('/register', authLimiter, async (req, res) => {
   if (!isValidEmail(email)) {
     return res.status(400).json({ error: 'Invalid email address.' });
   }
-  if (role === 'teacher') {
-    return res.status(403).json({ error: 'Teacher self-signup is disabled. Contact School IT or Head Teacher for teacher account provisioning.' });
+  // Teachers can self-signup only with a valid school code
+  if (role === 'teacher' && !req.body.school_code) {
+    return res.status(403).json({ error: 'Teacher signup requires a school code. Ask your Head Teacher for the school code.' });
   }
-  if (!['student', 'head_teacher'].includes(role)) {
-    return res.status(400).json({ error: 'Role must be student or head_teacher.' });
+  if (!['student', 'head_teacher', 'teacher'].includes(role)) {
+    return res.status(400).json({ error: 'Role must be student, teacher, or head_teacher.' });
   }
   if (!isStrongPassword(password)) {
     return res.status(400).json({ error: 'Password must be at least 8 characters and include letters and numbers.' });
@@ -298,8 +334,47 @@ router.post('/register', authLimiter, async (req, res) => {
     let resolvedSchoolId = school_id || null;
     let schoolWelcomeMessage = null;
     let schoolCode = null;
+    const schoolCodeInput = String(req.body.school_code || '').trim().toUpperCase();
+    let codeBasedSignup = false;
 
-    if (role === 'head_teacher') {
+    // ── School-code based signup for head_teacher and teacher ─────────────
+    if ((role === 'head_teacher' || role === 'teacher') && schoolCodeInput) {
+      const codeRes = await pool.query(
+        'SELECT id, name, email_domain, code, welcome_message FROM schools WHERE code=$1 LIMIT 1',
+        [schoolCodeInput]
+      );
+      if (codeRes.rows.length === 0) {
+        return res.status(400).json({ error: 'Invalid school code. Please check the code given by your Admin or Head Teacher.' });
+      }
+      const codeSchool = codeRes.rows[0];
+
+      if (role === 'head_teacher') {
+        const existingHT = await pool.query(
+          "SELECT id FROM users WHERE school_id=$1 AND role='head_teacher' AND is_approved=TRUE LIMIT 1",
+          [codeSchool.id]
+        );
+        if (existingHT.rows.length > 0) {
+          return res.status(409).json({ error: 'This school already has an active Head Teacher. Contact your school admin.' });
+        }
+      }
+
+      if (role === 'teacher') {
+        const htExists = await pool.query(
+          "SELECT id FROM users WHERE school_id=$1 AND role='head_teacher' AND is_approved=TRUE LIMIT 1",
+          [codeSchool.id]
+        );
+        if (htExists.rows.length === 0) {
+          return res.status(400).json({ error: 'This school does not have an active Head Teacher yet. Please contact your school administration.' });
+        }
+      }
+
+      resolvedSchoolId = codeSchool.id;
+      schoolCode = codeSchool.code;
+      schoolWelcomeMessage = codeSchool.welcome_message;
+      codeBasedSignup = true;
+    }
+
+    if (role === 'head_teacher' && !codeBasedSignup) {
       if (schoolProfile) {
         const schoolName = cleanText(schoolProfile.name, 200);
         const district = cleanText(schoolProfile.district, 120);
@@ -401,7 +476,7 @@ router.post('/register', authLimiter, async (req, res) => {
         schoolCode = schoolCode || schoolCheck.rows[0].code;
         schoolWelcomeMessage = schoolWelcomeMessage || schoolCheck.rows[0].welcome_message;
       } else if (role === 'head_teacher') {
-        return res.status(400).json({ error: 'Head teacher signup requires a school selection or full school profile.' });
+        return res.status(400).json({ error: 'Head teacher signup requires a school code or full school profile.' });
       }
     } else if (role === 'student') {
       if (!resolvedSchoolId) {
@@ -419,8 +494,8 @@ router.post('/register', authLimiter, async (req, res) => {
     }
 
     const hashed = await bcrypt.hash(password, 12);
-    // Teachers require admin approval; head_teacher is auto-approved
-    const isApproved = role !== 'teacher';
+    // Teachers using school code require HT approval; head_teacher is auto-approved
+    const isApproved = role === 'teacher' ? false : true;
     const result = await pool.query(
       'INSERT INTO users (name, email, password, role, school_id, is_approved, phone) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, name, email, role, school_id, is_approved',
       [name, email, hashed, role, resolvedSchoolId, isApproved, phone || null]
@@ -430,7 +505,7 @@ router.post('/register', authLimiter, async (req, res) => {
       audit('register', { email, role, status: 'pending_approval' });
       return res.status(202).json({
         pending: true,
-        message: 'Konti yawe yoherejwe. Tegereza ko umuyobozi ayemera mbere yo kwinjira.',
+        message: 'Konti yawe yoherejwe. Tegereza ko umuyobozi w\'ishuri ayemera mbere yo kwinjira.',
         school_code: schoolCode,
         school_welcome_message: schoolWelcomeMessage,
       });
