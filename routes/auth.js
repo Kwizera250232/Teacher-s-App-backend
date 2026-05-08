@@ -52,6 +52,27 @@ function normalizeEmailDomain(value) {
   return domain;
 }
 
+function sanitizeEmailPart(value, fallback = 'school') {
+  const cleaned = String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '.')
+    .replace(/^\.+|\.+$/g, '')
+    .replace(/\.{2,}/g, '.');
+  return cleaned || fallback;
+}
+
+function schoolDomainFromName(schoolName) {
+  const compact = sanitizeEmailPart(schoolName, 'school').replace(/\./g, '');
+  const root = compact.length >= 3 ? compact : 'school';
+  return `${root}.edu`;
+}
+
+function resolveSchoolDomain(schoolName, rawDomain) {
+  return schoolDomainFromName(schoolName || rawDomain || 'school');
+}
+
 function emailDomainOf(email) {
   const val = String(email || '').trim().toLowerCase();
   if (!val.includes('@')) return '';
@@ -62,7 +83,7 @@ function schoolEmailPolicyError(expectedDomain) {
   if (expectedDomain) {
     return `Only school email addresses ending with @${expectedDomain} are allowed. Contact School IT for your official school email.`;
   }
-  return 'School email domain is not configured. Contact School IT or Head Teacher to configure your school domain.';
+  return 'School email domain is invalid. Contact School IT or Head Teacher to configure your school domain.';
 }
 
 // Password must be ≥8 chars, contain at least one letter and one number
@@ -199,16 +220,12 @@ router.post('/schools', async (req, res) => {
   const headTeacherName = cleanText(req.body.head_teacher_name, 200);
   const headTeacherPhone = cleanText(req.body.head_teacher_phone, 30);
   const headTeacherEmail = cleanText(req.body.head_teacher_email, 255).toLowerCase();
-  const rawEmailDomain = cleanText(req.body.email_domain, 255).toLowerCase();
-  const emailDomain = normalizeEmailDomain(rawEmailDomain);
+  const emailDomain = resolveSchoolDomain(name, cleanText(req.body.email_domain, 255).toLowerCase());
 
   if (!name) return res.status(400).json({ error: 'School name is required.' });
   if (name.length > 200) return res.status(400).json({ error: 'School name is too long.' });
   if (headTeacherEmail && !isValidEmail(headTeacherEmail)) {
     return res.status(400).json({ error: 'Head teacher email is invalid.' });
-  }
-  if (rawEmailDomain && !emailDomain) {
-    return res.status(400).json({ error: 'Email domain must look like brightschool.edu.' });
   }
   try {
     const existing = await pool.query('SELECT * FROM schools WHERE LOWER(name) = LOWER($1) LIMIT 1', [name]);
@@ -293,17 +310,13 @@ router.post('/register', authLimiter, async (req, res) => {
         const headTeacherName = cleanText(schoolProfile.head_teacher_name, 200);
         const headTeacherPhone = cleanText(schoolProfile.head_teacher_phone, 30);
         const headTeacherEmail = cleanText(schoolProfile.head_teacher_email, 255).toLowerCase();
-        const rawEmailDomain = cleanText(schoolProfile.email_domain, 255).toLowerCase();
-        const emailDomain = normalizeEmailDomain(rawEmailDomain);
+        const emailDomain = resolveSchoolDomain(schoolName, cleanText(schoolProfile.email_domain, 255).toLowerCase());
 
         if (!schoolName || !district || !sector || !cell || !village || !headTeacherName || !headTeacherPhone || !headTeacherEmail) {
           return res.status(400).json({ error: 'Complete school profile is required for head teacher signup.' });
         }
         if (!isValidEmail(headTeacherEmail)) {
           return res.status(400).json({ error: 'School head teacher email is invalid.' });
-        }
-        if (rawEmailDomain && !emailDomain) {
-          return res.status(400).json({ error: 'School email domain must look like brightschool.edu.' });
         }
         if (!/^[\d\s\+\-\(\)]{7,20}$/.test(headTeacherPhone)) {
           return res.status(400).json({ error: 'School head teacher phone is invalid.' });
@@ -324,7 +337,7 @@ router.post('/register', authLimiter, async (req, res) => {
                  head_teacher_name = COALESCE(NULLIF($6, ''), head_teacher_name),
                  head_teacher_phone = COALESCE(NULLIF($7, ''), head_teacher_phone),
                  head_teacher_email = COALESCE(NULLIF($8, ''), head_teacher_email),
-                 email_domain = COALESCE(NULLIF($9, ''), email_domain),
+                 email_domain = $9,
                  code = COALESCE(code, $10),
                  welcome_message = COALESCE(welcome_message, $11)
                WHERE id = $12
@@ -338,7 +351,7 @@ router.post('/register', authLimiter, async (req, res) => {
               headTeacherName,
               headTeacherPhone,
               headTeacherEmail,
-              emailDomain,
+              resolveSchoolDomain(schoolName, emailDomain),
               nextCode,
               nextWelcome,
               s.id,
@@ -364,7 +377,7 @@ router.post('/register', authLimiter, async (req, res) => {
               headTeacherName,
               headTeacherPhone,
               headTeacherEmail,
-              emailDomain || null,
+              resolveSchoolDomain(schoolName, emailDomain),
               newCode,
               welcomeMessage,
             ]
@@ -376,11 +389,11 @@ router.post('/register', authLimiter, async (req, res) => {
       }
 
       if (resolvedSchoolId) {
-        const schoolCheck = await pool.query('SELECT id, code, welcome_message, email_domain FROM schools WHERE id=$1', [resolvedSchoolId]);
+        const schoolCheck = await pool.query('SELECT id, name, code, welcome_message, email_domain FROM schools WHERE id=$1', [resolvedSchoolId]);
         if (schoolCheck.rows.length === 0) {
           return res.status(400).json({ error: 'Selected school does not exist.' });
         }
-        const requiredDomain = normalizeEmailDomain(schoolCheck.rows[0].email_domain);
+        const requiredDomain = resolveSchoolDomain(schoolCheck.rows[0].name, schoolCheck.rows[0].email_domain);
         const userDomain = emailDomainOf(email);
         if (requiredDomain && userDomain !== requiredDomain) {
           return res.status(403).json({ error: schoolEmailPolicyError(requiredDomain) });
@@ -394,11 +407,11 @@ router.post('/register', authLimiter, async (req, res) => {
       if (!resolvedSchoolId) {
         return res.status(400).json({ error: 'Students must select an existing school.' });
       }
-      const schoolCheck = await pool.query('SELECT id, email_domain FROM schools WHERE id=$1', [resolvedSchoolId]);
+      const schoolCheck = await pool.query('SELECT id, name, email_domain FROM schools WHERE id=$1', [resolvedSchoolId]);
       if (schoolCheck.rows.length === 0) {
         return res.status(400).json({ error: 'Selected school does not exist.' });
       }
-      const requiredDomain = normalizeEmailDomain(schoolCheck.rows[0].email_domain);
+      const requiredDomain = resolveSchoolDomain(schoolCheck.rows[0].name, schoolCheck.rows[0].email_domain);
       const userDomain = emailDomainOf(email);
       if (requiredDomain && userDomain !== requiredDomain) {
         return res.status(403).json({ error: schoolEmailPolicyError(requiredDomain) });
@@ -465,12 +478,12 @@ router.post('/login', authLimiter, async (req, res) => {
         audit('login_fail', { email, reason: 'missing_school_for_role', role: user.role });
         return res.status(403).json({ error: 'Your account is missing a school assignment. Contact School IT or Head Teacher.' });
       }
-      const schoolCheck = await pool.query('SELECT id, email_domain FROM schools WHERE id=$1', [user.school_id]);
+      const schoolCheck = await pool.query('SELECT id, name, email_domain FROM schools WHERE id=$1', [user.school_id]);
       if (schoolCheck.rows.length === 0) {
         audit('login_fail', { email, reason: 'school_not_found', role: user.role });
         return res.status(403).json({ error: 'Your school record could not be found. Contact School IT or Head Teacher.' });
       }
-      const requiredDomain = normalizeEmailDomain(schoolCheck.rows[0].email_domain);
+      const requiredDomain = resolveSchoolDomain(schoolCheck.rows[0].name, schoolCheck.rows[0].email_domain);
       const userDomain = emailDomainOf(user.email);
       if (requiredDomain && userDomain !== requiredDomain) {
         audit('login_fail', { email, reason: 'email_domain_policy', role: user.role, requiredDomain });

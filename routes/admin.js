@@ -30,6 +30,10 @@ function schoolDomainFromName(schoolName) {
   return `${root}.edu`;
 }
 
+function resolveSchoolDomain(schoolName, rawDomain) {
+  return schoolDomainFromName(schoolName || rawDomain || 'school');
+}
+
 function normalizeEmailDomain(value) {
   const raw = String(value || '').trim().toLowerCase();
   if (!raw) return '';
@@ -78,7 +82,7 @@ async function generateUniqueStudentEmail(client, studentName, school) {
 
 async function generateUniqueStudentEmailWithLocal(client, preferredLocalPart, school) {
   const localBase = sanitizeEmailPart(preferredLocalPart, 'student');
-  const domain = normalizeEmailDomain(school?.email_domain) || schoolDomainFromName(school?.name);
+  const domain = resolveSchoolDomain(school?.name, school?.email_domain);
   let suffix = 1;
   while (suffix <= 9999) {
     const local = suffix === 1 ? localBase : `${localBase}${suffix}`;
@@ -109,7 +113,7 @@ async function getProvisionContext(userId) {
     role: row.role,
     schoolId: row.school_id,
     schoolName: row.school_name,
-    emailDomain: normalizeEmailDomain(row.email_domain) || schoolDomainFromName(row.school_name),
+    emailDomain: resolveSchoolDomain(row.school_name, row.email_domain),
     isSchoolIT: row.is_school_it === true,
     allowed,
   };
@@ -127,7 +131,7 @@ async function createTeacherAccount({
   manualPassword,
   isSchoolIT = false,
 }) {
-  const requiredDomain = normalizeEmailDomain(schoolEmailDomain) || schoolDomainFromName(schoolName);
+  const requiredDomain = resolveSchoolDomain(schoolName, schoolEmailDomain);
 
   let email = manualEmail;
   if (!email && autoGenerateEmail) {
@@ -377,15 +381,11 @@ router.post('/schools', ...adminOnly, async (req, res) => {
   const name = String(req.body.name || '').trim();
   const location = String(req.body.location || '').trim();
   const rawCode = String(req.body.code || '').trim();
-  const rawEmailDomain = String(req.body.email_domain || '').trim();
-  const emailDomain = normalizeEmailDomain(rawEmailDomain);
+  const emailDomain = resolveSchoolDomain(name, String(req.body.email_domain || '').trim());
   const code = rawCode ? rawCode.toUpperCase() : null;
   if (!name) return res.status(400).json({ error: 'School name is required.' });
   if (code && !/^[A-Z0-9_-]{4,20}$/.test(code)) {
     return res.status(400).json({ error: 'School code must be 4-20 chars (A-Z, 0-9, _ or -).' });
-  }
-  if (rawEmailDomain && !emailDomain) {
-    return res.status(400).json({ error: 'Email domain must look like brightschool.edu.' });
   }
   try {
     const result = await pool.query(
@@ -402,15 +402,11 @@ router.put('/schools/:id', ...adminOnly, async (req, res) => {
   const name = String(req.body.name || '').trim();
   const location = String(req.body.location || '').trim();
   const rawCode = String(req.body.code || '').trim();
-  const rawEmailDomain = String(req.body.email_domain || '').trim();
-  const emailDomain = normalizeEmailDomain(rawEmailDomain);
+  const emailDomain = resolveSchoolDomain(name, String(req.body.email_domain || '').trim());
   const code = rawCode ? rawCode.toUpperCase() : null;
   if (!name) return res.status(400).json({ error: 'School name is required.' });
   if (code && !/^[A-Z0-9_-]{4,20}$/.test(code)) {
     return res.status(400).json({ error: 'School code must be 4-20 chars (A-Z, 0-9, _ or -).' });
-  }
-  if (rawEmailDomain && !emailDomain) {
-    return res.status(400).json({ error: 'Email domain must look like brightschool.edu.' });
   }
   try {
     const result = await pool.query(
@@ -644,7 +640,7 @@ router.post('/students', ...adminOnly, async (req, res) => {
     if (schoolRes.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
     const school = schoolRes.rows[0];
 
-    const requiredDomain = normalizeEmailDomain(school.email_domain) || schoolDomainFromName(school.name);
+    const requiredDomain = resolveSchoolDomain(school.name, school.email_domain);
     let email = manualEmail;
     if (!email && autoGenerateEmail) {
       email = await generateUniqueStudentEmailWithLocal(pool, emailLocalPart || name, school);
@@ -706,7 +702,7 @@ router.post('/students/bulk-create', ...adminOnly, async (req, res) => {
     const schoolRes = await pool.query('SELECT id, name, email_domain FROM schools WHERE id=$1', [schoolId]);
     if (schoolRes.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
     const school = schoolRes.rows[0];
-    const requiredDomain = normalizeEmailDomain(school.email_domain) || schoolDomainFromName(school.name);
+    const requiredDomain = resolveSchoolDomain(school.name, school.email_domain);
 
     const created = [];
     const skipped = [];

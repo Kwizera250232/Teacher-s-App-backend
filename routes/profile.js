@@ -59,6 +59,16 @@ function sanitizeEmailPart(value, fallback = 'user') {
   return cleaned || fallback;
 }
 
+function schoolDomainFromName(schoolName) {
+  const compact = sanitizeEmailPart(schoolName, 'school').replace(/\./g, '');
+  const root = compact.length >= 3 ? compact : 'school';
+  return `${root}.edu`;
+}
+
+function resolveSchoolDomain(schoolName, rawDomain) {
+  return schoolDomainFromName(schoolName || rawDomain || 'school');
+}
+
 function emailDomainOf(email) {
   const val = String(email || '').trim().toLowerCase();
   if (!val.includes('@')) return '';
@@ -69,7 +79,7 @@ function schoolEmailPolicyError(expectedDomain) {
   if (expectedDomain) {
     return `Only school email addresses ending with @${expectedDomain} are allowed. Contact School IT for your official school email.`;
   }
-  return 'School email domain is not configured. Contact School IT or Head Teacher first.';
+  return 'School email domain is invalid. Contact School IT or Head Teacher first.';
 }
 
 // â”€â”€ Avatar upload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -278,14 +288,11 @@ router.put('/me/login-email', auth, async (req, res) => {
       if (!account.school_id) {
         return res.status(400).json({ error: 'Your account is not linked to a school.' });
       }
-      const schoolRes = await pool.query('SELECT email_domain FROM schools WHERE id = $1 LIMIT 1', [account.school_id]);
+      const schoolRes = await pool.query('SELECT name, email_domain FROM schools WHERE id = $1 LIMIT 1', [account.school_id]);
       if (schoolRes.rows.length === 0) {
         return res.status(400).json({ error: 'Your school was not found.' });
       }
-      const requiredDomain = normalizeEmailDomain(schoolRes.rows[0].email_domain);
-      if (!requiredDomain) {
-        return res.status(400).json({ error: schoolEmailPolicyError(requiredDomain) });
-      }
+      const requiredDomain = resolveSchoolDomain(schoolRes.rows[0].name, schoolRes.rows[0].email_domain);
 
       if (!nextEmail) {
         nextEmail = `${sanitizeEmailPart(emailLocalPart || account.name, 'user')}@${requiredDomain}`;
