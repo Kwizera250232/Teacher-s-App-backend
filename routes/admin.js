@@ -893,7 +893,7 @@ router.put('/school/teachers/:id/approve', ...headTeacherOnly, async (req, res) 
   }
 });
 
-
+router.put('/students/:id/suspend', ...adminOnly, async (req, res) => {
   try {
     const result = await pool.query(
       'UPDATE users SET is_suspended=$1 WHERE id=$2 AND role=\'student\' RETURNING id, name, is_suspended',
