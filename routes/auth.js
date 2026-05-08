@@ -472,7 +472,7 @@ router.post('/login', authLimiter, async (req, res) => {
       }
       const requiredDomain = normalizeEmailDomain(schoolCheck.rows[0].email_domain);
       const userDomain = emailDomainOf(user.email);
-      if (!requiredDomain || userDomain !== requiredDomain) {
+      if (requiredDomain && userDomain !== requiredDomain) {
         audit('login_fail', { email, reason: 'email_domain_policy', role: user.role, requiredDomain });
         return res.status(403).json({ error: schoolEmailPolicyError(requiredDomain) });
       }
