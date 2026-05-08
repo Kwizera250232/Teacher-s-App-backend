@@ -65,6 +65,18 @@ function schoolEmailPolicyError(expectedDomain) {
   return 'Only school email addresses ending with your school .edu domain are allowed. Contact School IT or Head Teacher for an official school email.';
 }
 
+function frontendBaseUrl() {
+  return String(process.env.FRONTEND_URL || 'https://student.umunsi.com').replace(/\/+$/, '');
+}
+
+function createInviteLink(payload, expiresIn = '7d') {
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT secret is not configured.');
+  }
+  const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn });
+  return `${frontendBaseUrl()}/invite?token=${encodeURIComponent(token)}`;
+}
+
 async function ensureSchoolDomain(client, school) {
   const expectedDomain = resolveSchoolDomain(school?.name, school?.email_domain);
   const schoolId = Number(school?.id);
@@ -418,6 +430,41 @@ router.post('/schools', ...adminOnly, async (req, res) => {
   }
 });
 
+// Admin creates invitation link to onboard a Head Teacher
+router.post('/invitations/head-teacher', ...adminOnly, async (req, res) => {
+  const schoolId = Number(req.body.school_id || 0);
+  try {
+    let school = null;
+    if (Number.isInteger(schoolId) && schoolId > 0) {
+      const schoolRes = await pool.query('SELECT id, name, code FROM schools WHERE id=$1 LIMIT 1', [schoolId]);
+      if (schoolRes.rows.length === 0) {
+        return res.status(404).json({ error: 'School not found.' });
+      }
+      school = schoolRes.rows[0];
+    }
+
+    const inviteLink = createInviteLink({
+      kind: 'signup_invite',
+      invite_role: 'head_teacher',
+      school_id: school?.id || null,
+      inviter_id: req.user.id,
+    });
+
+    res.json({
+      role: 'head_teacher',
+      school_id: school?.id || null,
+      school_name: school?.name || null,
+      school_code: school?.code || null,
+      invite_link: inviteLink,
+      expires_in: '7d',
+    });
+  } catch (err) {
+    const message = err?.message || 'Failed to generate invitation link.';
+    const status = /secret|configured/i.test(message) ? 500 : 400;
+    res.status(status).json({ error: message });
+  }
+});
+
 router.put('/schools/:id', ...adminOnly, async (req, res) => {
   const name = String(req.body.name || '').trim();
   const location = String(req.body.location || '').trim();
@@ -589,6 +636,42 @@ router.post('/school/teachers', ...headTeacherOnly, async (req, res) => {
   } catch (err) {
     const message = err?.message || 'Failed to create teacher account.';
     const status = /exists|required|allowed|configured/i.test(message) ? 400 : 500;
+    res.status(status).json({ error: message });
+  }
+});
+
+// Head Teacher creates invitation link for teachers in their school
+router.post('/school/invitations/teacher', ...headTeacherOnly, async (req, res) => {
+  try {
+    const access = await getProvisionContext(req.user.id);
+    if (!access || access.role !== 'head_teacher' || !access.schoolId) {
+      return res.status(403).json({ error: 'Only Head Teacher can generate teacher invitation links.' });
+    }
+
+    const schoolRes = await pool.query('SELECT id, name, code FROM schools WHERE id=$1 LIMIT 1', [access.schoolId]);
+    if (schoolRes.rows.length === 0) {
+      return res.status(404).json({ error: 'School not found.' });
+    }
+    const school = schoolRes.rows[0];
+
+    const inviteLink = createInviteLink({
+      kind: 'signup_invite',
+      invite_role: 'teacher',
+      school_id: school.id,
+      inviter_id: req.user.id,
+    });
+
+    res.json({
+      role: 'teacher',
+      school_id: school.id,
+      school_name: school.name,
+      school_code: school.code || null,
+      invite_link: inviteLink,
+      expires_in: '7d',
+    });
+  } catch (err) {
+    const message = err?.message || 'Failed to generate teacher invitation link.';
+    const status = /secret|configured/i.test(message) ? 500 : 400;
     res.status(status).json({ error: message });
   }
 });

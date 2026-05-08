@@ -119,6 +119,32 @@ function cleanCount(value) {
   return Math.floor(n);
 }
 
+async function generateUniqueSchoolEmail(client, fullName, school, hint = '') {
+  const baseSeed = hint
+    ? `${sanitizeEmailPart(fullName, 'user')}.${sanitizeEmailPart(hint, 'account')}`
+    : sanitizeEmailPart(fullName, 'user');
+  const localBase = sanitizeEmailPart(baseSeed, 'user');
+  const domain = resolveSchoolDomain(school?.name, school?.email_domain);
+  let suffix = 1;
+  while (suffix <= 9999) {
+    const local = suffix === 1 ? localBase : `${localBase}${suffix}`;
+    const candidate = `${local}@${domain}`;
+    const exists = await client.query('SELECT 1 FROM users WHERE email=$1 LIMIT 1', [candidate]);
+    if (exists.rows.length === 0) return candidate;
+    suffix += 1;
+  }
+  throw new Error('Could not generate a unique school email.');
+}
+
+async function ensureSchoolCode(client, schoolId) {
+  const existing = await client.query('SELECT id, code FROM schools WHERE id=$1 LIMIT 1', [schoolId]);
+  if (existing.rows.length === 0) return null;
+  if (existing.rows[0].code) return existing.rows[0].code;
+  const code = generateSchoolCode();
+  await client.query('UPDATE schools SET code=$1 WHERE id=$2', [code, schoolId]);
+  return code;
+}
+
 // ── Account lockout (in-memory, resets on restart) ─────────────────────────
 // Map: email → { attempts: number, lockedUntil: Date|null }
 const loginAttempts = new Map();
@@ -230,6 +256,210 @@ router.get('/validate-school-code', async (req, res) => {
   } catch (err) {
     console.error('[validate-school-code]', err);
     res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// GET /validate-invite?token=... — validate invitation link for HT/Teacher
+router.get('/validate-invite', async (req, res) => {
+  const token = String(req.query.token || '').trim();
+  if (!token) return res.status(400).json({ error: 'Invitation token is required.' });
+  if (!process.env.JWT_SECRET) return res.status(500).json({ error: 'Server invite secret is not configured.' });
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (!decoded || decoded.kind !== 'signup_invite' || !['head_teacher', 'teacher'].includes(decoded.invite_role)) {
+      return res.status(400).json({ error: 'Invalid invitation link.' });
+    }
+
+    let school = null;
+    if (decoded.school_id) {
+      const schoolRes = await pool.query(
+        'SELECT id, name, code, email_domain, welcome_message FROM schools WHERE id=$1 LIMIT 1',
+        [decoded.school_id]
+      );
+      if (schoolRes.rows.length === 0) {
+        return res.status(404).json({ error: 'Invitation school was not found.' });
+      }
+      const s = schoolRes.rows[0];
+      school = {
+        id: s.id,
+        name: s.name,
+        code: s.code,
+        email_domain: resolveSchoolDomain(s.name, s.email_domain),
+        welcome_message: s.welcome_message,
+      };
+    }
+
+    if (decoded.invite_role === 'head_teacher' && school?.id) {
+      const ht = await pool.query(
+        "SELECT id FROM users WHERE school_id=$1 AND role='head_teacher' AND is_approved=TRUE LIMIT 1",
+        [school.id]
+      );
+      if (ht.rows.length > 0) {
+        return res.status(409).json({ error: 'This school already has an active Head Teacher.' });
+      }
+    }
+
+    res.json({
+      valid: true,
+      invite: {
+        role: decoded.invite_role,
+        can_create_school: decoded.invite_role === 'head_teacher' && !decoded.school_id,
+        school,
+      },
+      expires_at: decoded.exp ? new Date(decoded.exp * 1000).toISOString() : null,
+    });
+  } catch (err) {
+    const status = /expired|invalid/i.test(err?.message || '') ? 400 : 500;
+    const message = status === 400 ? 'Invitation link is invalid or expired.' : 'Internal server error.';
+    res.status(status).json({ error: message });
+  }
+});
+
+// POST /register-from-invite — create HT/Teacher account from secure invite link
+router.post('/register-from-invite', authLimiter, async (req, res) => {
+  const token = String(req.body.token || '').trim();
+  const name = String(req.body.name || '').trim();
+  const password = String(req.body.password || '');
+  const phone = String(req.body.phone || '').trim();
+  const schoolNameInput = cleanText(req.body.school_name, 200);
+
+  if (!token || !name || !password) {
+    return res.status(400).json({ error: 'Token, name, and password are required.' });
+  }
+  if (!isStrongPassword(password)) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters and include letters and numbers.' });
+  }
+  if (phone && !/^[\d\s\+\-\(\)]{7,20}$/.test(phone)) {
+    return res.status(400).json({ error: 'Invalid phone number.' });
+  }
+  if (!process.env.JWT_SECRET) {
+    return res.status(500).json({ error: 'Server invite secret is not configured.' });
+  }
+
+  let decoded;
+  try {
+    decoded = jwt.verify(token, process.env.JWT_SECRET);
+  } catch (err) {
+    return res.status(400).json({ error: 'Invitation link is invalid or expired.' });
+  }
+
+  if (!decoded || decoded.kind !== 'signup_invite' || !['head_teacher', 'teacher'].includes(decoded.invite_role)) {
+    return res.status(400).json({ error: 'Invalid invitation link.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    let school = null;
+    if (decoded.school_id) {
+      const schoolRes = await client.query(
+        'SELECT id, name, code, email_domain, welcome_message FROM schools WHERE id=$1 LIMIT 1',
+        [decoded.school_id]
+      );
+      if (schoolRes.rows.length === 0) {
+        throw new Error('Invitation school was not found.');
+      }
+      school = schoolRes.rows[0];
+    }
+
+    let role = decoded.invite_role;
+    if (role === 'head_teacher') {
+      if (!school?.id) {
+        if (!schoolNameInput) {
+          const err = new Error('School name is required to create your school account.');
+          err.statusCode = 400;
+          throw err;
+        }
+
+        const emailDomain = resolveSchoolDomain(schoolNameInput, schoolNameInput);
+        const code = generateSchoolCode();
+        const welcomeMessage = `Murakaza neza kuri ${schoolNameInput}. School Code yanyu ni ${code}. UClass ibifurije umwaka mwiza w'amasomo.`;
+        const insertedSchool = await client.query(
+          `INSERT INTO schools (name, email_domain, code, welcome_message)
+           VALUES ($1,$2,$3,$4)
+           RETURNING id, name, code, email_domain, welcome_message`,
+          [schoolNameInput, emailDomain, code, welcomeMessage]
+        );
+        school = insertedSchool.rows[0];
+      }
+
+      const htCheck = await client.query(
+        "SELECT id FROM users WHERE school_id=$1 AND role='head_teacher' AND is_approved=TRUE LIMIT 1",
+        [school.id]
+      );
+      if (htCheck.rows.length > 0) {
+        const err = new Error('This school already has an active Head Teacher.');
+        err.statusCode = 409;
+        throw err;
+      }
+    }
+
+    if (role === 'teacher') {
+      if (!school?.id) {
+        const err = new Error('This teacher invitation is missing school information.');
+        err.statusCode = 400;
+        throw err;
+      }
+      const htCheck = await client.query(
+        "SELECT id FROM users WHERE school_id=$1 AND role='head_teacher' AND is_approved=TRUE LIMIT 1",
+        [school.id]
+      );
+      if (htCheck.rows.length === 0) {
+        const err = new Error('This school has no active Head Teacher yet.');
+        err.statusCode = 400;
+        throw err;
+      }
+    }
+
+    const generatedEmail = await generateUniqueSchoolEmail(client, name, school, role === 'head_teacher' ? 'ht' : 'teacher');
+    const hashed = await bcrypt.hash(password, 12);
+    const userInserted = await client.query(
+      `INSERT INTO users (name, email, password, role, school_id, is_approved, phone)
+       VALUES ($1,$2,$3,$4,$5,TRUE,$6)
+       RETURNING id, name, email, role, school_id, is_approved`,
+      [name, generatedEmail, hashed, role, school.id, phone || null]
+    );
+    const user = userInserted.rows[0];
+
+    const schoolCode = await ensureSchoolCode(client, school.id);
+    const hydratedSchoolDomain = resolveSchoolDomain(school.name, school.email_domain);
+
+    if (role === 'head_teacher') {
+      await client.query(
+        `UPDATE schools
+           SET head_teacher_name = COALESCE(NULLIF($1, ''), head_teacher_name),
+               head_teacher_email = COALESCE(NULLIF($2, ''), head_teacher_email),
+               email_domain = $3
+         WHERE id=$4`,
+        [name, generatedEmail, hydratedSchoolDomain, school.id]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    const authToken = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    audit('register_from_invite', { role, user_id: user.id, school_id: school.id });
+    res.status(201).json({
+      token: authToken,
+      user,
+      professional_email: generatedEmail,
+      school_code: schoolCode,
+      school_name: school.name,
+      school_email_domain: hydratedSchoolDomain,
+      note: role === 'teacher'
+        ? 'Use the School Code with your Head Teacher approval flow to create class codes for students.'
+        : 'You now have full Head Teacher school access.',
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    const message = err?.message || 'Internal server error.';
+    const status = err?.statusCode || (/required|invalid|exists|active|missing|not found/i.test(message) ? 400 : 500);
+    console.error('[register-from-invite]', err);
+    res.status(status).json({ error: message });
+  } finally {
+    client.release();
   }
 });
 
