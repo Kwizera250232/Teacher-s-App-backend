@@ -109,7 +109,7 @@ async function getProvisionContext(userId) {
     role: row.role,
     schoolId: row.school_id,
     schoolName: row.school_name,
-    emailDomain: normalizeEmailDomain(row.email_domain),
+    emailDomain: normalizeEmailDomain(row.email_domain) || schoolDomainFromName(row.school_name),
     isSchoolIT: row.is_school_it === true,
     allowed,
   };
@@ -127,10 +127,7 @@ async function createTeacherAccount({
   manualPassword,
   isSchoolIT = false,
 }) {
-  const requiredDomain = normalizeEmailDomain(schoolEmailDomain);
-  if (!requiredDomain) {
-    throw new Error('School email domain is not configured. Contact School IT or Head Teacher first.');
-  }
+  const requiredDomain = normalizeEmailDomain(schoolEmailDomain) || schoolDomainFromName(schoolName);
 
   let email = manualEmail;
   if (!email && autoGenerateEmail) {
@@ -647,13 +644,12 @@ router.post('/students', ...adminOnly, async (req, res) => {
     if (schoolRes.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
     const school = schoolRes.rows[0];
 
-    const requiredDomain = normalizeEmailDomain(school.email_domain);
+    const requiredDomain = normalizeEmailDomain(school.email_domain) || schoolDomainFromName(school.name);
     let email = manualEmail;
     if (!email && autoGenerateEmail) {
       email = await generateUniqueStudentEmailWithLocal(pool, emailLocalPart || name, school);
     }
     if (!email) return res.status(400).json({ error: 'Email is required when auto generation is off.' });
-    if (!requiredDomain) return res.status(400).json({ error: schoolEmailPolicyError(requiredDomain) });
 
     const manualDomain = emailDomainOf(email);
     if (manualEmail && manualDomain !== requiredDomain) {
@@ -710,10 +706,7 @@ router.post('/students/bulk-create', ...adminOnly, async (req, res) => {
     const schoolRes = await pool.query('SELECT id, name, email_domain FROM schools WHERE id=$1', [schoolId]);
     if (schoolRes.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
     const school = schoolRes.rows[0];
-    const requiredDomain = normalizeEmailDomain(school.email_domain);
-    if (!requiredDomain) {
-      return res.status(400).json({ error: schoolEmailPolicyError(requiredDomain) });
-    }
+    const requiredDomain = normalizeEmailDomain(school.email_domain) || schoolDomainFromName(school.name);
 
     const created = [];
     const skipped = [];
@@ -770,11 +763,8 @@ router.post('/school/students', ...schoolProvisionAccess, async (req, res) => {
     if (!access.schoolId) {
       return res.status(400).json({ error: 'Your account is not linked to a school.' });
     }
-    if (!access.emailDomain) {
-      return res.status(400).json({ error: schoolEmailPolicyError('') });
-    }
-
-    const school = { id: access.schoolId, name: access.schoolName, email_domain: access.emailDomain };
+    const effectiveDomain = access.emailDomain || schoolDomainFromName(access.schoolName);
+    const school = { id: access.schoolId, name: access.schoolName, email_domain: effectiveDomain };
 
     let email = manualEmail;
     if (!email && autoGenerateEmail) {
@@ -783,8 +773,8 @@ router.post('/school/students', ...schoolProvisionAccess, async (req, res) => {
     if (!email) return res.status(400).json({ error: 'Email is required when auto generation is off.' });
 
     const manualDomain = emailDomainOf(email);
-    if (manualEmail && manualDomain !== access.emailDomain) {
-      return res.status(403).json({ error: schoolEmailPolicyError(access.emailDomain) });
+    if (manualEmail && manualDomain !== effectiveDomain) {
+      return res.status(403).json({ error: schoolEmailPolicyError(effectiveDomain) });
     }
 
     const existing = await pool.query('SELECT id FROM users WHERE email=$1 LIMIT 1', [email]);
