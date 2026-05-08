@@ -65,6 +65,20 @@ function schoolEmailPolicyError(expectedDomain) {
   return 'Only school email addresses ending with your school .edu domain are allowed. Contact School IT or Head Teacher for an official school email.';
 }
 
+async function ensureSchoolDomain(client, school) {
+  const expectedDomain = resolveSchoolDomain(school?.name, school?.email_domain);
+  const schoolId = Number(school?.id);
+
+  if (Number.isInteger(schoolId) && schoolId > 0 && school?.email_domain !== expectedDomain) {
+    await client.query('UPDATE schools SET email_domain=$1 WHERE id=$2', [expectedDomain, schoolId]);
+  }
+
+  return {
+    ...(school || {}),
+    email_domain: expectedDomain,
+  };
+}
+
 function generateStrongPassword(length = 10) {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
   let out = '';
@@ -82,7 +96,8 @@ async function generateUniqueStudentEmail(client, studentName, school) {
 
 async function generateUniqueStudentEmailWithLocal(client, preferredLocalPart, school) {
   const localBase = sanitizeEmailPart(preferredLocalPart, 'student');
-  const domain = resolveSchoolDomain(school?.name, school?.email_domain);
+  const hydratedSchool = await ensureSchoolDomain(client, school || {});
+  const domain = hydratedSchool.email_domain;
   let suffix = 1;
   while (suffix <= 9999) {
     const local = suffix === 1 ? localBase : `${localBase}${suffix}`;
@@ -131,14 +146,19 @@ async function createTeacherAccount({
   manualPassword,
   isSchoolIT = false,
 }) {
-  const requiredDomain = resolveSchoolDomain(schoolName, schoolEmailDomain);
+  const hydratedSchool = await ensureSchoolDomain(pool, {
+    id: schoolId,
+    name: schoolName,
+    email_domain: schoolEmailDomain,
+  });
+  const requiredDomain = hydratedSchool.email_domain;
 
   let email = manualEmail;
   if (!email && autoGenerateEmail) {
     email = await generateUniqueStudentEmailWithLocal(
       pool,
       emailLocalPart || name,
-      { id: schoolId, name: schoolName, email_domain: requiredDomain }
+      hydratedSchool
     );
   }
   if (!email) {
@@ -638,9 +658,9 @@ router.post('/students', ...adminOnly, async (req, res) => {
   try {
     const schoolRes = await pool.query('SELECT id, name, email_domain FROM schools WHERE id=$1', [schoolId]);
     if (schoolRes.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
-    const school = schoolRes.rows[0];
+    const school = await ensureSchoolDomain(pool, schoolRes.rows[0]);
 
-    const requiredDomain = resolveSchoolDomain(school.name, school.email_domain);
+    const requiredDomain = school.email_domain;
     let email = manualEmail;
     if (!email && autoGenerateEmail) {
       email = await generateUniqueStudentEmailWithLocal(pool, emailLocalPart || name, school);
@@ -701,8 +721,8 @@ router.post('/students/bulk-create', ...adminOnly, async (req, res) => {
   try {
     const schoolRes = await pool.query('SELECT id, name, email_domain FROM schools WHERE id=$1', [schoolId]);
     if (schoolRes.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
-    const school = schoolRes.rows[0];
-    const requiredDomain = resolveSchoolDomain(school.name, school.email_domain);
+    const school = await ensureSchoolDomain(pool, schoolRes.rows[0]);
+    const requiredDomain = school.email_domain;
 
     const created = [];
     const skipped = [];
@@ -759,8 +779,12 @@ router.post('/school/students', ...schoolProvisionAccess, async (req, res) => {
     if (!access.schoolId) {
       return res.status(400).json({ error: 'Your account is not linked to a school.' });
     }
-    const effectiveDomain = access.emailDomain || schoolDomainFromName(access.schoolName);
-    const school = { id: access.schoolId, name: access.schoolName, email_domain: effectiveDomain };
+    const school = await ensureSchoolDomain(pool, {
+      id: access.schoolId,
+      name: access.schoolName,
+      email_domain: access.emailDomain,
+    });
+    const effectiveDomain = school.email_domain;
 
     let email = manualEmail;
     if (!email && autoGenerateEmail) {
