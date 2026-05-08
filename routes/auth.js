@@ -382,7 +382,7 @@ router.post('/register', authLimiter, async (req, res) => {
         }
         const requiredDomain = normalizeEmailDomain(schoolCheck.rows[0].email_domain);
         const userDomain = emailDomainOf(email);
-        if (!requiredDomain || userDomain !== requiredDomain) {
+        if (requiredDomain && userDomain !== requiredDomain) {
           return res.status(403).json({ error: schoolEmailPolicyError(requiredDomain) });
         }
         schoolCode = schoolCode || schoolCheck.rows[0].code;
@@ -400,7 +400,7 @@ router.post('/register', authLimiter, async (req, res) => {
       }
       const requiredDomain = normalizeEmailDomain(schoolCheck.rows[0].email_domain);
       const userDomain = emailDomainOf(email);
-      if (!requiredDomain || userDomain !== requiredDomain) {
+      if (requiredDomain && userDomain !== requiredDomain) {
         return res.status(403).json({ error: schoolEmailPolicyError(requiredDomain) });
       }
     }
