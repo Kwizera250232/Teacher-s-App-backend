@@ -1,16 +1,19 @@
 const express = require('express');
+const fs = require('fs');
 const multer = require('multer');
 const path = require('path');
-const crypto = require('crypto');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
+const homeworkUploadDir = path.join(__dirname, '../uploads');
+if (!fs.existsSync(homeworkUploadDir)) fs.mkdirSync(homeworkUploadDir, { recursive: true });
+
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, 'uploads/'),
+  destination: (req, file, cb) => cb(null, homeworkUploadDir),
   filename: (req, file, cb) => {
-    const unique = `${Date.now()}-${crypto.randomUUID()}`;
+    const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
     cb(null, unique + path.extname(file.originalname));
   },
 });

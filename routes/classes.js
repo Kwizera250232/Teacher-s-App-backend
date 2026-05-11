@@ -17,14 +17,6 @@ function generateClassCode() {
   return code;
 }
 
-function safeEqualText(a, b) {
-  const left = Buffer.from(String(a || ''), 'utf8');
-  const right = Buffer.from(String(b || ''), 'utf8');
-  if (left.length === 0 || right.length === 0) return false;
-  if (left.length !== right.length) return false;
-  return crypto.timingSafeEqual(left, right);
-}
-
 // Rate limiter for public preview endpoint (prevent brute-force of class codes)
 const previewLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -86,64 +78,14 @@ router.get('/my', authenticateToken, requireRole('student'), async (req, res) =>
   }
 });
 
-// GET recent announcements across joined classes (student dashboard bottom section)
-router.get('/my-announcements', authenticateToken, requireRole('student'), async (req, res) => {
-  try {
-    const result = await pool.query(
-      `SELECT a.id,
-              a.class_id,
-              a.content,
-              a.image_path,
-              a.image_name,
-              a.created_at,
-              c.name AS class_name,
-              u.name AS teacher_name
-       FROM announcements a
-       JOIN classes c ON c.id = a.class_id
-       JOIN class_members cm ON cm.class_id = a.class_id
-       JOIN users u ON u.id = a.teacher_id
-       WHERE cm.student_id = $1
-       ORDER BY a.created_at DESC
-       LIMIT 30`,
-      [req.user.id]
-    );
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: 'Internal server error.' });
-  }
-});
-
 // POST create class (teacher)
 router.post('/', authenticateToken, requireRole('teacher'), async (req, res) => {
   const name = (req.body.name || '').trim();
   const subject = (req.body.subject || '').trim();
-  const headTeacherCode = (req.body.head_teacher_code || '').trim().toUpperCase();
   if (!name) return res.status(400).json({ error: 'Class name is required.' });
   if (name.length > 150) return res.status(400).json({ error: 'Class name is too long.' });
   if (subject.length > 150) return res.status(400).json({ error: 'Subject name is too long.' });
-  if (!headTeacherCode) return res.status(400).json({ error: 'Head Teacher Code is required.' });
   try {
-    const teacherSchool = await pool.query(
-      `SELECT s.code
-       FROM users u
-       LEFT JOIN schools s ON s.id = u.school_id
-       WHERE u.id = $1`,
-      [req.user.id]
-    );
-
-    if (teacherSchool.rows.length === 0) {
-      return res.status(404).json({ error: 'Teacher account not found.' });
-    }
-
-    const schoolCode = (teacherSchool.rows[0].code || '').trim().toUpperCase();
-    if (!schoolCode) {
-      return res.status(403).json({ error: 'Your school does not have a Head Teacher Code configured yet. Contact admin.' });
-    }
-
-    if (!safeEqualText(headTeacherCode, schoolCode)) {
-      return res.status(403).json({ error: 'Invalid Head Teacher Code.' });
-    }
-
     let code;
     let unique = false;
     for (let attempt = 0; attempt < 10; attempt++) {
@@ -215,65 +157,13 @@ router.get('/:id/students', authenticateToken, requireRole('teacher'), async (re
     if (classCheck.rows[0].teacher_id !== req.user.id) return res.status(403).json({ error: 'Forbidden.' });
 
     const result = await pool.query(
-      `SELECT u.id,
-              COALESCE(NULLIF(TRIM(u.name), ''), split_part(u.email, '@', 1)) AS name,
-              u.email,
-              u.role,
-              p.avatar_path,
-              cm.joined_at,
-              s.name AS school_name
-       FROM class_members cm
-       JOIN users u ON cm.student_id = u.id
-       LEFT JOIN user_profiles p ON p.user_id = u.id
-       LEFT JOIN schools s ON u.school_id = s.id
+      `SELECT u.id, u.name, u.email, cm.joined_at
+       FROM class_members cm JOIN users u ON cm.student_id = u.id
        WHERE cm.class_id = $1 ORDER BY cm.joined_at`,
       [req.params.id]
     );
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: 'Internal server error.' });
-  }
-});
-
-// GET classmates for class page (student/teacher)
-router.get('/:id/classmates', authenticateToken, async (req, res) => {
-  try {
-    const classResult = await pool.query(
-      'SELECT id, teacher_id FROM classes WHERE id = $1',
-      [req.params.id]
-    );
-    if (classResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Class not found.' });
-    }
-
-    const cls = classResult.rows[0];
-
-    if (req.user.role === 'teacher') {
-      if (cls.teacher_id !== req.user.id) return res.status(403).json({ error: 'Forbidden.' });
-    } else if (req.user.role === 'student') {
-      const member = await pool.query(
-        'SELECT 1 FROM class_members WHERE class_id = $1 AND student_id = $2',
-        [cls.id, req.user.id]
-      );
-      if (member.rows.length === 0) return res.status(403).json({ error: 'Forbidden.' });
-    }
-
-    const result = await pool.query(
-      `SELECT u.id,
-              COALESCE(NULLIF(TRIM(u.name), ''), split_part(u.email, '@', 1)) AS name,
-              u.role,
-              p.avatar_path
-       FROM class_members cm
-       JOIN users u ON u.id = cm.student_id
-       LEFT JOIN user_profiles p ON p.user_id = u.id
-       WHERE cm.class_id = $1
-       ORDER BY cm.joined_at ASC`,
-      [cls.id]
-    );
-
-    res.json(result.rows);
-  } catch (err) {
-    console.error('[classes] classmates error:', err.message);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });

@@ -4,16 +4,6 @@ CREATE TABLE IF NOT EXISTS schools (
   name VARCHAR(255) NOT NULL UNIQUE,
   location VARCHAR(255),
   code VARCHAR(50),
-  email_domain VARCHAR(255),
-  district VARCHAR(120),
-  sector VARCHAR(120),
-  cell VARCHAR(120),
-  village VARCHAR(120),
-  student_count INTEGER NOT NULL DEFAULT 0,
-  head_teacher_name VARCHAR(200),
-  head_teacher_phone VARCHAR(30),
-  head_teacher_email VARCHAR(255),
-  welcome_message TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -47,8 +37,6 @@ CREATE TABLE IF NOT EXISTS class_members (
   joined_at TIMESTAMP DEFAULT NOW(),
   UNIQUE(class_id, student_id)
 );
-CREATE INDEX IF NOT EXISTS idx_class_members_student ON class_members(student_id);
-CREATE INDEX IF NOT EXISTS idx_class_members_class ON class_members(class_id);
 
 -- Notes
 CREATE TABLE IF NOT EXISTS notes (
@@ -126,8 +114,6 @@ CREATE TABLE IF NOT EXISTS announcements (
   class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
   teacher_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   content TEXT NOT NULL,
-  image_path VARCHAR(500),
-  image_name VARCHAR(255),
   created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -162,31 +148,6 @@ CREATE TABLE IF NOT EXISTS platform_settings (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Nursery media auto-rotation settings
-CREATE TABLE IF NOT EXISTS nursery_media_settings (
-  id SERIAL PRIMARY KEY,
-  interval_days INTEGER NOT NULL DEFAULT 3 CHECK (interval_days BETWEEN 1 AND 30),
-  items_per_group INTEGER NOT NULL DEFAULT 2 CHECK (items_per_group BETWEEN 1 AND 10),
-  rotation_anchor TIMESTAMP NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
-
--- Nursery songs and recorded subjects
-CREATE TABLE IF NOT EXISTS nursery_media_items (
-  id SERIAL PRIMARY KEY,
-  title VARCHAR(200) NOT NULL,
-  subject VARCHAR(120),
-  lesson_kind VARCHAR(20) NOT NULL CHECK (lesson_kind IN ('song', 'subject')),
-  media_type VARCHAR(10) NOT NULL CHECK (media_type IN ('audio', 'video')),
-  media_url TEXT NOT NULL,
-  enabled BOOLEAN NOT NULL DEFAULT TRUE,
-  sort_order INTEGER NOT NULL DEFAULT 0,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_nursery_media_items_enabled ON nursery_media_items(enabled);
-CREATE INDEX IF NOT EXISTS idx_nursery_media_items_sort ON nursery_media_items(sort_order, id);
-
 -- Discussions
 CREATE TABLE IF NOT EXISTS discussions (
   id SERIAL PRIMARY KEY,
@@ -218,78 +179,3 @@ CREATE TABLE IF NOT EXISTS ai_logs (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
--- PWA Installations
-CREATE TABLE IF NOT EXISTS pwa_installs (
-  id SERIAL PRIMARY KEY,
-  user_agent TEXT,
-  installed_at TIMESTAMP DEFAULT NOW()
-);
-
--- User Profiles (extended info for students & teachers)
-CREATE TABLE IF NOT EXISTS user_profiles (
-  id SERIAL PRIMARY KEY,
-  user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-  avatar_path VARCHAR(500),
-  phone VARCHAR(30),
-  home_address TEXT,
-  schools TEXT,            -- JSON array of school names
-  dreams TEXT,
-  favorite_lessons TEXT,   -- JSON array
-  hobbies TEXT,            -- JSON array (min 2)
-  fears TEXT,
-  updated_at TIMESTAMP DEFAULT NOW()
-);
-
--- Private Messages (between users in same class or student↔teacher)
-CREATE TABLE IF NOT EXISTS messages (
-  id SERIAL PRIMARY KEY,
-  sender_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  receiver_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  content TEXT NOT NULL DEFAULT '',
-  image_path VARCHAR(500),
-  is_read BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMP DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver_id);
-CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id);
-
--- Discussion Likes
-CREATE TABLE IF NOT EXISTS discussion_likes (
-  id SERIAL PRIMARY KEY,
-  discussion_id INTEGER NOT NULL REFERENCES discussions(id) ON DELETE CASCADE,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  created_at TIMESTAMP DEFAULT NOW(),
-  UNIQUE(discussion_id, user_id)
-);
-
--- Discussion Comments
-CREATE TABLE IF NOT EXISTS discussion_comments (
-  id SERIAL PRIMARY KEY,
-  discussion_id INTEGER NOT NULL REFERENCES discussions(id) ON DELETE CASCADE,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  content TEXT NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW()
-);
-
--- Subscriptions (follow system)
-CREATE TABLE IF NOT EXISTS subscriptions (
-  id SERIAL PRIMARY KEY,
-  subscriber_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  target_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  created_at TIMESTAMP DEFAULT NOW(),
-  UNIQUE(subscriber_id, target_id)
-);
-CREATE INDEX IF NOT EXISTS idx_subscriptions_target ON subscriptions(target_id);
-CREATE INDEX IF NOT EXISTS idx_subscriptions_subscriber ON subscriptions(subscriber_id);
-
--- Student Shares (lessons, dreams, motivation — visible to subscribers only)
-CREATE TABLE IF NOT EXISTS student_shares (
-  id SERIAL PRIMARY KEY,
-  student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  type VARCHAR(20) NOT NULL CHECK (type IN ('lesson','dream','motivation')),
-  content TEXT NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW(),
-  visibility VARCHAR(20) NOT NULL DEFAULT 'subscribers' CHECK (visibility IN ('subscribers'))
-);
-CREATE INDEX IF NOT EXISTS idx_student_shares_type ON student_shares(type);
-CREATE INDEX IF NOT EXISTS idx_student_shares_student ON student_shares(student_id);
