@@ -2,7 +2,6 @@
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
 const pool = require('../db');
 const { authenticateToken } = require('../middleware/auth');
@@ -24,63 +23,6 @@ if (!fs.existsSync(uploadDir)) {
 const safeArray = (val) => Array.isArray(val) ? val : [];
 
 const ALLOWED_EXT = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function isValidEmail(email) {
-  return typeof email === 'string' && EMAIL_RE.test(email.trim());
-}
-
-function normalizeEmailDomain(value) {
-  const raw = String(value || '').trim().toLowerCase();
-  if (!raw) return '';
-
-  const noProtocol = raw.replace(/^https?:\/\//, '').replace(/^mailto:/, '');
-  const fromEmail = noProtocol.includes('@') ? noProtocol.split('@').pop() : noProtocol;
-  const domain = fromEmail
-    .split('/')[0]
-    .replace(/[^a-z0-9.-]/g, '')
-    .replace(/^\.+|\.+$/g, '')
-    .replace(/\.{2,}/g, '.');
-
-  if (!/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i.test(domain)) {
-    return '';
-  }
-  return domain;
-}
-
-function sanitizeEmailPart(value, fallback = 'user') {
-  const cleaned = String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '.')
-    .replace(/^\.+|\.+$/g, '')
-    .replace(/\.{2,}/g, '.');
-  return cleaned || fallback;
-}
-
-function schoolDomainFromName(schoolName) {
-  const compact = sanitizeEmailPart(schoolName, 'school').replace(/\./g, '');
-  const root = compact.length >= 3 ? compact : 'school';
-  return `${root}.edu`;
-}
-
-function resolveSchoolDomain(schoolName, rawDomain) {
-  return schoolDomainFromName(schoolName || rawDomain || 'school');
-}
-
-function emailDomainOf(email) {
-  const val = String(email || '').trim().toLowerCase();
-  if (!val.includes('@')) return '';
-  return normalizeEmailDomain(val.split('@').pop());
-}
-
-function schoolEmailPolicyError(expectedDomain) {
-  if (expectedDomain) {
-    return `Only school email addresses ending with @${expectedDomain} are allowed. Contact School IT for your official school email.`;
-  }
-  return 'Only school email addresses ending with your school .edu domain are allowed. Contact School IT or Head Teacher first.';
-}
 
 // â”€â”€ Avatar upload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const storage = multer.diskStorage({
@@ -251,94 +193,6 @@ router.put('/me', auth, async (req, res) => {
     );
     res.json({ ok: true });
   } catch {
-    res.status(500).json({ error: 'Internal server error.' });
-  }
-});
-
-// PUT /api/profile/me/login-email — change login email for existing account
-router.put('/me/login-email', auth, async (req, res) => {
-  const currentPassword = String(req.body.current_password || '');
-  const emailLocalPart = String(req.body.email_local_part || '').trim();
-  const manualEmail = String(req.body.new_email || '').trim().toLowerCase();
-
-  if (!currentPassword) {
-    return res.status(400).json({ error: 'Current password is required.' });
-  }
-  if (!emailLocalPart && !manualEmail) {
-    return res.status(400).json({ error: 'Provide new_email or email_local_part.' });
-  }
-
-  try {
-    const userRes = await pool.query(
-      `SELECT id, name, email, password, role, school_id
-       FROM users
-       WHERE id = $1
-       LIMIT 1`,
-      [req.user.id]
-    );
-    if (userRes.rows.length === 0) return res.status(404).json({ error: 'User not found.' });
-
-    const account = userRes.rows[0];
-    const passwordOk = await bcrypt.compare(currentPassword, account.password);
-    if (!passwordOk) return res.status(401).json({ error: 'Current password is incorrect.' });
-
-    let nextEmail = manualEmail;
-
-    if (['student', 'teacher', 'head_teacher'].includes(account.role)) {
-      if (!account.school_id) {
-        return res.status(400).json({ error: 'Your account is not linked to a school.' });
-      }
-      const schoolRes = await pool.query('SELECT name, email_domain FROM schools WHERE id = $1 LIMIT 1', [account.school_id]);
-      if (schoolRes.rows.length === 0) {
-        return res.status(400).json({ error: 'Your school was not found.' });
-      }
-      const requiredDomain = resolveSchoolDomain(schoolRes.rows[0].name, schoolRes.rows[0].email_domain);
-
-      if (!nextEmail) {
-        nextEmail = `${sanitizeEmailPart(emailLocalPart || account.name, 'user')}@${requiredDomain}`;
-      }
-
-      if (!isValidEmail(nextEmail)) {
-        return res.status(400).json({ error: 'Invalid email address.' });
-      }
-
-      const domain = emailDomainOf(nextEmail);
-      if (domain !== requiredDomain) {
-        return res.status(403).json({ error: schoolEmailPolicyError(requiredDomain) });
-      }
-    } else {
-      if (!nextEmail) {
-        return res.status(400).json({ error: 'Admins must provide full email in new_email.' });
-      }
-      if (!isValidEmail(nextEmail)) {
-        return res.status(400).json({ error: 'Invalid email address.' });
-      }
-    }
-
-    if (nextEmail === String(account.email || '').toLowerCase()) {
-      return res.status(400).json({ error: 'This is already your current login email.' });
-    }
-
-    const exists = await pool.query('SELECT id FROM users WHERE email = $1 AND id <> $2 LIMIT 1', [nextEmail, account.id]);
-    if (exists.rows.length > 0) {
-      return res.status(409).json({ error: 'That email is already used by another account.' });
-    }
-
-    const updated = await pool.query(
-      `UPDATE users
-       SET email = $1
-       WHERE id = $2
-       RETURNING id, name, email, role, school_id`,
-      [nextEmail, account.id]
-    );
-
-    res.json({
-      ok: true,
-      message: 'Login email updated successfully.',
-      user: updated.rows[0],
-    });
-  } catch (err) {
-    console.error('[profile/me/login-email PUT]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });

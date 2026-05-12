@@ -257,3 +257,19 @@ CREATE TABLE IF NOT EXISTS student_shares (
 );
 CREATE INDEX IF NOT EXISTS idx_student_shares_type ON student_shares(type);
 CREATE INDEX IF NOT EXISTS idx_student_shares_student ON student_shares(student_id);
+
+-- CAT Marks (Continuous Assessment Test / Record Students Marks)
+CREATE TABLE IF NOT EXISTS cat_marks (
+  id SERIAL PRIMARY KEY,
+  class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  test_number INTEGER NOT NULL,
+  marks_obtained INTEGER NOT NULL,
+  total_marks INTEGER NOT NULL DEFAULT 100,
+  test_date DATE DEFAULT CURRENT_DATE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(class_id, student_id, test_number)
+);
+CREATE INDEX IF NOT EXISTS idx_cat_marks_class ON cat_marks(class_id);
+CREATE INDEX IF NOT EXISTS idx_cat_marks_student ON cat_marks(student_id);

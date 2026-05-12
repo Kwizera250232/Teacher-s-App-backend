@@ -1,39 +1,8 @@
 const express = require('express');
-const multer = require('multer');
-const path = require('path');
-const crypto = require('crypto');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
-
-// Keep class announcements compatible while adding optional image support.
-pool.query(`
-  ALTER TABLE announcements
-  ADD COLUMN IF NOT EXISTS image_path VARCHAR(500),
-  ADD COLUMN IF NOT EXISTS image_name VARCHAR(255)
-`).catch((err) => console.error('[announcements migration]', err.message));
-
-const announcementImageStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const fs = require('fs');
-    const dir = path.join(__dirname, '../uploads/announcement_images');
-    fs.mkdirSync(dir, { recursive: true });
-    cb(null, dir);
-  },
-  filename: (req, file, cb) => {
-    cb(null, `${Date.now()}-${crypto.randomUUID()}${path.extname(file.originalname)}`);
-  }
-});
-
-const uploadAnnouncementImage = multer({
-  storage: announcementImageStorage,
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) cb(null, true);
-    else cb(new Error('Only image files are allowed.'));
-  }
-});
 
 // GET announcements for a class
 router.get('/:classId/announcements', authenticateToken, async (req, res) => {
@@ -51,18 +20,13 @@ router.get('/:classId/announcements', authenticateToken, async (req, res) => {
 });
 
 // POST create announcement (teacher)
-router.post('/:classId/announcements', authenticateToken, requireRole('teacher'), uploadAnnouncementImage.single('image'), async (req, res) => {
-  const body = req.body || {};
-  const content = (body.content || '').trim();
-  const imagePath = req.file ? `/uploads/announcement_images/${req.file.filename}` : null;
-  const imageName = req.file ? req.file.originalname : null;
-  if (!content && !imagePath) {
-    return res.status(400).json({ error: 'Write content or attach an image.' });
-  }
+router.post('/:classId/announcements', authenticateToken, requireRole('teacher'), async (req, res) => {
+  const { content } = req.body;
+  if (!content) return res.status(400).json({ error: 'Content is required.' });
   try {
     const result = await pool.query(
-      'INSERT INTO announcements (class_id, teacher_id, content, image_path, image_name) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-      [req.params.classId, req.user.id, content, imagePath, imageName]
+      'INSERT INTO announcements (class_id, teacher_id, content) VALUES ($1,$2,$3) RETURNING *',
+      [req.params.classId, req.user.id, content]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {

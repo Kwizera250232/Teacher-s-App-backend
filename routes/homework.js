@@ -41,6 +41,7 @@ router.post('/:classId/homework', authenticateToken, requireRole('teacher'), upl
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
+    console.error('[homework] create error:', err.message);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
