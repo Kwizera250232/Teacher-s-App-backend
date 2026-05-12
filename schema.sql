@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS class_members (
   joined_at TIMESTAMP DEFAULT NOW(),
   UNIQUE(class_id, student_id)
 );
+CREATE INDEX IF NOT EXISTS idx_class_members_student ON class_members(student_id);
+CREATE INDEX IF NOT EXISTS idx_class_members_class ON class_members(class_id);
 
 -- Notes
 CREATE TABLE IF NOT EXISTS notes (
@@ -70,6 +72,7 @@ CREATE TABLE IF NOT EXISTS homework_submissions (
   text_response TEXT,
   grade INTEGER,
   feedback TEXT,
+  teacher_answer TEXT,
   submitted_at TIMESTAMP DEFAULT NOW(),
   graded_at TIMESTAMP,
   UNIQUE(homework_id, student_id)
@@ -179,3 +182,78 @@ CREATE TABLE IF NOT EXISTS ai_logs (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- PWA Installations
+CREATE TABLE IF NOT EXISTS pwa_installs (
+  id SERIAL PRIMARY KEY,
+  user_agent TEXT,
+  installed_at TIMESTAMP DEFAULT NOW()
+);
+
+-- User Profiles (extended info for students & teachers)
+CREATE TABLE IF NOT EXISTS user_profiles (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  avatar_path VARCHAR(500),
+  phone VARCHAR(30),
+  home_address TEXT,
+  schools TEXT,            -- JSON array of school names
+  dreams TEXT,
+  favorite_lessons TEXT,   -- JSON array
+  hobbies TEXT,            -- JSON array (min 2)
+  fears TEXT,
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Private Messages (between users in same class or student↔teacher)
+CREATE TABLE IF NOT EXISTS messages (
+  id SERIAL PRIMARY KEY,
+  sender_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  receiver_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT NOT NULL DEFAULT '',
+  image_path VARCHAR(500),
+  is_read BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver_id);
+CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id);
+
+-- Discussion Likes
+CREATE TABLE IF NOT EXISTS discussion_likes (
+  id SERIAL PRIMARY KEY,
+  discussion_id INTEGER NOT NULL REFERENCES discussions(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(discussion_id, user_id)
+);
+
+-- Discussion Comments
+CREATE TABLE IF NOT EXISTS discussion_comments (
+  id SERIAL PRIMARY KEY,
+  discussion_id INTEGER NOT NULL REFERENCES discussions(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Subscriptions (follow system)
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id SERIAL PRIMARY KEY,
+  subscriber_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  target_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(subscriber_id, target_id)
+);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_target ON subscriptions(target_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_subscriber ON subscriptions(subscriber_id);
+
+-- Student Shares (lessons, dreams, motivation — visible to subscribers only)
+CREATE TABLE IF NOT EXISTS student_shares (
+  id SERIAL PRIMARY KEY,
+  student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type VARCHAR(20) NOT NULL CHECK (type IN ('lesson','dream','motivation')),
+  content TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  visibility VARCHAR(20) NOT NULL DEFAULT 'subscribers' CHECK (visibility IN ('subscribers'))
+);
+CREATE INDEX IF NOT EXISTS idx_student_shares_type ON student_shares(type);
+CREATE INDEX IF NOT EXISTS idx_student_shares_student ON student_shares(student_id);

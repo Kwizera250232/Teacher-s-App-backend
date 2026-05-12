@@ -24,14 +24,6 @@ pool.query(`
   ALTER TABLE student_shares ADD COLUMN IF NOT EXISTS school VARCHAR(200);
   ALTER TABLE student_shares ADD COLUMN IF NOT EXISTS class_name VARCHAR(100);
   ALTER TABLE student_shares ADD COLUMN IF NOT EXISTS teacher_name VARCHAR(100);
-  ALTER TABLE student_shares ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'pending';
-  ALTER TABLE student_shares ADD COLUMN IF NOT EXISTS reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
-  ALTER TABLE student_shares ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;
-  ALTER TABLE student_shares ADD COLUMN IF NOT EXISTS review_note TEXT;
-  ALTER TABLE student_shares DROP CONSTRAINT IF EXISTS student_shares_status_check;
-  ALTER TABLE student_shares ADD CONSTRAINT student_shares_status_check
-    CHECK (status IN ('pending','approved','declined'));
-  UPDATE student_shares SET status='approved' WHERE status IS NULL;
   CREATE TABLE IF NOT EXISTS student_share_likes (
     share_id INTEGER NOT NULL REFERENCES student_shares(id) ON DELETE CASCADE,
     student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -66,7 +58,6 @@ router.get('/', authenticateToken, requireRole('student'), async (req, res) => {
     const shares = await pool.query(
       `SELECT s.id, s.student_id, s.type, s.content, s.created_at,
               s.school, s.class_name, s.teacher_name,
-              s.status, s.review_note,
               u.name AS student_name,
               COUNT(l.student_id)::int AS like_count,
               BOOL_OR(l.student_id = $2) AS liked_by_me
@@ -74,15 +65,9 @@ router.get('/', authenticateToken, requireRole('student'), async (req, res) => {
        JOIN users u ON u.id = s.student_id
        LEFT JOIN student_share_likes l ON l.share_id = s.id
        WHERE ($1::text IS NULL OR s.type = $1)
-         AND (
-             s.student_id = $2
-             OR (
-               s.status = 'approved'
-               AND s.student_id IN (
+         AND (s.student_id = $2 OR s.student_id IN (
                SELECT target_id FROM subscriptions WHERE subscriber_id = $2
-               )
-             )
-         )
+             ))
        GROUP BY s.id, u.name
        ORDER BY s.created_at DESC
        LIMIT 200`,
@@ -142,7 +127,6 @@ router.get('/user/:userId', authenticateToken, async (req, res) => {
     const shares = await pool.query(
       `SELECT s.id, s.student_id, s.type, s.content, s.created_at,
               s.school, s.class_name, s.teacher_name,
-              s.status, s.review_note,
               u.name AS student_name,
               COUNT(l.student_id)::int AS like_count,
               BOOL_OR(l.student_id = $2) AS liked_by_me
@@ -150,16 +134,10 @@ router.get('/user/:userId', authenticateToken, async (req, res) => {
        JOIN users u ON u.id = s.student_id
        LEFT JOIN student_share_likes l ON l.share_id = s.id
        WHERE s.student_id = $1
-         AND (
-           s.status = 'approved'
-           OR s.student_id = $2
-           OR $3 = 'teacher'
-           OR $3 = 'admin'
-         )
        GROUP BY s.id, u.name
        ORDER BY s.created_at DESC
        LIMIT 100`,
-      [targetId, viewerId, viewerRole]
+      [targetId, viewerId]
     );
     res.json(shares.rows);
   } catch (err) {

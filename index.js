@@ -13,12 +13,18 @@ const contentRoutes = require('./routes/content');
 const adminRoutes = require('./routes/admin');
 const studentNotesRoutes = require('./routes/student_notes');
 const leaderboardRoutes = require('./routes/leaderboard');
+const studentSharesRoutes = require('./routes/student_shares');
 
 const downloadRoutes = require('./routes/download');
 const aiRoutes = require('./routes/ai');
 const textbookRoutes = require('./routes/textbooks');
+const profileRoutes = require('./routes/profile');
+const messageRoutes = require('./routes/messages');
 
 const app = express();
+
+// Trust Nginx reverse proxy (needed for express-rate-limit behind proxy)
+app.set('trust proxy', 1);
 
 // Security headers
 app.use(helmet());
@@ -45,10 +51,11 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json());
-// Allow uploads to be embedded in iframes (for PDF preview)
+// Allow uploads to be embedded in iframes and loaded cross-origin (avatars, PDFs)
 app.use('/uploads', (req, res, next) => {
   res.removeHeader('X-Frame-Options');
   res.setHeader('Content-Security-Policy', "frame-ancestors *");
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   next();
 });
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -67,6 +74,25 @@ app.use('/api/student', studentNotesRoutes);
 app.use('/api/classes', leaderboardRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/textbooks', textbookRoutes);
+app.use('/api/profile', profileRoutes);
+app.use('/api/messages', messageRoutes);
+app.use('/api/student-shares', studentSharesRoutes);
+
+// Serve avatars
+app.use('/uploads/avatars', express.static(require('path').join(__dirname, 'uploads/avatars')));
+app.use('/uploads/msg_images', express.static(require('path').join(__dirname, 'uploads/msg_images')));
+
+// PWA install tracking (public, no auth)
+app.post('/api/pwa/install', async (req, res) => {
+  try {
+    const pool = require('./db');
+    const ua = (req.body && req.body.user_agent) ? String(req.body.user_agent).slice(0, 500) : null;
+    await pool.query('INSERT INTO pwa_installs (user_agent) VALUES ($1)', [ua]);
+    res.json({ ok: true });
+  } catch {
+    res.json({ ok: false });
+  }
+});
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
@@ -78,4 +104,19 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  // One-time cleanup: remove duplicate quiz attempts, keeping only the best score
+  // per student per quiz (if equal score, keep the earliest attempt).
+  const pool = require('./db');
+  pool.query(`
+    DELETE FROM quiz_attempts
+    WHERE id NOT IN (
+      SELECT DISTINCT ON (quiz_id, student_id) id
+      FROM quiz_attempts
+      ORDER BY quiz_id, student_id, score DESC, attempted_at ASC
+    )
+  `).then(r => {
+    if (r.rowCount > 0) console.log(`[cleanup] Removed ${r.rowCount} duplicate quiz attempt(s).`);
+  }).catch(e => console.error('[cleanup] Error removing duplicate quiz attempts:', e.message));
+});
