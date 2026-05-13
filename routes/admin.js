@@ -472,8 +472,8 @@ router.post('/users', ...teacherOrAbove, async (req, res) => {
       userEmail = candidateEmail;
     } else {
       // Validate provided email
-      if (!userEmail.endsWith('@brightschool.edu')) {
-        return res.status(400).json({ error: 'Email must end with @brightschool.edu.' });
+      if (!schoolDomain || !userEmail.endsWith(`@${schoolDomain}`)) {
+        return res.status(400).json({ error: `Email must end with @${schoolDomain}.` });
       }
       const existing = await pool.query('SELECT id FROM users WHERE email = $1', [userEmail]);
       if (existing.rows.length > 0) return res.status(409).json({ error: 'Email already exists.' });

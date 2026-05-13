@@ -192,6 +192,16 @@ router.post('/register', authLimiter, async (req, res) => {
   if (!isValidEmail(email)) {
     return res.status(400).json({ error: 'Invalid email address.' });
   }
+
+  // Check if email domain is a school domain - not allowed for self-signup
+  const emailDomain = email.split('@')[1];
+  if (emailDomain) {
+    const schoolCheck = await pool.query('SELECT id FROM schools WHERE email_domain = $1 LIMIT 1', [emailDomain]);
+    if (schoolCheck.rows.length > 0) {
+      return res.status(403).json({ error: 'Emails from school domains are not allowed for self-signup. Contact your school admin or head teacher to create your account.' });
+    }
+  }
+
   if (role === 'teacher' && !school_code) {
     return res.status(403).json({ error: 'Teacher signup requires a school code. Ask your Head Teacher for the school code.' });
   }
