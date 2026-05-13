@@ -35,6 +35,11 @@ router.post('/:classId/homework', authenticateToken, requireRole('teacher'), upl
   const filePath = req.file ? req.file.filename : null;
   const fileName = req.file ? req.file.originalname : null;
   try {
+    // Check if teacher owns the class
+    const classCheck = await pool.query('SELECT id FROM classes WHERE id = $1 AND teacher_id = $2', [req.params.classId, req.user.id]);
+    if (classCheck.rows.length === 0) {
+      return res.status(403).json({ error: 'You do not own this class.' });
+    }
     const result = await pool.query(
       'INSERT INTO homework (class_id, title, description, due_date, file_path, file_name) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
       [req.params.classId, title, description || null, due_date || null, filePath, fileName]

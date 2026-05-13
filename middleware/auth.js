@@ -15,7 +15,11 @@ function authenticateToken(req, res, next) {
 
 function requireRole(...roles) {
   return (req, res, next) => {
-    if (!roles.includes(req.user.role)) {
+    const role = req.user.role;
+    if (roles.includes('teacher') && role === 'head_teacher') {
+      return next();
+    }
+    if (!roles.includes(role)) {
       return res.status(403).json({ error: 'Forbidden: insufficient role.' });
     }
     next();
