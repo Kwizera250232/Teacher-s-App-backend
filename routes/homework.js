@@ -1,13 +1,20 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Ensure uploads directory exists
+const uploadsDir = path.join(__dirname, '../uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, 'uploads/'),
+  destination: (req, file, cb) => cb(null, uploadsDir),
   filename: (req, file, cb) => {
     const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
     cb(null, unique + path.extname(file.originalname));
@@ -46,8 +53,8 @@ router.post('/:classId/homework', authenticateToken, requireRole('teacher'), upl
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    console.error('[homework] create error:', err.message);
-    res.status(500).json({ error: 'Internal server error.' });
+    console.error('[homework POST] error:', err);
+    res.status(500).json({ error: 'Failed to create homework. Please try again.' });
   }
 });
 
@@ -115,7 +122,8 @@ router.post('/:classId/homework/:hwId/submit', authenticateToken, requireRole('s
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: 'Internal server error.' });
+    console.error('[homework submit] error:', err);
+    res.status(500).json({ error: 'Failed to submit homework. Please try again.' });
   }
 });
 

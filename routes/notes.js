@@ -45,7 +45,8 @@ router.post('/:classId/notes', authenticateToken, requireRole('teacher'), upload
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: 'Internal server error.' });
+    console.error('[notes POST] error:', err);
+    res.status(500).json({ error: 'Failed to upload note. Please try again.' });
   }
 });
 
