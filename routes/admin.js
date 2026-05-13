@@ -1,10 +1,25 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 const adminOnly = [authenticateToken, requireRole('admin')];
+
+pool.query(`
+  CREATE TABLE IF NOT EXISTS invite_tokens (
+    id SERIAL PRIMARY KEY,
+    token VARCHAR(64) UNIQUE NOT NULL,
+    role VARCHAR(20) NOT NULL,
+    school_id INTEGER REFERENCES schools(id),
+    creator_id INTEGER REFERENCES users(id),
+    can_create_school BOOLEAN NOT NULL DEFAULT FALSE,
+    used BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    expires_at TIMESTAMP DEFAULT NOW() + INTERVAL '14 days'
+  );
+`).catch(err => console.error('[admin] invite_tokens migration error:', err.message));
 
 // ─── DASHBOARD STATS ──────────────────────────────────────────────────────────
 router.get('/stats', ...adminOnly, async (req, res) => {
@@ -65,12 +80,12 @@ router.get('/schools', ...adminOnly, async (req, res) => {
 });
 
 router.post('/schools', ...adminOnly, async (req, res) => {
-  const { name, location, code } = req.body;
+  const { name, location, code, email_domain } = req.body;
   if (!name) return res.status(400).json({ error: 'School name is required.' });
   try {
     const result = await pool.query(
-      'INSERT INTO schools (name, location, code) VALUES ($1,$2,$3) RETURNING *',
-      [name, location || null, code || null]
+      'INSERT INTO schools (name, location, code, email_domain) VALUES ($1,$2,$3,$4) RETURNING *',
+      [name, location || null, code || null, email_domain || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -79,11 +94,11 @@ router.post('/schools', ...adminOnly, async (req, res) => {
 });
 
 router.put('/schools/:id', ...adminOnly, async (req, res) => {
-  const { name, location, code } = req.body;
+  const { name, location, code, email_domain } = req.body;
   try {
     const result = await pool.query(
-      'UPDATE schools SET name=$1, location=$2, code=$3 WHERE id=$4 RETURNING *',
-      [name, location || null, code || null, req.params.id]
+      'UPDATE schools SET name=$1, location=$2, code=$3, email_domain=$4 WHERE id=$5 RETURNING *',
+      [name, location || null, code || null, email_domain || null, req.params.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
     res.json(result.rows[0]);
@@ -97,6 +112,60 @@ router.delete('/schools/:id', ...adminOnly, async (req, res) => {
     await pool.query('DELETE FROM schools WHERE id=$1', [req.params.id]);
     res.json({ success: true });
   } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.post('/invitations/head-teacher', ...adminOnly, async (req, res) => {
+  const { school_id } = req.body;
+  try {
+    let school = null;
+    if (school_id) {
+      const schoolResult = await pool.query('SELECT id, name, email_domain, code FROM schools WHERE id=$1 LIMIT 1', [school_id]);
+      if (schoolResult.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
+      school = schoolResult.rows[0];
+    }
+    const token = crypto.randomBytes(22).toString('hex');
+    await pool.query(
+      `INSERT INTO invite_tokens (token, role, school_id, creator_id, can_create_school, expires_at)
+       VALUES ($1,'head_teacher',$2,$3,$4,NOW() + INTERVAL '14 days')`,
+      [token, school ? school.id : null, req.user.id, school ? false : true]
+    );
+    const frontendUrl = process.env.FRONTEND_URL || 'https://frontend-six-henna-68.vercel.app';
+    res.json({
+      invite_link: `${frontendUrl}/invite?token=${token}`,
+      school_name: school?.name || null,
+      school_email_domain: school?.email_domain || null,
+      school_code: school?.code || null,
+    });
+  } catch (err) {
+    console.error('[admin invitations]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.post('/invitations/teacher', ...adminOnly, async (req, res) => {
+  const { school_id } = req.body;
+  if (!school_id) return res.status(400).json({ error: 'School ID is required for teacher invitations.' });
+  try {
+    const schoolResult = await pool.query('SELECT id, name, email_domain, code FROM schools WHERE id=$1 LIMIT 1', [school_id]);
+    if (schoolResult.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
+    const school = schoolResult.rows[0];
+    const token = crypto.randomBytes(22).toString('hex');
+    await pool.query(
+      `INSERT INTO invite_tokens (token, role, school_id, creator_id, can_create_school, expires_at)
+       VALUES ($1,'teacher',$2,$3,FALSE,NOW() + INTERVAL '14 days')`,
+      [token, school.id, req.user.id]
+    );
+    const frontendUrl = process.env.FRONTEND_URL || 'https://frontend-six-henna-68.vercel.app';
+    res.json({
+      invite_link: `${frontendUrl}/invite?token=${token}`,
+      school_name: school.name,
+      school_email_domain: school.email_domain,
+      school_code: school.code,
+    });
+  } catch (err) {
+    console.error('[admin invitations teacher]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
@@ -364,8 +433,76 @@ router.get('/user-announcements', authenticateToken, async (req, res) => {
   }
 });
 
+// ─── USER CREATION (Admin, Head Teacher, Teacher) ───────────────────────────
+const teacherOrAbove = [authenticateToken, requireRole(['admin', 'head_teacher', 'teacher'])];
+
+router.post('/users', ...teacherOrAbove, async (req, res) => {
+  const { name, email, role, school_id } = req.body;
+  if (!name || !role) return res.status(400).json({ error: 'Name and role are required.' });
+  if (!['student', 'teacher'].includes(role)) return res.status(400).json({ error: 'Role must be student or teacher.' });
+
+  try {
+    // Determine school_id
+    let targetSchoolId = school_id;
+    if (req.user.role === 'teacher' || req.user.role === 'head_teacher') {
+      if (!req.user.school_id) return res.status(403).json({ error: 'You must be assigned to a school.' });
+      targetSchoolId = req.user.school_id;
+    } else if (req.user.role === 'admin') {
+      if (!targetSchoolId) return res.status(400).json({ error: 'School ID is required for admin user creation.' });
+    }
+
+    // Get school email domain
+    const schoolResult = await pool.query('SELECT email_domain FROM schools WHERE id = $1', [targetSchoolId]);
+    if (schoolResult.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
+    const schoolDomain = schoolResult.rows[0].email_domain;
+
+    // Auto-generate email if not provided
+    let userEmail = email;
+    if (!userEmail) {
+      if (!schoolDomain) return res.status(400).json({ error: 'School email domain is required for auto email generation.' });
+      const baseName = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+      let candidateEmail = `${baseName}@${schoolDomain}`;
+      let counter = 1;
+      while (true) {
+        const existing = await pool.query('SELECT id FROM users WHERE email = $1', [candidateEmail]);
+        if (existing.rows.length === 0) break;
+        candidateEmail = `${baseName}${counter}@${schoolDomain}`;
+        counter++;
+      }
+      userEmail = candidateEmail;
+    } else {
+      // Validate provided email
+      if (!userEmail.endsWith('@brightschool.edu')) {
+        return res.status(400).json({ error: 'Email must end with @brightschool.edu.' });
+      }
+      const existing = await pool.query('SELECT id FROM users WHERE email = $1', [userEmail]);
+      if (existing.rows.length > 0) return res.status(409).json({ error: 'Email already exists.' });
+    }
+
+    // Generate random password
+    const randomPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
+    const hashed = await bcrypt.hash(randomPassword, 12);
+
+    const result = await pool.query(
+      `INSERT INTO users (name, email, password, role, school_id, is_approved)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, name, email, role, school_id`,
+      [name, userEmail, hashed, role, targetSchoolId, role === 'teacher' ? false : true]
+    );
+
+    res.status(201).json({
+      user: result.rows[0],
+      temp_password: randomPassword,
+      message: 'User created successfully. Share the temporary password with them.',
+    });
+  } catch (err) {
+    console.error('[admin users POST]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // ─── SETTINGS ─────────────────────────────────────────────────────────────────
-router.get('/settings', ...adminOnly, async (req, res) => {
+router.get('/settings', ...teacherOrAbove, async (req, res) => {
   try {
     let result = await pool.query('SELECT * FROM platform_settings LIMIT 1');
     if (result.rows.length === 0) {
@@ -377,7 +514,7 @@ router.get('/settings', ...adminOnly, async (req, res) => {
   }
 });
 
-router.put('/settings', ...adminOnly, async (req, res) => {
+router.put('/settings', ...teacherOrAbove, async (req, res) => {
   const { platform_name, logo_url } = req.body;
   try {
     const result = await pool.query(
