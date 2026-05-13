@@ -34,7 +34,7 @@ router.get('/:classId/stats', authenticateToken, requireRole('teacher'), async (
     
     const stats = await pool.query(
       `SELECT 
-        c.id, c.student_id, u.name,
+        c.student_id, u.name,
         COUNT(DISTINCT c.test_number) as test_count,
         SUM(c.marks_obtained) as total_marks,
         COALESCE(ROUND(100.0 * SUM(c.marks_obtained) / NULLIF(SUM(c.total_marks), 0), 1), 0) as percentage,
@@ -42,7 +42,7 @@ router.get('/:classId/stats', authenticateToken, requireRole('teacher'), async (
        FROM cat_marks c
        JOIN users u ON c.student_id = u.id
        WHERE c.class_id = $1 AND c.student_id = ANY($2::int[])
-       GROUP BY c.student_id, u.name, c.id
+       GROUP BY c.student_id, u.name
        ORDER BY u.name`,
       [classId, studentIds.length > 0 ? studentIds : [0]]
     );
