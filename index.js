@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const path = require('path');
+const fs = require('fs');
 require('dotenv').config({ override: true });
 
 const authRoutes = require('./routes/auth');
@@ -59,7 +60,17 @@ app.use('/uploads', (req, res, next) => {
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   next();
 });
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+const { ensureUploadsRoot } = require('./lib/uploads');
+const ensureDirectory = (dir) => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+};
+const uploadsRoot = ensureUploadsRoot();
+ensureDirectory(path.join(uploadsRoot, 'avatars'));
+ensureDirectory(path.join(uploadsRoot, 'msg_images'));
+
+app.use('/uploads', express.static(uploadsRoot));
+app.use('/uploads/avatars', express.static(path.join(uploadsRoot, 'avatars')));
+app.use('/uploads/msg_images', express.static(path.join(uploadsRoot, 'msg_images')));
 
 // Proxy download route for stamping headers
 app.use('/download', downloadRoutes);
@@ -101,6 +112,12 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 // Central error handler — never leak internal error details to clients
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
+  if (err && err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(400).json({ error: 'Uploaded file is too large. Maximum size is 50MB.' });
+  }
+  if (err && err.message && err.message.toLowerCase().includes('invalid file type')) {
+    return res.status(400).json({ error: err.message });
+  }
   console.error('[UNHANDLED]', err);
   res.status(500).json({ error: 'Internal server error.' });
 });

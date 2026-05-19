@@ -1,26 +1,18 @@
 const express = require('express');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { createUpload } = require('../lib/uploads');
 
 const router = express.Router();
+const uploadHomework = createUpload('file');
 
-// Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+async function teacherOwnsClass(classId, teacherId) {
+  const result = await pool.query(
+    'SELECT id FROM classes WHERE id = $1 AND teacher_id = $2',
+    [classId, teacherId]
+  );
+  return result.rows.length > 0;
 }
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadsDir),
-  filename: (req, file, cb) => {
-    const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    cb(null, unique + path.extname(file.originalname));
-  },
-});
-const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } }); // 20MB
 
 // GET homework for a class
 router.get('/:classId/homework', authenticateToken, async (req, res) => {
@@ -31,39 +23,54 @@ router.get('/:classId/homework', authenticateToken, async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
+    console.error('[homework GET] error:', err.message);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
 // POST create homework (teacher)
-router.post('/:classId/homework', authenticateToken, requireRole('teacher'), upload.single('file'), async (req, res) => {
+router.post('/:classId/homework', authenticateToken, requireRole('teacher'), (req, res, next) => {
+  uploadHomework(req, res, (err) => {
+    if (err) return next(err);
+    next();
+  });
+}, async (req, res) => {
   const { title, description, due_date } = req.body;
-  if (!title) return res.status(400).json({ error: 'Title is required.' });
+  if (!title || !String(title).trim()) return res.status(400).json({ error: 'Title is required.' });
+
+  const classId = parseInt(req.params.classId, 10);
+  if (Number.isNaN(classId)) return res.status(400).json({ error: 'Invalid class ID.' });
+
   const filePath = req.file ? req.file.filename : null;
   const fileName = req.file ? req.file.originalname : null;
+
   try {
-    // Check if teacher owns the class
-    const classCheck = await pool.query('SELECT id FROM classes WHERE id = $1 AND teacher_id = $2', [req.params.classId, req.user.id]);
-    if (classCheck.rows.length === 0) {
+    if (!(await teacherOwnsClass(classId, req.user.id))) {
       return res.status(403).json({ error: 'You do not own this class.' });
     }
     const result = await pool.query(
       'INSERT INTO homework (class_id, title, description, due_date, file_path, file_name) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-      [req.params.classId, title, description || null, due_date || null, filePath, fileName]
+      [classId, String(title).trim(), description || null, due_date || null, filePath, fileName]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    console.error('[homework POST] error:', err);
+    console.error('[homework POST] error:', err.message, err.code, err.detail);
     res.status(500).json({ error: 'Failed to create homework. Please try again.' });
   }
 });
 
 // DELETE homework (teacher)
 router.delete('/:classId/homework/:hwId', authenticateToken, requireRole('teacher'), async (req, res) => {
+  const classId = parseInt(req.params.classId, 10);
+  if (Number.isNaN(classId)) return res.status(400).json({ error: 'Invalid class ID.' });
   try {
-    await pool.query('DELETE FROM homework WHERE id = $1 AND class_id = $2', [req.params.hwId, req.params.classId]);
+    if (!(await teacherOwnsClass(classId, req.user.id))) {
+      return res.status(403).json({ error: 'You do not own this class.' });
+    }
+    await pool.query('DELETE FROM homework WHERE id = $1 AND class_id = $2', [req.params.hwId, classId]);
     res.json({ message: 'Homework deleted.' });
   } catch (err) {
+    console.error('[homework DELETE] error:', err.message);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
@@ -80,6 +87,7 @@ router.get('/:classId/homework/:hwId/submissions', authenticateToken, requireRol
     );
     res.json(result.rows);
   } catch (err) {
+    console.error('[homework submissions GET] error:', err.message);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
@@ -93,12 +101,18 @@ router.get('/:classId/homework/:hwId/my-submission', authenticateToken, requireR
     );
     res.json(result.rows[0] || null);
   } catch (err) {
+    console.error('[homework my-submission GET] error:', err.message);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
 // POST submit homework (student) — file or text
-router.post('/:classId/homework/:hwId/submit', authenticateToken, requireRole('student'), upload.single('file'), async (req, res) => {
+router.post('/:classId/homework/:hwId/submit', authenticateToken, requireRole('student'), (req, res, next) => {
+  uploadHomework(req, res, (err) => {
+    if (err) return next(err);
+    next();
+  });
+}, async (req, res) => {
   const { text_response } = req.body;
   const filePath = req.file ? req.file.filename : null;
   const fileName = req.file ? req.file.originalname : null;
@@ -109,7 +123,6 @@ router.post('/:classId/homework/:hwId/submit', authenticateToken, requireRole('s
     return res.status(400).json({ error: 'Written response must be at least 200 characters. Please write a more complete answer.' });
   }
   try {
-    // Upsert — update if already submitted
     const result = await pool.query(
       `INSERT INTO homework_submissions (homework_id, student_id, file_path, file_name, text_response, submitted_at)
        VALUES ($1, $2, $3, $4, $5, NOW())
@@ -122,7 +135,7 @@ router.post('/:classId/homework/:hwId/submit', authenticateToken, requireRole('s
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    console.error('[homework submit] error:', err);
+    console.error('[homework submit] error:', err.message, err.code, err.detail);
     res.status(500).json({ error: 'Failed to submit homework. Please try again.' });
   }
 });
@@ -131,8 +144,8 @@ router.post('/:classId/homework/:hwId/submit', authenticateToken, requireRole('s
 router.put('/:classId/homework/:hwId/submissions/:subId/grade', authenticateToken, requireRole('teacher'), async (req, res) => {
   const { grade, feedback, teacher_answer } = req.body;
   if (grade === undefined || grade === null) return res.status(400).json({ error: 'Grade is required.' });
-  const gradeNum = parseInt(grade);
-  if (isNaN(gradeNum) || gradeNum < 0 || gradeNum > 100) {
+  const gradeNum = parseInt(grade, 10);
+  if (Number.isNaN(gradeNum) || gradeNum < 0 || gradeNum > 100) {
     return res.status(400).json({ error: 'Grade must be a number between 0 and 100.' });
   }
   try {
@@ -144,6 +157,7 @@ router.put('/:classId/homework/:hwId/submissions/:subId/grade', authenticateToke
     if (result.rows.length === 0) return res.status(404).json({ error: 'Submission not found.' });
     res.json(result.rows[0]);
   } catch (err) {
+    console.error('[homework grade] error:', err.message);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });

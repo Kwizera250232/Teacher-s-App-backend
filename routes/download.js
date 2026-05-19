@@ -2,6 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
+const { getUploadsRoot } = require('../lib/uploads');
 
 const router = express.Router();
 
@@ -37,7 +38,7 @@ async function addHeaderToPdf(inputPath, res, inline = false) {
 router.get('/:type/:filename', async (req, res) => {
   const { type, filename } = req.params;
   const inline = req.query.inline === '1';
-  const filePath = path.join(__dirname, '..', 'uploads', filename);
+  const filePath = path.join(getUploadsRoot(), filename);
   if (!fs.existsSync(filePath)) return res.status(404).send('File not found');
 
   const ext = path.extname(filename).toLowerCase();
