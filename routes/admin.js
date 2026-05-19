@@ -1,8 +1,14 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+
+function schoolDomainFromName(name) {
+  const slug = String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return slug ? `${slug}.edu` : null;
+}
 
 const router = express.Router();
 const adminOnly = [authenticateToken, requireRole('admin')];
@@ -21,28 +27,70 @@ pool.query(`
   );
 `).catch(err => console.error('[admin] invite_tokens migration error:', err.message));
 
+// ─── ADMIN VIEW-AS (impersonate teacher/student) ─────────────────────────────
+router.post('/impersonate', ...adminOnly, async (req, res) => {
+  const targetId = parseInt(req.body.user_id, 10);
+  if (!targetId) return res.status(400).json({ error: 'Valid user_id is required.' });
+  try {
+    const result = await pool.query(
+      `SELECT id, name, email, role, school_id, is_suspended
+       FROM users WHERE id = $1`,
+      [targetId]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'User not found.' });
+    const target = result.rows[0];
+    if (!['teacher', 'student'].includes(target.role)) {
+      return res.status(400).json({ error: 'You can only view teacher or student accounts.' });
+    }
+    if (target.is_suspended) return res.status(403).json({ error: 'This account is suspended.' });
+    if (!process.env.JWT_SECRET) {
+      return res.status(500).json({ error: 'Server misconfiguration: JWT secret missing.' });
+    }
+    const token = jwt.sign(
+      { id: target.id, role: target.role, impersonated_by: req.user.id },
+      process.env.JWT_SECRET,
+      { expiresIn: '2h' }
+    );
+    res.json({
+      token,
+      user: {
+        id: target.id,
+        name: target.name,
+        email: target.email,
+        role: target.role,
+        school_id: target.school_id,
+      },
+    });
+  } catch (err) {
+    console.error('[admin impersonate]', err.message);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // ─── DASHBOARD STATS ──────────────────────────────────────────────────────────
 router.get('/stats', ...adminOnly, async (req, res) => {
   try {
-    const [schools, teachers, students, classes, quizzes, homework, pending, installs] = await Promise.all([
-      pool.query("SELECT COUNT(*) FROM schools"),
+    const [schools, teachers, students, classes, quizzes, homework, pending, installs, pendingArticles] = await Promise.all([
+      pool.query('SELECT COUNT(*) FROM schools'),
       pool.query("SELECT COUNT(*) FROM users WHERE role='teacher' AND is_approved=TRUE"),
       pool.query("SELECT COUNT(*) FROM users WHERE role='student'"),
-      pool.query("SELECT COUNT(*) FROM classes"),
-      pool.query("SELECT COUNT(*) FROM quizzes"),
-      pool.query("SELECT COUNT(*) FROM homework"),
+      pool.query('SELECT COUNT(*) FROM classes'),
+      pool.query('SELECT COUNT(*) FROM quizzes'),
+      pool.query('SELECT COUNT(*) FROM homework'),
       pool.query("SELECT COUNT(*) FROM users WHERE role='teacher' AND is_approved=FALSE"),
-      pool.query("SELECT COUNT(*) FROM pwa_installs"),
+      pool.query('SELECT COUNT(*) FROM pwa_installs'),
+      pool.query("SELECT COUNT(*) FROM student_shares WHERE status='pending'").catch(() => ({ rows: [{ count: 0 }] })),
     ]);
     res.json({
-      schools: parseInt(schools.rows[0].count),
-      teachers: parseInt(teachers.rows[0].count),
-      students: parseInt(students.rows[0].count),
-      classes: parseInt(classes.rows[0].count),
-      quizzes: parseInt(quizzes.rows[0].count),
-      homework: parseInt(homework.rows[0].count),
-      pending_teachers: parseInt(pending.rows[0].count),
-      installations: parseInt(installs.rows[0].count),
+      schools: parseInt(schools.rows[0].count, 10),
+      teachers: parseInt(teachers.rows[0].count, 10),
+      students: parseInt(students.rows[0].count, 10),
+      classes: parseInt(classes.rows[0].count, 10),
+      quizzes: parseInt(quizzes.rows[0].count, 10),
+      homework: parseInt(homework.rows[0].count, 10),
+      pending_teachers: parseInt(pending.rows[0].count, 10),
+      installations: parseInt(installs.rows[0].count, 10),
+      pending_articles: parseInt(pendingArticles.rows[0].count, 10),
     });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
@@ -318,6 +366,67 @@ router.delete('/classes/:id', ...adminOnly, async (req, res) => {
   }
 });
 
+// ─── STUDENT ARTICLE MODERATION ───────────────────────────────────────────────
+router.get('/student-shares/pending-count', ...adminOnly, async (req, res) => {
+  try {
+    const r = await pool.query("SELECT COUNT(*)::int AS count FROM student_shares WHERE status='pending'");
+    res.json({ count: r.rows[0].count });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.get('/student-shares', ...adminOnly, async (req, res) => {
+  const status = (req.query.status || 'pending').toString();
+  if (!['pending', 'approved', 'declined', 'all'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status.' });
+  }
+  try {
+    const result = await pool.query(
+      `SELECT s.id, s.type, s.content, s.status, s.school, s.class_name, s.teacher_name,
+              s.created_at, s.review_note, s.reviewed_at,
+              u.name AS student_name, u.email AS student_email,
+              r.name AS reviewed_by_name
+       FROM student_shares s
+       JOIN users u ON u.id = s.student_id
+       LEFT JOIN users r ON r.id = s.reviewed_by
+       WHERE ($1 = 'all' OR s.status = $1)
+       ORDER BY CASE s.status WHEN 'pending' THEN 0 WHEN 'declined' THEN 1 ELSE 2 END,
+                s.created_at DESC
+       LIMIT 300`,
+      [status]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.put('/student-shares/:id/moderate', ...adminOnly, async (req, res) => {
+  const decision = (req.body.decision || '').toString();
+  const reviewNote = (req.body.review_note || '').toString().trim();
+  if (!['approved', 'declined'].includes(decision)) {
+    return res.status(400).json({ error: 'decision must be approved or declined.' });
+  }
+  if (decision === 'declined' && !reviewNote) {
+    return res.status(400).json({ error: 'Decline reason is required.' });
+  }
+  try {
+    const result = await pool.query(
+      `UPDATE student_shares
+       SET status = $1, reviewed_by = $2, reviewed_at = NOW(),
+           review_note = CASE WHEN $1 = 'declined' THEN $3 ELSE NULL END
+       WHERE id = $4
+       RETURNING id, status, review_note, reviewed_at`,
+      [decision, req.user.id, reviewNote || null, req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Article not found.' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // ─── CONTENT OVERVIEW ─────────────────────────────────────────────────────────
 router.get('/content', ...adminOnly, async (req, res) => {
   try {
@@ -437,6 +546,7 @@ router.get('/user-announcements', authenticateToken, async (req, res) => {
 const teacherOrAbove = [authenticateToken, requireRole(['admin', 'head_teacher', 'teacher'])];
 
 router.post('/users', ...teacherOrAbove, async (req, res) => {
+  console.log('[admin POST users] received:', req.body, 'user role:', req.user.role, 'user school:', req.user.school_id);
   const { name, email, role, school_id } = req.body;
   if (!name || !role) return res.status(400).json({ error: 'Name and role are required.' });
   if (!['student', 'teacher'].includes(role)) return res.status(400).json({ error: 'Role must be student or teacher.' });
@@ -452,9 +562,16 @@ router.post('/users', ...teacherOrAbove, async (req, res) => {
     }
 
     // Get school email domain
-    const schoolResult = await pool.query('SELECT email_domain FROM schools WHERE id = $1', [targetSchoolId]);
+    console.log('[admin POST users] fetching school domain for school:', targetSchoolId);
+    const schoolResult = await pool.query('SELECT name, email_domain FROM schools WHERE id = $1', [targetSchoolId]);
     if (schoolResult.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
-    const schoolDomain = schoolResult.rows[0].email_domain;
+    let schoolDomain = schoolResult.rows[0].email_domain;
+    if (!schoolDomain) {
+      schoolDomain = schoolDomainFromName(schoolResult.rows[0].name);
+      if (schoolDomain) {
+        await pool.query('UPDATE schools SET email_domain = $1 WHERE id = $2 AND (email_domain IS NULL OR email_domain = \'\')', [schoolDomain, targetSchoolId]);
+      }
+    }
 
     // Auto-generate email if not provided
     let userEmail = email;
@@ -462,12 +579,17 @@ router.post('/users', ...teacherOrAbove, async (req, res) => {
       if (!schoolDomain) return res.status(400).json({ error: 'School email domain is required for auto email generation.' });
       const baseName = name.toLowerCase().replace(/[^a-z0-9]/g, '');
       let candidateEmail = `${baseName}@${schoolDomain}`;
+      console.log('[admin POST users] auto-generating email, base:', baseName, 'candidate:', candidateEmail);
       let counter = 1;
       while (true) {
         const existing = await pool.query('SELECT id FROM users WHERE email = $1', [candidateEmail]);
-        if (existing.rows.length === 0) break;
+        if (existing.rows.length === 0) {
+          console.log('[admin POST users] email available:', candidateEmail);
+          break;
+        }
         candidateEmail = `${baseName}${counter}@${schoolDomain}`;
         counter++;
+        console.log('[admin POST users] email exists, trying:', candidateEmail);
       }
       userEmail = candidateEmail;
     } else {
