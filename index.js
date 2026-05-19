@@ -84,7 +84,7 @@ app.use('/api/classes', contentRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/student', studentNotesRoutes);
 app.use('/api/classes', leaderboardRoutes);
-app.use('/api/classes', catMarksRoutes);
+app.use('/api/cmarks', catMarksRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/textbooks', textbookRoutes);
 app.use('/api/profile', profileRoutes);

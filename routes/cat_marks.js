@@ -4,7 +4,6 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Auto-migrate table
 pool.query(`
   CREATE TABLE IF NOT EXISTS cat_marks (
     id SERIAL PRIMARY KEY,
@@ -22,48 +21,60 @@ pool.query(`
   CREATE INDEX IF NOT EXISTS idx_cat_marks_student ON cat_marks(student_id);
 `).catch(e => console.error('[cat_marks] migration error:', e.message));
 
-// GET class CAT stats (test count, total, percentage, class avg)
-router.get('/:classId/stats', authenticateToken, requireRole('teacher'), async (req, res) => {
+router.get('/:classId/summary', authenticateToken, requireRole('teacher'), async (req, res) => {
   const classId = req.params.classId;
   try {
-    const classMembers = await pool.query(
-      `SELECT DISTINCT student_id FROM class_members WHERE class_id = $1`,
+    const roster = await pool.query(
+      `SELECT u.id AS student_id, u.name
+       FROM class_members cm
+       JOIN users u ON cm.student_id = u.id
+       WHERE cm.class_id = $1
+       ORDER BY u.name`,
       [classId]
     );
-    const studentIds = classMembers.rows.map(r => r.student_id);
-    
+
     const stats = await pool.query(
-      `SELECT 
-        c.student_id, u.name,
-        COUNT(DISTINCT c.test_number) as test_count,
-        SUM(c.marks_obtained) as total_marks,
-        COALESCE(ROUND(100.0 * SUM(c.marks_obtained) / NULLIF(SUM(c.total_marks), 0), 1), 0) as percentage,
-        COALESCE(ROUND(AVG(100.0 * c.marks_obtained / NULLIF(c.total_marks, 1)), 1), 0) as avg_percentage
+      `SELECT
+        c.student_id,
+        COUNT(DISTINCT c.test_number) AS test_count,
+        SUM(c.marks_obtained) AS total_marks,
+        COALESCE(ROUND(100.0 * SUM(c.marks_obtained) / NULLIF(SUM(c.total_marks), 0), 1), 0) AS percentage,
+        COALESCE(ROUND(AVG(100.0 * c.marks_obtained / NULLIF(c.total_marks, 1)), 1), 0) AS avg_percentage
        FROM cat_marks c
-       JOIN users u ON c.student_id = u.id
-       WHERE c.class_id = $1 AND c.student_id = ANY($2::int[])
-       GROUP BY c.student_id, u.name
-       ORDER BY u.name`,
-      [classId, studentIds.length > 0 ? studentIds : [0]]
+       WHERE c.class_id = $1
+       GROUP BY c.student_id`,
+      [classId]
     );
 
+    const statsByStudent = new Map(stats.rows.map(r => [r.student_id, r]));
+    const students = roster.rows.map((s) => {
+      const row = statsByStudent.get(s.student_id);
+      return {
+        student_id: s.student_id,
+        name: s.name,
+        test_count: row ? Number(row.test_count) : 0,
+        total_marks: row ? Number(row.total_marks) : 0,
+        percentage: row ? Number(row.percentage) : 0,
+        avg_percentage: row ? Number(row.avg_percentage) : 0,
+      };
+    });
+
     const classAvg = await pool.query(
-      `SELECT COALESCE(ROUND(AVG(100.0 * marks_obtained / NULLIF(total_marks, 1)), 1), 0) as avg
+      `SELECT COALESCE(ROUND(AVG(100.0 * marks_obtained / NULLIF(total_marks, 1)), 1), 0) AS avg
        FROM cat_marks WHERE class_id = $1`,
       [classId]
     );
 
     res.json({
-      students: stats.rows,
-      class_average: classAvg.rows[0]?.avg || 0
+      students,
+      class_average: classAvg.rows[0]?.avg || 0,
     });
   } catch (err) {
-    console.error('[cat_marks] stats error:', err.message);
+    console.error('[cat_marks] summary error:', err.message);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
-// GET student's CAT marks for a class
 router.get('/:classId/student/:studentId', authenticateToken, async (req, res) => {
   const { classId, studentId } = req.params;
   try {
@@ -77,8 +88,7 @@ router.get('/:classId/student/:studentId', authenticateToken, async (req, res) =
   }
 });
 
-// POST/PUT record CAT mark (teacher)
-router.post('/:classId/mark', authenticateToken, requireRole('teacher'), async (req, res) => {
+router.post('/:classId/save', authenticateToken, requireRole('teacher'), async (req, res) => {
   const { student_id, test_number, marks_obtained, total_marks } = req.body;
   const classId = req.params.classId;
   if (!student_id || !test_number || marks_obtained === undefined) {
@@ -95,20 +105,18 @@ router.post('/:classId/mark', authenticateToken, requireRole('teacher'), async (
     );
     res.json(result.rows[0]);
   } catch (err) {
-    console.error('[cat_marks] record error:', err.message);
+    console.error('[cat_marks] save error:', err.message);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
-// POST migrate quiz marks to CAT (teacher)
-router.post('/:classId/migrate-quiz', authenticateToken, requireRole('teacher'), async (req, res) => {
+router.post('/:classId/from-quiz', authenticateToken, requireRole('teacher'), async (req, res) => {
   const { quiz_id, test_number } = req.body;
   const classId = req.params.classId;
   if (!quiz_id || !test_number) {
     return res.status(400).json({ error: 'quiz_id and test_number required.' });
   }
   try {
-    // Get the best quiz attempt score for each student in this class
     const attempts = await pool.query(
       `SELECT DISTINCT ON (qa.student_id) qa.student_id, qa.score, qa.total
        FROM quiz_attempts qa
@@ -118,7 +126,6 @@ router.post('/:classId/migrate-quiz', authenticateToken, requireRole('teacher'),
       [quiz_id, classId]
     );
 
-    // Insert into cat_marks
     for (const att of attempts.rows) {
       await pool.query(
         `INSERT INTO cat_marks (class_id, student_id, test_number, marks_obtained, total_marks)
@@ -131,13 +138,12 @@ router.post('/:classId/migrate-quiz', authenticateToken, requireRole('teacher'),
 
     res.json({ migrated: attempts.rows.length });
   } catch (err) {
-    console.error('[cat_marks] migrate error:', err.message);
+    console.error('[cat_marks] from-quiz error:', err.message);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
-// DELETE CAT mark (teacher)
-router.delete('/:classId/mark/:markId', authenticateToken, requireRole('teacher'), async (req, res) => {
+router.delete('/:classId/entry/:markId', authenticateToken, requireRole('teacher'), async (req, res) => {
   try {
     await pool.query(
       `DELETE FROM cat_marks WHERE id = $1 AND class_id = $2`,

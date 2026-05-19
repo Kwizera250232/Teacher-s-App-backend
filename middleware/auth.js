@@ -14,12 +14,13 @@ function authenticateToken(req, res, next) {
 }
 
 function requireRole(...roles) {
+  const allowed = roles.flat();
   return (req, res, next) => {
     const role = req.user.role;
-    if (roles.includes('teacher') && role === 'head_teacher') {
+    if (allowed.includes('teacher') && role === 'head_teacher') {
       return next();
     }
-    if (!roles.includes(role)) {
+    if (!allowed.includes(role)) {
       return res.status(403).json({ error: 'Forbidden: insufficient role.' });
     }
     next();

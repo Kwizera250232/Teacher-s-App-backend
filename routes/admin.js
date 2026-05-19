@@ -164,7 +164,18 @@ router.delete('/schools/:id', ...adminOnly, async (req, res) => {
   }
 });
 
-router.post('/invitations/head-teacher', ...adminOnly, async (req, res) => {
+async function createInviteLink(role, schoolId, creatorId, canCreateSchool) {
+  const token = crypto.randomBytes(22).toString('hex');
+  await pool.query(
+    `INSERT INTO invite_tokens (token, role, school_id, creator_id, can_create_school, expires_at)
+     VALUES ($1,$2,$3,$4,$5,NOW() + INTERVAL '14 days')`,
+    [token, role, schoolId, creatorId, canCreateSchool]
+  );
+  const frontendUrl = process.env.FRONTEND_URL || 'https://student.umunsi.com';
+  return `${frontendUrl}/invite?token=${token}`;
+}
+
+router.post('/invite-head-teacher', ...adminOnly, async (req, res) => {
   const { school_id } = req.body;
   try {
     let school = null;
@@ -173,15 +184,14 @@ router.post('/invitations/head-teacher', ...adminOnly, async (req, res) => {
       if (schoolResult.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
       school = schoolResult.rows[0];
     }
-    const token = crypto.randomBytes(22).toString('hex');
-    await pool.query(
-      `INSERT INTO invite_tokens (token, role, school_id, creator_id, can_create_school, expires_at)
-       VALUES ($1,'head_teacher',$2,$3,$4,NOW() + INTERVAL '14 days')`,
-      [token, school ? school.id : null, req.user.id, school ? false : true]
+    const invite_link = await createInviteLink(
+      'head_teacher',
+      school ? school.id : null,
+      req.user.id,
+      !school
     );
-    const frontendUrl = process.env.FRONTEND_URL || 'https://frontend-six-henna-68.vercel.app';
     res.json({
-      invite_link: `${frontendUrl}/invite?token=${token}`,
+      invite_link,
       school_name: school?.name || null,
       school_email_domain: school?.email_domain || null,
       school_code: school?.code || null,
@@ -192,22 +202,16 @@ router.post('/invitations/head-teacher', ...adminOnly, async (req, res) => {
   }
 });
 
-router.post('/invitations/teacher', ...adminOnly, async (req, res) => {
+router.post('/invite-teacher', ...adminOnly, async (req, res) => {
   const { school_id } = req.body;
   if (!school_id) return res.status(400).json({ error: 'School ID is required for teacher invitations.' });
   try {
     const schoolResult = await pool.query('SELECT id, name, email_domain, code FROM schools WHERE id=$1 LIMIT 1', [school_id]);
     if (schoolResult.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
     const school = schoolResult.rows[0];
-    const token = crypto.randomBytes(22).toString('hex');
-    await pool.query(
-      `INSERT INTO invite_tokens (token, role, school_id, creator_id, can_create_school, expires_at)
-       VALUES ($1,'teacher',$2,$3,FALSE,NOW() + INTERVAL '14 days')`,
-      [token, school.id, req.user.id]
-    );
-    const frontendUrl = process.env.FRONTEND_URL || 'https://frontend-six-henna-68.vercel.app';
+    const invite_link = await createInviteLink('teacher', school.id, req.user.id, false);
     res.json({
-      invite_link: `${frontendUrl}/invite?token=${token}`,
+      invite_link,
       school_name: school.name,
       school_email_domain: school.email_domain,
       school_code: school.code,
@@ -543,84 +547,144 @@ router.get('/user-announcements', authenticateToken, async (req, res) => {
 });
 
 // ─── USER CREATION (Admin, Head Teacher, Teacher) ───────────────────────────
-const teacherOrAbove = [authenticateToken, requireRole(['admin', 'head_teacher', 'teacher'])];
+const teacherOrAbove = [authenticateToken, requireRole('admin', 'head_teacher', 'teacher')];
 
-router.post('/users', ...teacherOrAbove, async (req, res) => {
-  console.log('[admin POST users] received:', req.body, 'user role:', req.user.role, 'user school:', req.user.school_id);
-  const { name, email, role, school_id } = req.body;
-  if (!name || !role) return res.status(400).json({ error: 'Name and role are required.' });
-  if (!['student', 'teacher'].includes(role)) return res.status(400).json({ error: 'Role must be student or teacher.' });
-
-  try {
-    // Determine school_id
-    let targetSchoolId = school_id;
-    if (req.user.role === 'teacher' || req.user.role === 'head_teacher') {
-      if (!req.user.school_id) return res.status(403).json({ error: 'You must be assigned to a school.' });
-      targetSchoolId = req.user.school_id;
-    } else if (req.user.role === 'admin') {
-      if (!targetSchoolId) return res.status(400).json({ error: 'School ID is required for admin user creation.' });
+async function resolveSchoolForAccount(req, school_id) {
+  let targetSchoolId = school_id;
+  if (req.user.role === 'teacher' || req.user.role === 'head_teacher') {
+    if (!req.user.school_id) {
+      const err = new Error('You must be assigned to a school.');
+      err.status = 403;
+      throw err;
     }
+    targetSchoolId = req.user.school_id;
+  } else if (req.user.role === 'admin' && !targetSchoolId) {
+    const err = new Error('School ID is required for admin user creation.');
+    err.status = 400;
+    throw err;
+  }
+  return targetSchoolId;
+}
 
-    // Get school email domain
-    console.log('[admin POST users] fetching school domain for school:', targetSchoolId);
-    const schoolResult = await pool.query('SELECT name, email_domain FROM schools WHERE id = $1', [targetSchoolId]);
-    if (schoolResult.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
-    let schoolDomain = schoolResult.rows[0].email_domain;
+async function createSchoolAccount(req, { name, email, role, school_id }) {
+  if (!name || !role) {
+    const err = new Error('Name and role are required.');
+    err.status = 400;
+    throw err;
+  }
+  if (!['student', 'teacher'].includes(role)) {
+    const err = new Error('Role must be student or teacher.');
+    err.status = 400;
+    throw err;
+  }
+
+  const targetSchoolId = await resolveSchoolForAccount(req, school_id);
+  const schoolResult = await pool.query('SELECT name, email_domain FROM schools WHERE id = $1', [targetSchoolId]);
+  if (schoolResult.rows.length === 0) {
+    const err = new Error('School not found.');
+    err.status = 404;
+    throw err;
+  }
+
+  let schoolDomain = schoolResult.rows[0].email_domain;
+  if (!schoolDomain) {
+    schoolDomain = schoolDomainFromName(schoolResult.rows[0].name);
+    if (schoolDomain) {
+      await pool.query(
+        'UPDATE schools SET email_domain = $1 WHERE id = $2 AND (email_domain IS NULL OR email_domain = \'\')',
+        [schoolDomain, targetSchoolId]
+      );
+    }
+  }
+
+  let userEmail = email;
+  if (!userEmail) {
     if (!schoolDomain) {
-      schoolDomain = schoolDomainFromName(schoolResult.rows[0].name);
-      if (schoolDomain) {
-        await pool.query('UPDATE schools SET email_domain = $1 WHERE id = $2 AND (email_domain IS NULL OR email_domain = \'\')', [schoolDomain, targetSchoolId]);
-      }
+      const err = new Error('School email domain is required for auto email generation.');
+      err.status = 400;
+      throw err;
     }
-
-    // Auto-generate email if not provided
-    let userEmail = email;
-    if (!userEmail) {
-      if (!schoolDomain) return res.status(400).json({ error: 'School email domain is required for auto email generation.' });
-      const baseName = name.toLowerCase().replace(/[^a-z0-9]/g, '');
-      let candidateEmail = `${baseName}@${schoolDomain}`;
-      console.log('[admin POST users] auto-generating email, base:', baseName, 'candidate:', candidateEmail);
-      let counter = 1;
-      while (true) {
-        const existing = await pool.query('SELECT id FROM users WHERE email = $1', [candidateEmail]);
-        if (existing.rows.length === 0) {
-          console.log('[admin POST users] email available:', candidateEmail);
-          break;
-        }
-        candidateEmail = `${baseName}${counter}@${schoolDomain}`;
-        counter++;
-        console.log('[admin POST users] email exists, trying:', candidateEmail);
-      }
-      userEmail = candidateEmail;
-    } else {
-      // Validate provided email
-      if (!schoolDomain || !userEmail.endsWith(`@${schoolDomain}`)) {
-        return res.status(400).json({ error: `Email must end with @${schoolDomain}.` });
-      }
-      const existing = await pool.query('SELECT id FROM users WHERE email = $1', [userEmail]);
-      if (existing.rows.length > 0) return res.status(409).json({ error: 'Email already exists.' });
+    const baseName = String(name).toLowerCase().replace(/[^a-z0-9]/g, '') || 'student';
+    let candidateEmail = `${baseName}@${schoolDomain}`;
+    let counter = 1;
+    while (true) {
+      const existing = await pool.query('SELECT id FROM users WHERE email = $1', [candidateEmail]);
+      if (existing.rows.length === 0) break;
+      candidateEmail = `${baseName}${counter}@${schoolDomain}`;
+      counter += 1;
     }
+    userEmail = candidateEmail;
+  } else if (!schoolDomain || !userEmail.endsWith(`@${schoolDomain}`)) {
+    const err = new Error(`Email must end with @${schoolDomain}.`);
+    err.status = 400;
+    throw err;
+  } else {
+    const existing = await pool.query('SELECT id FROM users WHERE email = $1', [userEmail]);
+    if (existing.rows.length > 0) {
+      const err = new Error('Email already exists.');
+      err.status = 409;
+      throw err;
+    }
+  }
 
-    // Generate random password
-    const randomPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
-    const hashed = await bcrypt.hash(randomPassword, 12);
+  const randomPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
+  const hashed = await bcrypt.hash(randomPassword, 12);
+  const result = await pool.query(
+    `INSERT INTO users (name, email, password, role, school_id, is_approved)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, name, email, role, school_id`,
+    [name, userEmail, hashed, role, targetSchoolId, role === 'teacher' ? false : true]
+  );
 
-    const result = await pool.query(
-      `INSERT INTO users (name, email, password, role, school_id, is_approved)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, name, email, role, school_id`,
-      [name, userEmail, hashed, role, targetSchoolId, role === 'teacher' ? false : true]
-    );
+  return {
+    user: result.rows[0],
+    temp_password: randomPassword,
+  };
+}
 
+router.post('/accounts', ...teacherOrAbove, async (req, res) => {
+  try {
+    const created = await createSchoolAccount(req, req.body);
     res.status(201).json({
-      user: result.rows[0],
-      temp_password: randomPassword,
+      ...created,
       message: 'User created successfully. Share the temporary password with them.',
     });
   } catch (err) {
-    console.error('[admin users POST]', err);
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    console.error('[admin accounts POST]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
+});
+
+router.post('/accounts/bulk', ...teacherOrAbove, async (req, res) => {
+  const { names, role, school_id } = req.body;
+  const nameList = Array.isArray(names)
+    ? names.map((n) => String(n).trim()).filter(Boolean)
+    : String(names || '').split(/\r?\n/).map((n) => n.trim()).filter(Boolean);
+
+  if (nameList.length === 0) {
+    return res.status(400).json({ error: 'Enter at least one student name (one per line).' });
+  }
+  if (nameList.length > 100) {
+    return res.status(400).json({ error: 'Maximum 100 accounts per batch.' });
+  }
+
+  const created = [];
+  const failed = [];
+  for (const name of nameList) {
+    try {
+      const row = await createSchoolAccount(req, { name, email: null, role: role || 'student', school_id });
+      created.push(row);
+    } catch (err) {
+      failed.push({ name, error: err.message || 'Failed to create account.' });
+    }
+  }
+
+  res.status(201).json({
+    created,
+    failed,
+    message: `Created ${created.length} account(s).`,
+  });
 });
 
 // ─── SETTINGS ─────────────────────────────────────────────────────────────────
