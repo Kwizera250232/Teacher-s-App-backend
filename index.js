@@ -109,8 +109,6 @@ app.post('/api/pwa/install', async (req, res) => {
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
-app.get('/api/zzz-test', (req, res) => res.json({ ok: true }));
-
 // Central error handler — never leak internal error details to clients
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
