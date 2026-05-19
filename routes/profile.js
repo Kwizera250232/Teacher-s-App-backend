@@ -14,7 +14,7 @@ const avatarLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { 
 const subscribeLimiter = rateLimit({ windowMs: 60 * 1000, max: 20, message: { error: 'Too many requests, slow down.' } });
 
 // â”€â”€ Ensure upload directory exists â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const uploadDir = path.join(__dirname, '../uploads/avatars');
+const uploadDir = process.env.VERCEL ? path.join('/tmp', 'uploads', 'avatars') : path.join(__dirname, '../uploads/avatars');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }

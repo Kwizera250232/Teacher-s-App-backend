@@ -11,7 +11,7 @@ const auth = authenticateToken;
 const msgImageStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const fs = require('fs');
-    const dir = path.join(__dirname, '../uploads/msg_images');
+    const dir = process.env.VERCEL ? path.join('/tmp', 'uploads', 'msg_images') : path.join(__dirname, '../uploads/msg_images');
     fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
   },

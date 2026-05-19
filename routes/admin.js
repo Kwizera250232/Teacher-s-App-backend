@@ -175,7 +175,7 @@ async function createInviteLink(role, schoolId, creatorId, canCreateSchool) {
   return `${frontendUrl}/invite?token=${token}`;
 }
 
-router.post('/invite-head-teacher', ...adminOnly, async (req, res) => {
+router.post('/ht-link', ...adminOnly, async (req, res) => {
   const { school_id } = req.body;
   try {
     let school = null;
@@ -202,7 +202,7 @@ router.post('/invite-head-teacher', ...adminOnly, async (req, res) => {
   }
 });
 
-router.post('/invite-teacher', ...adminOnly, async (req, res) => {
+router.post('/teacher-link', ...adminOnly, async (req, res) => {
   const { school_id } = req.body;
   if (!school_id) return res.status(400).json({ error: 'School ID is required for teacher invitations.' });
   try {
@@ -642,7 +642,7 @@ async function createSchoolAccount(req, { name, email, role, school_id }) {
   };
 }
 
-router.post('/accounts', ...teacherOrAbove, async (req, res) => {
+router.post('/add-pupil', ...teacherOrAbove, async (req, res) => {
   try {
     const created = await createSchoolAccount(req, req.body);
     res.status(201).json({
@@ -656,7 +656,7 @@ router.post('/accounts', ...teacherOrAbove, async (req, res) => {
   }
 });
 
-router.post('/accounts/bulk', ...teacherOrAbove, async (req, res) => {
+router.post('/add-pupils', ...teacherOrAbove, async (req, res) => {
   const { names, role, school_id } = req.body;
   const nameList = Array.isArray(names)
     ? names.map((n) => String(n).trim()).filter(Boolean)

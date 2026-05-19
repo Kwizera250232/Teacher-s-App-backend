@@ -9,7 +9,7 @@ const router = express.Router();
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const dir = path.join(__dirname, '../uploads/textbooks');
+    const dir = process.env.VERCEL ? path.join('/tmp', 'uploads', 'textbooks') : path.join(__dirname, '../uploads/textbooks');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
   },

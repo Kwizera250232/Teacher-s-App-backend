@@ -84,7 +84,7 @@ app.use('/api/classes', contentRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/student', studentNotesRoutes);
 app.use('/api/classes', leaderboardRoutes);
-app.use('/api/cmarks', catMarksRoutes);
+app.use('/api/catmarks', catMarksRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/textbooks', textbookRoutes);
 app.use('/api/profile', profileRoutes);
@@ -108,6 +108,8 @@ app.post('/api/pwa/install', async (req, res) => {
 });
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+
+app.get('/api/zzz-test', (req, res) => res.json({ ok: true }));
 
 // Central error handler — never leak internal error details to clients
 // eslint-disable-next-line no-unused-vars
