@@ -2,7 +2,7 @@ const express = require('express');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { userCanAccessClass, userCanManageClass, isClassMember } = require('../lib/classAccess');
-const { createFeedUpload } = require('../lib/feedUpload');
+const { feedUploadMiddleware } = require('../lib/feedUpload');
 const { ensureFeedTables } = require('../lib/feedSchema');
 
 const router = express.Router();
@@ -96,12 +96,12 @@ router.get('/:classId/posts', authenticateToken, async (req, res) => {
 });
 
 // POST create post (text or multipart with media)
-router.post('/:classId/posts', authenticateToken, createFeedUpload('file'), async (req, res) => {
+router.post('/:classId/posts', authenticateToken, feedUploadMiddleware('file'), async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   const access = await userCanAccessClass(req.user, classId);
   if (!access.ok) return res.status(403).json({ error: 'Forbidden.' });
 
-  const postType = (req.body.post_type || 'text').trim();
+  let postType = (req.body.post_type || 'text').trim();
   const body = (req.body.body || '').trim();
   const classworkSummary = (req.body.classwork_summary || '').trim() || null;
   const voiceDuration = req.body.voice_duration_sec ? parseInt(req.body.voice_duration_sec, 10) : null;
@@ -129,13 +129,25 @@ router.post('/:classId/posts', authenticateToken, createFeedUpload('file'), asyn
   if (req.file) {
     mediaUrl = `/uploads/feed/${req.file.filename}`;
     mediaMime = req.file.mimetype;
+    const mime = (mediaMime || '').toLowerCase();
+    const requested = (req.body.post_type || 'text').trim();
+    if (requested === 'drawing') {
+      postType = 'drawing';
+    } else if (mime.startsWith('image/')) {
+      postType = 'image';
+    } else if (mime.startsWith('audio/')) {
+      postType = 'voice';
+    } else if (postType === 'text') {
+      postType = 'document';
+    }
   }
 
-  if (postType === 'text' && !body) {
-    return res.status(400).json({ error: 'Write what you learnt or attach media.' });
+  const needsFile = ['image', 'drawing', 'voice', 'document'].includes(postType);
+  if (needsFile && !mediaUrl) {
+    return res.status(400).json({ error: 'Please attach a photo, drawing, voice note, or document.' });
   }
-  if (postType !== 'text' && !mediaUrl && !body) {
-    return res.status(400).json({ error: 'Add text or upload a file.' });
+  if (postType === 'text' && !body && !mediaUrl) {
+    return res.status(400).json({ error: 'Write what you learnt or attach a photo.' });
   }
 
   try {
