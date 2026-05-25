@@ -259,5 +259,26 @@ router.post('/:id/students', authenticateToken, requireRole('teacher'), async (r
   }
 });
 
+// Staff: invite another teacher to same school
+router.post('/school/teacher-invite-link', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const crypto = require('crypto');
+  if (!req.user.school_id) {
+    return res.status(400).json({ error: 'Your account is not linked to a school yet.' });
+  }
+  try {
+    const token = crypto.randomBytes(22).toString('hex');
+    await pool.query(
+      `INSERT INTO invite_tokens (token, role, school_id, creator_id, expires_at)
+       VALUES ($1,'teacher',$2,$3,NOW() + INTERVAL '14 days')`,
+      [token, req.user.school_id, req.user.id]
+    );
+    const frontendUrl = process.env.FRONTEND_URL || 'https://student.umunsi.com';
+    res.json({ invite_link: `${frontendUrl}/invite?token=${token}` });
+  } catch (err) {
+    console.error('[teacher-invite-link]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 module.exports = router;
 

@@ -236,6 +236,50 @@ router.post('/:classId/posts/:postId/comments', authenticateToken, async (req, r
   }
 });
 
+// PATCH own post
+router.patch('/:classId/posts/:postId', authenticateToken, async (req, res) => {
+  const classId = parseInt(req.params.classId, 10);
+  const postId = parseInt(req.params.postId, 10);
+  const body = (req.body.body || '').trim();
+  const classworkSummary = (req.body.classwork_summary || '').trim() || null;
+
+  try {
+    const post = await pool.query('SELECT * FROM classroom_feed_posts WHERE id=$1 AND class_id=$2', [postId, classId]);
+    if (!post.rows.length) return res.status(404).json({ error: 'Post not found.' });
+    const row = post.rows[0];
+    const manage = await userCanManageClass(req.user, classId);
+    if (row.author_id !== req.user.id && !manage.ok) {
+      return res.status(403).json({ error: 'Forbidden.' });
+    }
+    const result = await pool.query(
+      `UPDATE classroom_feed_posts SET body=COALESCE(NULLIF($1,''), body), classwork_summary=COALESCE($2, classwork_summary)
+       WHERE id=$3 RETURNING *`,
+      [body, classworkSummary, postId]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// DELETE own post (or teacher manages class)
+router.delete('/:classId/posts/:postId', authenticateToken, async (req, res) => {
+  const classId = parseInt(req.params.classId, 10);
+  const postId = parseInt(req.params.postId, 10);
+  try {
+    const post = await pool.query('SELECT author_id FROM classroom_feed_posts WHERE id=$1 AND class_id=$2', [postId, classId]);
+    if (!post.rows.length) return res.status(404).json({ error: 'Post not found.' });
+    const manage = await userCanManageClass(req.user, classId);
+    if (post.rows[0].author_id !== req.user.id && !manage.ok) {
+      return res.status(403).json({ error: 'Forbidden.' });
+    }
+    await pool.query('DELETE FROM classroom_feed_posts WHERE id=$1', [postId]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // Co-teacher: list
 router.get('/:classId/co-teachers', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const classId = parseInt(req.params.classId, 10);

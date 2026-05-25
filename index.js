@@ -18,6 +18,7 @@ const studentSharesRoutes = require('./routes/student_shares');
 const catMarksRoutes = require('./routes/cat_marks');
 const classroomFeedRoutes = require('./routes/classroom_feed');
 const parentPortalRoutes = require('./routes/parent_portal');
+const donateRoutes = require('./routes/donate');
 
 const downloadRoutes = require('./routes/download');
 const aiRoutes = require('./routes/ai');
@@ -95,6 +96,7 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/student-shares', studentSharesRoutes);
 app.use('/api/classroom-feed', classroomFeedRoutes);
 app.use('/api/parent', parentPortalRoutes);
+app.use('/api/donate', donateRoutes);
 
 // Serve avatars
 app.use('/uploads/avatars', express.static(require('path').join(__dirname, 'uploads/avatars')));

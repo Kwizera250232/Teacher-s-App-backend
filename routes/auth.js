@@ -502,6 +502,51 @@ router.post('/forgot-password', forgotLimiter, async (req, res) => {
   }
 });
 
+// POST /api/auth/check-email — exists check for password reset UI (no 404)
+router.post('/check-email', forgotLimiter, async (req, res) => {
+  const email = (req.body.email || '').trim().toLowerCase();
+  if (!email) return res.status(400).json({ error: 'Email is required.' });
+  if (!isValidEmail(email)) return res.status(400).json({ error: 'Invalid email address.' });
+  try {
+    const result = await pool.query('SELECT id FROM users WHERE email=$1', [email]);
+    if (result.rows.length === 0) {
+      return res.status(400).json({ error: 'Nta konti iboneka kuri iyi imeyili. Reba neza cyangwa uvugishe umuyobozi.' });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[check-email]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// POST /api/auth/reset-password-direct — set new password after email verified in UI
+router.post('/reset-password-direct', forgotLimiter, async (req, res) => {
+  const email = (req.body.email || '').trim().toLowerCase();
+  const newPassword = req.body.newPassword || req.body.new_password || '';
+
+  if (!email || !newPassword) {
+    return res.status(400).json({ error: 'Email and new password are required.' });
+  }
+  if (!isValidEmail(email)) return res.status(400).json({ error: 'Invalid email address.' });
+  if (!isStrongPassword(newPassword)) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters and include letters and numbers.' });
+  }
+
+  try {
+    const userResult = await pool.query('SELECT id FROM users WHERE email=$1', [email]);
+    if (userResult.rows.length === 0) {
+      return res.status(400).json({ error: 'Nta konti iboneka kuri iyi imeyili.' });
+    }
+    const hashed = await bcrypt.hash(newPassword, 12);
+    await pool.query('UPDATE users SET password=$1 WHERE id=$2', [hashed, userResult.rows[0].id]);
+    audit('password_reset_direct', { email });
+    res.json({ message: 'Password reset successfully.' });
+  } catch (err) {
+    console.error('[reset-password-direct]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // POST /api/auth/reset-password — validate code and set new password
 router.post('/reset-password', forgotLimiter, async (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();

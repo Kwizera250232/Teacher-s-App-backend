@@ -21,7 +21,7 @@ pool.query(`
   CREATE INDEX IF NOT EXISTS idx_cat_marks_student ON cat_marks(student_id);
 `).catch(e => console.error('[cat_marks] migration error:', e.message));
 
-router.get('/:classId/overview', authenticateToken, requireRole('teacher'), async (req, res) => {
+router.get('/:classId/overview', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const classId = req.params.classId;
   try {
     const roster = await pool.query(
@@ -110,7 +110,7 @@ router.get('/:classId/student/:studentId', authenticateToken, async (req, res) =
   }
 });
 
-router.post('/:classId/entry', authenticateToken, requireRole('teacher'), async (req, res) => {
+router.post('/:classId/entry', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const { student_id, test_number, marks_obtained, total_marks } = req.body;
   const classId = req.params.classId;
   if (!student_id || !test_number || marks_obtained === undefined) {
@@ -132,7 +132,7 @@ router.post('/:classId/entry', authenticateToken, requireRole('teacher'), async 
   }
 });
 
-router.post('/:classId/fromquiz', authenticateToken, requireRole('teacher'), async (req, res) => {
+router.post('/:classId/fromquiz', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const { quiz_id, test_number } = req.body;
   const classId = req.params.classId;
   if (!quiz_id || !test_number) {
