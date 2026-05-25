@@ -3,51 +3,13 @@ const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { userCanAccessClass, userCanManageClass, isClassMember } = require('../lib/classAccess');
 const { createFeedUpload } = require('../lib/feedUpload');
+const { ensureFeedTables } = require('../lib/feedSchema');
 
 const router = express.Router();
 
-async function ensureFeedSchema() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS classroom_feed_posts (
-      id SERIAL PRIMARY KEY,
-      class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
-      author_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      post_type VARCHAR(30) NOT NULL,
-      body TEXT,
-      media_url TEXT,
-      media_mime VARCHAR(100),
-      voice_duration_sec INTEGER,
-      classwork_summary TEXT,
-      repost_of_id INTEGER REFERENCES classroom_feed_posts(id) ON DELETE SET NULL,
-      created_at TIMESTAMP DEFAULT NOW()
-    );
-    CREATE TABLE IF NOT EXISTS classroom_feed_likes (
-      post_id INTEGER NOT NULL REFERENCES classroom_feed_posts(id) ON DELETE CASCADE,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      created_at TIMESTAMP DEFAULT NOW(),
-      PRIMARY KEY (post_id, user_id)
-    );
-    CREATE TABLE IF NOT EXISTS classroom_feed_comments (
-      id SERIAL PRIMARY KEY,
-      post_id INTEGER NOT NULL REFERENCES classroom_feed_posts(id) ON DELETE CASCADE,
-      author_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      body TEXT NOT NULL,
-      parent_comment_id INTEGER REFERENCES classroom_feed_comments(id) ON DELETE CASCADE,
-      created_at TIMESTAMP DEFAULT NOW()
-    );
-    CREATE TABLE IF NOT EXISTS class_co_teachers (
-      class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
-      teacher_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      added_at TIMESTAMP DEFAULT NOW(),
-      PRIMARY KEY (class_id, teacher_id)
-    );
-  `);
-  await pool.query(`
-    ALTER TABLE invite_tokens ADD COLUMN IF NOT EXISTS class_id INTEGER REFERENCES classes(id);
-  `).catch(() => {});
-}
-
-ensureFeedSchema().catch((e) => console.error('[classroom_feed] schema:', e.message));
+pool.query(`
+  ALTER TABLE invite_tokens ADD COLUMN IF NOT EXISTS class_id INTEGER REFERENCES classes(id);
+`).catch(() => {});
 
 function parentFeedFilter(userId) {
   return `(
@@ -60,6 +22,44 @@ function parentFeedFilter(userId) {
   )`;
 }
 
+// GET aggregated home feed for student (all joined classes)
+router.get('/my/home', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'student') {
+    return res.status(403).json({ error: 'Student home feed only.' });
+  }
+  try {
+    await ensureFeedTables();
+    const classes = await pool.query(
+      `SELECT c.id, c.name FROM classes c
+       JOIN class_members cm ON cm.class_id = c.id
+       WHERE cm.student_id = $1`,
+      [req.user.id]
+    );
+    const all = [];
+    for (const cls of classes.rows) {
+      const posts = await pool.query(
+        `SELECT p.*, u.name AS author_name, u.role AS author_role, c.name AS class_name,
+                (SELECT COUNT(*)::int FROM classroom_feed_likes l WHERE l.post_id = p.id) AS like_count,
+                (SELECT COUNT(*)::int FROM classroom_feed_comments cm WHERE cm.post_id = p.id) AS comment_count,
+                EXISTS(SELECT 1 FROM classroom_feed_likes l2 WHERE l2.post_id = p.id AND l2.user_id = $2) AS liked_by_me
+         FROM classroom_feed_posts p
+         JOIN users u ON u.id = p.author_id
+         JOIN classes c ON c.id = p.class_id
+         WHERE p.class_id = $1
+         ORDER BY p.created_at DESC
+         LIMIT 40`,
+        [cls.id, req.user.id]
+      );
+      all.push(...posts.rows);
+    }
+    all.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    res.json(all.slice(0, 80));
+  } catch (err) {
+    console.error('[feed home]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // GET feed for a class
 router.get('/:classId/posts', authenticateToken, async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
@@ -67,6 +67,7 @@ router.get('/:classId/posts', authenticateToken, async (req, res) => {
   if (!access.ok) return res.status(403).json({ error: 'Forbidden.' });
 
   try {
+    await ensureFeedTables();
     let where = 'p.class_id = $1';
     const params = [classId];
 
@@ -130,11 +131,15 @@ router.post('/:classId/posts', authenticateToken, createFeedUpload('file'), asyn
     mediaMime = req.file.mimetype;
   }
 
+  if (postType === 'text' && !body) {
+    return res.status(400).json({ error: 'Write what you learnt or attach media.' });
+  }
   if (postType !== 'text' && !mediaUrl && !body) {
     return res.status(400).json({ error: 'Add text or upload a file.' });
   }
 
   try {
+    await ensureFeedTables();
     const result = await pool.query(
       `INSERT INTO classroom_feed_posts
         (class_id, author_id, post_type, body, media_url, media_mime, voice_duration_sec, classwork_summary, repost_of_id)
@@ -153,8 +158,8 @@ router.post('/:classId/posts', authenticateToken, createFeedUpload('file'), asyn
       liked_by_me: false,
     });
   } catch (err) {
-    console.error('[feed post]', err);
-    res.status(500).json({ error: 'Internal server error.' });
+    console.error('[feed post]', err.message, err.stack);
+    res.status(500).json({ error: 'Could not save post. Try again or post text only.' });
   }
 });
 
