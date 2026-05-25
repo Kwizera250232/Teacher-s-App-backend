@@ -47,6 +47,8 @@ router.get('/info', (_req, res) => {
     mode: cfg.configured ? 'mtn_sandbox' : 'demo',
     demo: !cfg.configured,
     message: 'Support UClass education — minimum 500 RWF.',
+    testing_note:
+      'Demo mode (no MTN keys): auto SUCCESSFUL. With MTN keys: real sandbox Request-to-Pay. Airtel/Card are not part of MTN API — separate integrations later.',
     payment_methods: [
       { id: 'mtn_momo', name: 'MTN Mobile Money (MoMo)', active: true, min: MIN_AMOUNT },
       { id: 'airtel', name: 'Airtel Money', active: false, note: 'Coming soon' },
