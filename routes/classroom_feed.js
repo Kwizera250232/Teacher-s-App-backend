@@ -107,11 +107,12 @@ router.post('/:classId/posts', authenticateToken, feedUploadMiddleware('file'), 
   const access = await userCanAccessClass(req.user, classId);
   if (!access.ok) return res.status(403).json({ error: 'Forbidden.' });
 
-  let postType = (req.body.post_type || 'text').trim();
-  const body = (req.body.body || '').trim();
-  const classworkSummary = (req.body.classwork_summary || '').trim() || null;
-  const voiceDuration = req.body.voice_duration_sec ? parseInt(req.body.voice_duration_sec, 10) : null;
-  const repostOfId = req.body.repost_of_id ? parseInt(req.body.repost_of_id, 10) : null;
+  const fields = req.body || {};
+  let postType = String(fields.post_type || 'text').trim();
+  const body = String(fields.body || '').trim();
+  const classworkSummary = String(fields.classwork_summary || '').trim() || null;
+  const voiceDuration = fields.voice_duration_sec ? parseInt(fields.voice_duration_sec, 10) : null;
+  const repostOfId = fields.repost_of_id ? parseInt(fields.repost_of_id, 10) : null;
 
   const allowedTypes = ['text', 'image', 'document', 'voice', 'drawing', 'exercise', 'activity'];
   if (!allowedTypes.includes(postType)) {
@@ -136,7 +137,7 @@ router.post('/:classId/posts', authenticateToken, feedUploadMiddleware('file'), 
     mediaUrl = `/uploads/feed/${req.file.filename}`;
     mediaMime = req.file.mimetype;
     const mime = (mediaMime || '').toLowerCase();
-    const requested = (req.body.post_type || 'text').trim();
+    const requested = String(fields.post_type || 'text').trim();
     if (requested === 'drawing') {
       postType = 'drawing';
     } else if (mime.startsWith('image/')) {
