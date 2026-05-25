@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { userCanAccessClass, userCanManageClass } = require('../lib/classAccess');
 
 const router = express.Router();
 
@@ -42,18 +43,35 @@ router.get('/preview/:code', previewLimiter, async (req, res) => {
   }
 });
 
-// GET all classes for logged-in teacher
-router.get('/', authenticateToken, requireRole('teacher'), async (req, res) => {
+// GET all classes for logged-in teacher or head teacher
+router.get('/', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT c.*, COUNT(cm.student_id) AS student_count
-       FROM classes c
-       LEFT JOIN class_members cm ON c.id = cm.class_id
-       WHERE c.teacher_id = $1
-       GROUP BY c.id
-       ORDER BY c.created_at DESC`,
-      [req.user.id]
-    );
+    let result;
+    if (req.user.role === 'head_teacher' && req.user.school_id) {
+      result = await pool.query(
+        `SELECT c.*, COUNT(DISTINCT cm.student_id) AS student_count
+         FROM classes c
+         LEFT JOIN class_members cm ON c.id = cm.class_id
+         JOIN users t ON t.id = c.teacher_id
+         WHERE t.school_id = $1
+            OR c.teacher_id = $2
+            OR EXISTS (SELECT 1 FROM class_co_teachers ct WHERE ct.class_id = c.id AND ct.teacher_id = $2)
+         GROUP BY c.id
+         ORDER BY c.created_at DESC`,
+        [req.user.school_id, req.user.id]
+      );
+    } else {
+      result = await pool.query(
+        `SELECT c.*, COUNT(cm.student_id) AS student_count
+         FROM classes c
+         LEFT JOIN class_members cm ON c.id = cm.class_id
+         WHERE c.teacher_id = $1
+            OR EXISTS (SELECT 1 FROM class_co_teachers ct WHERE ct.class_id = c.id AND ct.teacher_id = $1)
+         GROUP BY c.id
+         ORDER BY c.created_at DESC`,
+        [req.user.id]
+      );
+    }
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
@@ -78,8 +96,8 @@ router.get('/my', authenticateToken, requireRole('student'), async (req, res) =>
   }
 });
 
-// POST create class (teacher)
-router.post('/', authenticateToken, requireRole('teacher'), async (req, res) => {
+// POST create class (teacher or head teacher)
+router.post('/', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const name = (req.body.name || '').trim();
   const subject = (req.body.subject || '').trim();
   if (!name) return res.status(400).json({ error: 'Class name is required.' });
@@ -132,16 +150,10 @@ router.get('/:id', authenticateToken, async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Class not found.' });
     const cls = result.rows[0];
 
-    if (req.user.role === 'teacher') {
-      if (cls.teacher_id !== req.user.id) return res.status(403).json({ error: 'Forbidden.' });
-    } else if (req.user.role === 'student') {
-      const member = await pool.query(
-        'SELECT 1 FROM class_members WHERE class_id=$1 AND student_id=$2',
-        [cls.id, req.user.id]
-      );
-      if (member.rows.length === 0) return res.status(403).json({ error: 'Forbidden.' });
+    const access = await userCanAccessClass(req.user, cls.id);
+    if (!access.ok && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden.' });
     }
-    // admin may view any class — no extra check needed
 
     res.json(cls);
   } catch (err) {
@@ -150,11 +162,10 @@ router.get('/:id', authenticateToken, async (req, res) => {
 });
 
 // GET students in a class — teacher must own the class
-router.get('/:id/students', authenticateToken, requireRole('teacher'), async (req, res) => {
+router.get('/:id/students', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   try {
-    const classCheck = await pool.query('SELECT teacher_id FROM classes WHERE id=$1', [req.params.id]);
-    if (classCheck.rows.length === 0) return res.status(404).json({ error: 'Class not found.' });
-    if (classCheck.rows[0].teacher_id !== req.user.id) return res.status(403).json({ error: 'Forbidden.' });
+    const manage = await userCanManageClass(req.user, parseInt(req.params.id, 10));
+    if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
 
     const result = await pool.query(
       `SELECT u.id, u.name, u.email, cm.joined_at, s.name AS school_name
@@ -174,13 +185,8 @@ router.get('/:id/classmates', authenticateToken, async (req, res) => {
   const classId = parseInt(req.params.id);
   try {
     // Verify requester is a member or the teacher
-    const access = await pool.query(
-      `SELECT 1 FROM class_members WHERE class_id=$1 AND student_id=$2
-       UNION
-       SELECT 1 FROM classes WHERE id=$1 AND teacher_id=$2`,
-      [classId, req.user.id]
-    );
-    if (!access.rowCount) return res.status(403).json({ error: 'Forbidden.' });
+    const access = await userCanAccessClass(req.user, classId);
+    if (!access.ok) return res.status(403).json({ error: 'Forbidden.' });
 
     // Return all members (students + teacher) with avatar + subscription info
     const result = await pool.query(

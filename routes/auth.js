@@ -100,7 +100,7 @@ pool.query(`
 // Add head teacher role support at the DB constraint level
 pool.query(`
   ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
-  ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('teacher', 'student', 'admin', 'head_teacher'));
+  ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('teacher', 'student', 'admin', 'head_teacher', 'parent'));
 `).catch(console.error);
 
 // Add school metadata columns if missing for head teacher / school code flows
@@ -160,9 +160,11 @@ router.get('/invite-preview', async (req, res) => {
   if (!token) return res.status(400).json({ error: 'Invitation token is required.' });
   try {
     const result = await pool.query(
-      `SELECT it.*, s.name AS school_name, s.code AS school_code, s.email_domain, s.location AS school_location
+      `SELECT it.*, s.name AS school_name, s.code AS school_code, s.email_domain, s.location AS school_location,
+              c.name AS class_name
        FROM invite_tokens it
        LEFT JOIN schools s ON it.school_id = s.id
+       LEFT JOIN classes c ON c.id = it.class_id
        WHERE it.token = $1 AND it.used = FALSE AND it.expires_at > NOW()
        LIMIT 1`,
       [token]
@@ -179,6 +181,9 @@ router.get('/invite-preview', async (req, res) => {
       school_code: row.school_code,
       school_location: row.school_location,
       email_domain: row.email_domain,
+      class_id: row.class_id || null,
+      class_name: row.class_name || null,
+      invite_type: row.class_id ? 'co_teacher' : 'school',
     });
   } catch (err) {
     console.error('[invite-preview]', err);
@@ -216,7 +221,7 @@ router.post('/schools', async (req, res) => {
 router.post('/register', authLimiter, async (req, res) => {
   const name = (req.body.name || '').trim();
   const email = (req.body.email || '').trim().toLowerCase();
-  let { password, role, school_id, school_code, phone, invite_token } = req.body;
+  let { password, role, school_id, school_code, phone, invite_token, parent_token } = req.body;
   const newSchoolName = (req.body.new_school_name || '').trim();
   const newSchoolLocation = (req.body.new_school_location || '').trim();
 
@@ -227,8 +232,23 @@ router.post('/register', authLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Invalid email address.' });
   }
 
+  let parentInviteRow = null;
+  if (parent_token) {
+    const pInv = await pool.query(
+      `SELECT pit.*, u.name AS student_name FROM parent_invite_tokens pit
+       JOIN users u ON u.id = pit.student_id
+       WHERE pit.token=$1 AND pit.used=FALSE AND pit.expires_at > NOW() LIMIT 1`,
+      [String(parent_token).trim()]
+    );
+    if (pInv.rows.length === 0) {
+      return res.status(400).json({ error: 'Invalid or expired parent invitation.' });
+    }
+    parentInviteRow = pInv.rows[0];
+    role = 'parent';
+  }
+
   let inviteRow = null;
-  if (invite_token) {
+  if (invite_token && !parentInviteRow) {
     const inv = await pool.query(
       `SELECT * FROM invite_tokens WHERE token=$1 AND used=FALSE AND expires_at > NOW() LIMIT 1`,
       [String(invite_token).trim()]
@@ -246,7 +266,7 @@ router.post('/register', authLimiter, async (req, res) => {
   }
 
   // Check if email domain is a school domain - not allowed for self-signup (skip for invite)
-  if (!invite_token) {
+  if (!invite_token && !parent_token) {
     const emailDomain = email.split('@')[1];
     if (emailDomain) {
       const schoolCheck = await pool.query('SELECT id FROM schools WHERE email_domain = $1 LIMIT 1', [emailDomain]);
@@ -259,8 +279,8 @@ router.post('/register', authLimiter, async (req, res) => {
   if (!invite_token && role === 'teacher' && !school_code) {
     return res.status(403).json({ error: 'Teacher signup requires a school code. Ask your Head Teacher for the school code.' });
   }
-  if (!['student', 'teacher', 'head_teacher'].includes(role)) {
-    return res.status(400).json({ error: 'Role must be student, teacher, or head_teacher.' });
+  if (!['student', 'teacher', 'head_teacher', 'parent'].includes(role)) {
+    return res.status(400).json({ error: 'Invalid role.' });
   }
   if (!isStrongPassword(password)) {
     return res.status(400).json({ error: 'Password must be at least 8 characters and include letters and numbers.' });
@@ -368,6 +388,20 @@ router.post('/register', authLimiter, async (req, res) => {
 
     if (inviteRow) {
       await pool.query('UPDATE invite_tokens SET used=TRUE WHERE id=$1', [inviteRow.id]);
+      if (inviteRow.class_id && role === 'teacher') {
+        await pool.query(
+          'INSERT INTO class_co_teachers (class_id, teacher_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+          [inviteRow.class_id, user.id]
+        );
+      }
+    }
+
+    if (parentInviteRow) {
+      await pool.query('UPDATE parent_invite_tokens SET used=TRUE WHERE id=$1', [parentInviteRow.id]);
+      await pool.query(
+        'INSERT INTO parent_children (parent_id, student_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+        [user.id, parentInviteRow.student_id]
+      );
     }
 
     if (!isApproved) {

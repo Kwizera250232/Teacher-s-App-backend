@@ -39,8 +39,8 @@ router.post('/impersonate', ...adminOnly, async (req, res) => {
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'User not found.' });
     const target = result.rows[0];
-    if (!['teacher', 'student'].includes(target.role)) {
-      return res.status(400).json({ error: 'You can only view teacher or student accounts.' });
+    if (!['teacher', 'student', 'head_teacher'].includes(target.role)) {
+      return res.status(400).json({ error: 'You can only view teacher, head teacher, or student accounts.' });
     }
     if (target.is_suspended) return res.status(403).json({ error: 'This account is suspended.' });
     if (!process.env.JWT_SECRET) {

@@ -16,6 +16,8 @@ const studentNotesRoutes = require('./routes/student_notes');
 const leaderboardRoutes = require('./routes/leaderboard');
 const studentSharesRoutes = require('./routes/student_shares');
 const catMarksRoutes = require('./routes/cat_marks');
+const classroomFeedRoutes = require('./routes/classroom_feed');
+const parentPortalRoutes = require('./routes/parent_portal');
 
 const downloadRoutes = require('./routes/download');
 const aiRoutes = require('./routes/ai');
@@ -67,6 +69,7 @@ const ensureDirectory = (dir) => {
 const uploadsRoot = ensureUploadsRoot();
 ensureDirectory(path.join(uploadsRoot, 'avatars'));
 ensureDirectory(path.join(uploadsRoot, 'msg_images'));
+ensureDirectory(path.join(uploadsRoot, 'feed'));
 
 app.use('/uploads', express.static(uploadsRoot));
 app.use('/uploads/avatars', express.static(path.join(uploadsRoot, 'avatars')));
@@ -90,6 +93,8 @@ app.use('/api/textbooks', textbookRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/student-shares', studentSharesRoutes);
+app.use('/api/classroom-feed', classroomFeedRoutes);
+app.use('/api/parent', parentPortalRoutes);
 
 // Serve avatars
 app.use('/uploads/avatars', express.static(require('path').join(__dirname, 'uploads/avatars')));
