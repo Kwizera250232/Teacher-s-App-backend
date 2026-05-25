@@ -6,12 +6,23 @@ const { createUpload } = require('../lib/uploads');
 const router = express.Router();
 const uploadNote = createUpload('file');
 
-async function teacherOwnsClass(classId, teacherId) {
-  const result = await pool.query(
+async function teacherOwnsClass(classId, user) {
+  const teacherId = user.id;
+  const owned = await pool.query(
     'SELECT id FROM classes WHERE id = $1 AND teacher_id = $2',
     [classId, teacherId]
   );
-  return result.rows.length > 0;
+  if (owned.rows.length > 0) return true;
+  if (user.role === 'head_teacher' && user.school_id) {
+    const ht = await pool.query(
+      `SELECT c.id FROM classes c
+       JOIN users t ON c.teacher_id = t.id
+       WHERE c.id = $1 AND t.school_id = $2`,
+      [classId, user.school_id]
+    );
+    return ht.rows.length > 0;
+  }
+  return false;
 }
 
 // GET notes for a class
@@ -29,7 +40,7 @@ router.get('/:classId/notes', authenticateToken, async (req, res) => {
 });
 
 // POST upload note (teacher)
-router.post('/:classId/notes', authenticateToken, requireRole('teacher'), (req, res, next) => {
+router.post('/:classId/notes', authenticateToken, requireRole('teacher', 'head_teacher'), (req, res, next) => {
   uploadNote(req, res, (err) => {
     if (err) return next(err);
     next();
@@ -44,7 +55,7 @@ router.post('/:classId/notes', authenticateToken, requireRole('teacher'), (req, 
   const fileName = req.file ? req.file.originalname : null;
 
   try {
-    if (!(await teacherOwnsClass(classId, req.user.id))) {
+    if (!(await teacherOwnsClass(classId, req.user))) {
       return res.status(403).json({ error: 'You do not own this class.' });
     }
     const result = await pool.query(
@@ -59,11 +70,11 @@ router.post('/:classId/notes', authenticateToken, requireRole('teacher'), (req, 
 });
 
 // DELETE note (teacher)
-router.delete('/:classId/notes/:noteId', authenticateToken, requireRole('teacher'), async (req, res) => {
+router.delete('/:classId/notes/:noteId', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   if (Number.isNaN(classId)) return res.status(400).json({ error: 'Invalid class ID.' });
   try {
-    if (!(await teacherOwnsClass(classId, req.user.id))) {
+    if (!(await teacherOwnsClass(classId, req.user))) {
       return res.status(403).json({ error: 'You do not own this class.' });
     }
     await pool.query('DELETE FROM notes WHERE id = $1 AND class_id = $2', [req.params.noteId, classId]);

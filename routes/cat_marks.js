@@ -33,29 +33,51 @@ router.get('/:classId/overview', authenticateToken, requireRole('teacher'), asyn
       [classId]
     );
 
-    const stats = await pool.query(
-      `SELECT
-        c.student_id,
-        COUNT(DISTINCT c.test_number) AS test_count,
-        SUM(c.marks_obtained) AS total_marks,
-        COALESCE(ROUND(100.0 * SUM(c.marks_obtained) / NULLIF(SUM(c.total_marks), 0), 1), 0) AS percentage,
-        COALESCE(ROUND(AVG(100.0 * c.marks_obtained / NULLIF(c.total_marks, 1)), 1), 0) AS avg_percentage
-       FROM cat_marks c
-       WHERE c.class_id = $1
-       GROUP BY c.student_id`,
+    const marksRows = await pool.query(
+      `SELECT student_id, test_number, marks_obtained, total_marks
+       FROM cat_marks WHERE class_id = $1`,
       [classId]
     );
 
-    const statsByStudent = new Map(stats.rows.map(r => [r.student_id, r]));
+    const marksByStudent = new Map();
+    for (const row of marksRows.rows) {
+      if (!marksByStudent.has(row.student_id)) marksByStudent.set(row.student_id, {});
+      marksByStudent.get(row.student_id)[row.test_number] = {
+        marks: Number(row.marks_obtained),
+        total: Number(row.total_marks) || 100,
+      };
+    }
+
     const students = roster.rows.map((s) => {
-      const row = statsByStudent.get(s.student_id);
+      const tests = marksByStudent.get(s.student_id) || {};
+      const cat = {};
+      let sumMarks = 0;
+      let sumTotal = 0;
+      let testCount = 0;
+      for (let n = 1; n <= 10; n += 1) {
+        if (tests[n]) {
+          cat[n] = tests[n].marks;
+          sumMarks += tests[n].marks;
+          sumTotal += tests[n].total;
+          testCount += 1;
+        } else {
+          cat[n] = null;
+        }
+      }
+      const percentage = sumTotal > 0 ? Math.round((1000 * sumMarks) / sumTotal) / 10 : 0;
+      const avg_percentage = testCount > 0
+        ? Math.round(
+          (Object.values(tests).reduce((acc, t) => acc + (100 * t.marks) / (t.total || 100), 0) / testCount) * 10
+        ) / 10
+        : 0;
       return {
         student_id: s.student_id,
         name: s.name,
-        test_count: row ? Number(row.test_count) : 0,
-        total_marks: row ? Number(row.total_marks) : 0,
-        percentage: row ? Number(row.percentage) : 0,
-        avg_percentage: row ? Number(row.avg_percentage) : 0,
+        cat,
+        test_count: testCount,
+        total_marks: sumMarks,
+        percentage,
+        avg_percentage,
       };
     });
 

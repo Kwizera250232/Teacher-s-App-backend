@@ -154,6 +154,38 @@ router.get('/validate-school-code', async (req, res) => {
   }
 });
 
+// GET invite link preview (public)
+router.get('/invite-preview', async (req, res) => {
+  const token = String(req.query.token || '').trim();
+  if (!token) return res.status(400).json({ error: 'Invitation token is required.' });
+  try {
+    const result = await pool.query(
+      `SELECT it.*, s.name AS school_name, s.code AS school_code, s.email_domain, s.location AS school_location
+       FROM invite_tokens it
+       LEFT JOIN schools s ON it.school_id = s.id
+       WHERE it.token = $1 AND it.used = FALSE AND it.expires_at > NOW()
+       LIMIT 1`,
+      [token]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'This invitation link is invalid or has expired.' });
+    }
+    const row = result.rows[0];
+    res.json({
+      role: row.role,
+      can_create_school: row.can_create_school,
+      school_id: row.school_id,
+      school_name: row.school_name,
+      school_code: row.school_code,
+      school_location: row.school_location,
+      email_domain: row.email_domain,
+    });
+  } catch (err) {
+    console.error('[invite-preview]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // POST create school
 router.post('/schools', async (req, res) => {
   const name = (req.body.name || '').trim();
@@ -184,25 +216,47 @@ router.post('/schools', async (req, res) => {
 router.post('/register', authLimiter, async (req, res) => {
   const name = (req.body.name || '').trim();
   const email = (req.body.email || '').trim().toLowerCase();
-  const { password, role, school_id, school_code, phone } = req.body;
+  let { password, role, school_id, school_code, phone, invite_token } = req.body;
+  const newSchoolName = (req.body.new_school_name || '').trim();
+  const newSchoolLocation = (req.body.new_school_location || '').trim();
 
-  if (!name || !email || !password || !role) {
+  if (!name || !email || !password) {
     return res.status(400).json({ error: 'All fields are required.' });
   }
   if (!isValidEmail(email)) {
     return res.status(400).json({ error: 'Invalid email address.' });
   }
 
-  // Check if email domain is a school domain - not allowed for self-signup
-  const emailDomain = email.split('@')[1];
-  if (emailDomain) {
-    const schoolCheck = await pool.query('SELECT id FROM schools WHERE email_domain = $1 LIMIT 1', [emailDomain]);
-    if (schoolCheck.rows.length > 0) {
-      return res.status(403).json({ error: 'Emails from school domains are not allowed for self-signup. Contact your school admin or head teacher to create your account.' });
+  let inviteRow = null;
+  if (invite_token) {
+    const inv = await pool.query(
+      `SELECT * FROM invite_tokens WHERE token=$1 AND used=FALSE AND expires_at > NOW() LIMIT 1`,
+      [String(invite_token).trim()]
+    );
+    if (inv.rows.length === 0) {
+      return res.status(400).json({ error: 'Invalid or expired invitation link.' });
+    }
+    inviteRow = inv.rows[0];
+    role = inviteRow.role;
+    if (inviteRow.school_id) school_id = inviteRow.school_id;
+  }
+
+  if (!role) {
+    return res.status(400).json({ error: 'Role is required.' });
+  }
+
+  // Check if email domain is a school domain - not allowed for self-signup (skip for invite)
+  if (!invite_token) {
+    const emailDomain = email.split('@')[1];
+    if (emailDomain) {
+      const schoolCheck = await pool.query('SELECT id FROM schools WHERE email_domain = $1 LIMIT 1', [emailDomain]);
+      if (schoolCheck.rows.length > 0) {
+        return res.status(403).json({ error: 'Emails from school domains are not allowed for self-signup. Contact your school admin or head teacher to create your account.' });
+      }
     }
   }
 
-  if (role === 'teacher' && !school_code) {
+  if (!invite_token && role === 'teacher' && !school_code) {
     return res.status(403).json({ error: 'Teacher signup requires a school code. Ask your Head Teacher for the school code.' });
   }
   if (!['student', 'teacher', 'head_teacher'].includes(role)) {
@@ -225,8 +279,40 @@ router.post('/register', authLimiter, async (req, res) => {
     const schoolCodeInput = String(school_code || '').trim().toUpperCase();
     let codeBasedSignup = false;
 
+    if (inviteRow && inviteRow.can_create_school && role === 'head_teacher') {
+      if (!newSchoolName) {
+        return res.status(400).json({ error: 'School name is required for this invitation.' });
+      }
+      const code = randomSchoolCode();
+      const slug = newSchoolName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const emailDomain = slug ? `${slug}.edu` : null;
+      const schoolRes = await pool.query(
+        `INSERT INTO schools (name, location, code, email_domain) VALUES ($1,$2,$3,$4) RETURNING *`,
+        [newSchoolName, newSchoolLocation || null, code, emailDomain]
+      );
+      resolvedSchoolId = schoolRes.rows[0].id;
+      schoolCode = schoolRes.rows[0].code;
+    } else if (inviteRow && inviteRow.school_id) {
+      const sRes = await pool.query('SELECT id, name, code, welcome_message FROM schools WHERE id=$1', [inviteRow.school_id]);
+      if (sRes.rows.length > 0) {
+        resolvedSchoolId = sRes.rows[0].id;
+        schoolCode = sRes.rows[0].code;
+        schoolWelcomeMessage = sRes.rows[0].welcome_message;
+        codeBasedSignup = true;
+      }
+      if (role === 'head_teacher' && resolvedSchoolId) {
+        const existingHT = await pool.query(
+          "SELECT id FROM users WHERE school_id=$1 AND role='head_teacher' AND is_approved=TRUE LIMIT 1",
+          [resolvedSchoolId]
+        );
+        if (existingHT.rows.length > 0) {
+          return res.status(409).json({ error: 'This school already has an active Head Teacher.' });
+        }
+      }
+    }
+
     // ── School-code based signup for head_teacher and teacher ─────────────
-    if ((role === 'head_teacher' || role === 'teacher') && schoolCodeInput) {
+    if (!inviteRow && (role === 'head_teacher' || role === 'teacher') && schoolCodeInput) {
       const codeRes = await pool.query(
         'SELECT id, name, code, email_domain, welcome_message FROM schools WHERE code=$1 LIMIT 1',
         [schoolCodeInput]
@@ -279,6 +365,10 @@ router.post('/register', authLimiter, async (req, res) => {
       [name, email, hashed, role, resolvedSchoolId, isApproved, phone || null]
     );
     const user = result.rows[0];
+
+    if (inviteRow) {
+      await pool.query('UPDATE invite_tokens SET used=TRUE WHERE id=$1', [inviteRow.id]);
+    }
 
     if (!isApproved) {
       audit('register', { email, role, status: 'pending_approval' });
