@@ -120,8 +120,15 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 // Central error handler — never leak internal error details to clients
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  if (err && err.code === 'LIMIT_FILE_SIZE') {
-    return res.status(400).json({ error: 'Uploaded file is too large. Maximum size is 50MB.' });
+  if (
+    err &&
+    (err.code === 'LIMIT_FILE_SIZE' ||
+      err.name === 'MulterError' ||
+      /file too large/i.test(String(err.message)))
+  ) {
+    return res.status(413).json({
+      error: 'File is too large. Maximum upload is 50MB — try a smaller photo or compress the image.',
+    });
   }
   if (err && err.message && err.message.toLowerCase().includes('invalid file type')) {
     return res.status(400).json({ error: err.message });
