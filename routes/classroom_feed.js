@@ -90,14 +90,20 @@ router.get('/:classId/posts', authenticateToken, async (req, res) => {
     );
     res.json(posts.rows);
   } catch (err) {
-    console.error('[feed list]', err);
-    res.status(500).json({ error: 'Internal server error.' });
+    console.error('[feed list]', err.message, err.code, err.detail);
+    const msg = err.code === '42P01'
+      ? 'Feed is being set up. Refresh in a few seconds.'
+      : 'Internal server error.';
+    res.status(500).json({ error: msg });
   }
 });
 
 // POST create post (text or multipart with media)
 router.post('/:classId/posts', authenticateToken, feedUploadMiddleware('file'), async (req, res) => {
+  try {
   const classId = parseInt(req.params.classId, 10);
+  if (Number.isNaN(classId)) return res.status(400).json({ error: 'Invalid class.' });
+
   const access = await userCanAccessClass(req.user, classId);
   if (!access.ok) return res.status(403).json({ error: 'Forbidden.' });
 
@@ -170,8 +176,15 @@ router.post('/:classId/posts', authenticateToken, feedUploadMiddleware('file'), 
       liked_by_me: false,
     });
   } catch (err) {
-    console.error('[feed post]', err.message, err.stack);
-    res.status(500).json({ error: 'Could not save post. Try again or post text only.' });
+    console.error('[feed post]', err.message, err.code, err.detail, err.stack);
+    const msg = err.code === '42P01'
+      ? 'Feed is being set up. Wait a moment and try again.'
+      : (err.message || 'Could not save post. Try again.');
+    res.status(500).json({ error: msg });
+  }
+  } catch (err) {
+    console.error('[feed post outer]', err.message, err.stack);
+    res.status(500).json({ error: err.message || 'Internal server error.' });
   }
 });
 
