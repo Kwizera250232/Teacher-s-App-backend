@@ -550,25 +550,23 @@ router.get('/user-announcements', authenticateToken, async (req, res) => {
 const teacherOrAbove = [authenticateToken, requireRole('admin', 'head_teacher', 'teacher')];
 
 async function resolveSchoolForAccount(req, school_id) {
-  let targetSchoolId = school_id;
   if (req.user.role === 'teacher' || req.user.role === 'head_teacher') {
     let userSchoolId = req.user.school_id;
     if (!userSchoolId) {
       const row = await pool.query('SELECT school_id FROM users WHERE id = $1', [req.user.id]);
       userSchoolId = row.rows[0]?.school_id;
     }
-    if (!userSchoolId) {
-      const err = new Error('You must be assigned to a school.');
-      err.status = 403;
-      throw err;
-    }
-    targetSchoolId = userSchoolId;
-  } else if (req.user.role === 'admin' && !targetSchoolId) {
+    if (userSchoolId) return userSchoolId;
+    if (school_id) return school_id;
+    const err = new Error('Please select a school.');
+    err.status = 400;
+    throw err;
+  } else if (req.user.role === 'admin' && !school_id) {
     const err = new Error('School ID is required for admin user creation.');
     err.status = 400;
     throw err;
   }
-  return targetSchoolId;
+  return school_id;
 }
 
 async function createSchoolAccount(req, { name, email, role, school_id, password: customPassword }) {
