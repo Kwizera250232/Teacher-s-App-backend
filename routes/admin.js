@@ -27,6 +27,135 @@ pool.query(`
   );
 `).catch(err => console.error('[admin] invite_tokens migration error:', err.message));
 
+pool.query(`
+  CREATE TABLE IF NOT EXISTS school_join_requests (
+    id SERIAL PRIMARY KEY,
+    teacher_id INTEGER NOT NULL REFERENCES users(id),
+    school_id INTEGER NOT NULL REFERENCES schools(id),
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    message TEXT,
+    reviewed_by INTEGER REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT NOW(),
+    reviewed_at TIMESTAMP
+  );
+`).catch(err => console.error('[admin] school_join_requests migration error:', err.message));
+
+// ─── SCHOOL JOIN REQUESTS (teacher requests to join a school) ─────────────────
+
+router.get('/my-school', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  try {
+    const row = await pool.query(
+      'SELECT u.school_id, s.name AS school_name FROM users u LEFT JOIN schools s ON s.id = u.school_id WHERE u.id = $1',
+      [req.user.id]
+    );
+    res.json(row.rows[0] || { school_id: null, school_name: null });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.post('/request-school', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const { school_id, message } = req.body;
+  if (!school_id) return res.status(400).json({ error: 'School is required.' });
+  try {
+    const existing = await pool.query(
+      'SELECT id FROM school_join_requests WHERE teacher_id = $1 AND status = $2',
+      [req.user.id, 'pending']
+    );
+    if (existing.rows.length > 0) {
+      return res.status(400).json({ error: 'You already have a pending school request. Please wait for approval.' });
+    }
+    const result = await pool.query(
+      'INSERT INTO school_join_requests (teacher_id, school_id, message) VALUES ($1, $2, $3) RETURNING *',
+      [req.user.id, school_id, message || null]
+    );
+    res.status(201).json({ request: result.rows[0], message: 'School request sent! Waiting for approval.' });
+  } catch (err) {
+    console.error('[request-school]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.get('/my-school-request', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT sjr.*, s.name AS school_name FROM school_join_requests sjr
+       JOIN schools s ON s.id = sjr.school_id
+       WHERE sjr.teacher_id = $1 ORDER BY sjr.created_at DESC LIMIT 1`,
+      [req.user.id]
+    );
+    res.json(result.rows[0] || null);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.get('/school-requests', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  try {
+    let query;
+    if (req.user.role === 'admin') {
+      query = await pool.query(
+        `SELECT sjr.*, u.name AS teacher_name, u.email AS teacher_email, s.name AS school_name
+         FROM school_join_requests sjr
+         JOIN users u ON u.id = sjr.teacher_id
+         JOIN schools s ON s.id = sjr.school_id
+         ORDER BY sjr.created_at DESC`
+      );
+    } else {
+      let userSchoolId = req.user.school_id;
+      if (!userSchoolId) {
+        const row = await pool.query('SELECT school_id FROM users WHERE id = $1', [req.user.id]);
+        userSchoolId = row.rows[0]?.school_id;
+      }
+      if (!userSchoolId) return res.json([]);
+      query = await pool.query(
+        `SELECT sjr.*, u.name AS teacher_name, u.email AS teacher_email, s.name AS school_name
+         FROM school_join_requests sjr
+         JOIN users u ON u.id = sjr.teacher_id
+         JOIN schools s ON s.id = sjr.school_id
+         WHERE sjr.school_id = $1
+         ORDER BY sjr.created_at DESC`,
+        [userSchoolId]
+      );
+    }
+    res.json(query.rows);
+  } catch (err) {
+    console.error('[school-requests GET]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.put('/school-requests/:id/approve', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  const { id } = req.params;
+  try {
+    const reqRow = await pool.query('SELECT * FROM school_join_requests WHERE id = $1 AND status = $2', [id, 'pending']);
+    if (reqRow.rows.length === 0) return res.status(404).json({ error: 'Request not found or already processed.' });
+    const request = reqRow.rows[0];
+    await pool.query('UPDATE users SET school_id = $1 WHERE id = $2', [request.school_id, request.teacher_id]);
+    await pool.query(
+      'UPDATE school_join_requests SET status = $1, reviewed_by = $2, reviewed_at = NOW() WHERE id = $3',
+      ['approved', req.user.id, id]
+    );
+    res.json({ message: 'Teacher approved and assigned to school.' });
+  } catch (err) {
+    console.error('[school-requests approve]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.put('/school-requests/:id/reject', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query(
+      'UPDATE school_join_requests SET status = $1, reviewed_by = $2, reviewed_at = NOW() WHERE id = $3',
+      ['rejected', req.user.id, id]
+    );
+    res.json({ message: 'Request rejected.' });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // ─── ADMIN VIEW-AS (impersonate teacher/student) ─────────────────────────────
 router.post('/impersonate', ...adminOnly, async (req, res) => {
   const targetId = parseInt(req.body.user_id, 10);
