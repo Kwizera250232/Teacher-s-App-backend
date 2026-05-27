@@ -552,12 +552,17 @@ const teacherOrAbove = [authenticateToken, requireRole('admin', 'head_teacher', 
 async function resolveSchoolForAccount(req, school_id) {
   let targetSchoolId = school_id;
   if (req.user.role === 'teacher' || req.user.role === 'head_teacher') {
-    if (!req.user.school_id) {
+    let userSchoolId = req.user.school_id;
+    if (!userSchoolId) {
+      const row = await pool.query('SELECT school_id FROM users WHERE id = $1', [req.user.id]);
+      userSchoolId = row.rows[0]?.school_id;
+    }
+    if (!userSchoolId) {
       const err = new Error('You must be assigned to a school.');
       err.status = 403;
       throw err;
     }
-    targetSchoolId = req.user.school_id;
+    targetSchoolId = userSchoolId;
   } else if (req.user.role === 'admin' && !targetSchoolId) {
     const err = new Error('School ID is required for admin user creation.');
     err.status = 400;
@@ -566,7 +571,7 @@ async function resolveSchoolForAccount(req, school_id) {
   return targetSchoolId;
 }
 
-async function createSchoolAccount(req, { name, email, role, school_id }) {
+async function createSchoolAccount(req, { name, email, role, school_id, password: customPassword }) {
   if (!name || !role) {
     const err = new Error('Name and role are required.');
     err.status = 400;
@@ -627,8 +632,10 @@ async function createSchoolAccount(req, { name, email, role, school_id }) {
     }
   }
 
-  const randomPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
-  const hashed = await bcrypt.hash(randomPassword, 12);
+  const finalPassword = customPassword && customPassword.trim().length >= 4
+    ? customPassword.trim()
+    : Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
+  const hashed = await bcrypt.hash(finalPassword, 12);
   const result = await pool.query(
     `INSERT INTO users (name, email, password, role, school_id, is_approved)
      VALUES ($1, $2, $3, $4, $5, $6)
@@ -638,7 +645,7 @@ async function createSchoolAccount(req, { name, email, role, school_id }) {
 
   return {
     user: result.rows[0],
-    temp_password: randomPassword,
+    temp_password: finalPassword,
   };
 }
 
@@ -657,7 +664,7 @@ router.post('/add-pupil', ...teacherOrAbove, async (req, res) => {
 });
 
 router.post('/add-pupils', ...teacherOrAbove, async (req, res) => {
-  const { names, role, school_id } = req.body;
+  const { names, role, school_id, password } = req.body;
   const nameList = Array.isArray(names)
     ? names.map((n) => String(n).trim()).filter(Boolean)
     : String(names || '').split(/\r?\n/).map((n) => n.trim()).filter(Boolean);
@@ -673,7 +680,7 @@ router.post('/add-pupils', ...teacherOrAbove, async (req, res) => {
   const failed = [];
   for (const name of nameList) {
     try {
-      const row = await createSchoolAccount(req, { name, email: null, role: role || 'student', school_id });
+      const row = await createSchoolAccount(req, { name, email: null, role: role || 'student', school_id, password });
       created.push(row);
     } catch (err) {
       failed.push({ name, error: err.message || 'Failed to create account.' });
