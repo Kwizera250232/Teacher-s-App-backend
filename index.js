@@ -122,11 +122,12 @@ app.post('/api/pwa/install', async (req, res) => {
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
-// Student web UI (built React app) — live at /app/ when Vercel has not updated yet
+// Student web UI (built React app) — https://studentapi.umunsi.com/app/
 const studentUiDist = path.join(__dirname, 'student-web-dist');
 if (fs.existsSync(studentUiDist)) {
   app.use('/app', express.static(studentUiDist, { index: 'index.html', maxAge: '1h' }));
-  app.get('/app/*', (req, res) => {
+  // Express 5: named wildcard (not /app/*)
+  app.get('/app/{*splat}', (req, res) => {
     res.sendFile(path.join(studentUiDist, 'index.html'));
   });
   app.get('/', (req, res, next) => {
