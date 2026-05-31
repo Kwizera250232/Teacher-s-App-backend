@@ -204,6 +204,14 @@ router.get('/invite-preview', async (req, res) => {
       return res.status(404).json({ error: 'This invitation link is invalid or has expired.' });
     }
     const row = result.rows[0];
+    let emailDomain = row.email_domain;
+    if (row.school_id && row.school_name) {
+      emailDomain = await ensureSchoolEmailDomain(pool, {
+        id: row.school_id,
+        name: row.school_name,
+        email_domain: row.email_domain,
+      });
+    }
     res.json({
       role: row.role,
       can_create_school: row.can_create_school,
@@ -211,7 +219,7 @@ router.get('/invite-preview', async (req, res) => {
       school_name: row.school_name,
       school_code: row.school_code,
       school_location: row.school_location,
-      email_domain: row.email_domain,
+      email_domain: emailDomain,
       class_id: row.class_id || null,
       class_name: row.class_name || null,
       invite_type: row.class_id ? 'co_teacher' : 'school',
@@ -246,7 +254,9 @@ router.get('/check-school-email', async (req, res) => {
         return res.status(400).json({ error: 'School email domain is not configured.' });
       }
     } else {
-      domain = getStaffSignupEmailDomain();
+      return res.status(400).json({
+        error: 'Enter your school code to create your login email (@yourschool.edu).',
+      });
     }
     const email = buildSchoolEmail(local, domain);
     const taken = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
@@ -265,17 +275,41 @@ router.get('/check-school-email', async (req, res) => {
 
 router.get('/staff-signup-domain', async (req, res) => {
   const { getStaffSignupEmailDomain } = require('../lib/schoolDomain');
-  res.json({ email_domain: getStaffSignupEmailDomain() });
+  const legacy = getStaffSignupEmailDomain();
+  res.json({
+    email_domain: legacy,
+    requires_school_code: !legacy,
+    hint: legacy
+      ? null
+      : 'Enter your school code to use your school email (@schoolname.edu).',
+  });
 });
 
 // POST validate email (Gmail or school domain + optional mailbox check)
 router.post('/validate-email', authLimiter, async (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();
   const code = String(req.body.school_code || '').trim().toUpperCase();
+  const parentToken = String(req.body.parent_token || '').trim();
   if (!email) return res.status(400).json({ error: 'Email is required.' });
 
   try {
     let schoolDomain = null;
+    let role = req.body.role || null;
+    let skipMailbox = false;
+
+    if (parentToken) {
+      const pInv = await pool.query(
+        `SELECT id FROM parent_invite_tokens
+         WHERE token=$1 AND used=FALSE AND expires_at > NOW() LIMIT 1`,
+        [parentToken]
+      );
+      if (!pInv.rows.length) {
+        return res.status(400).json({ error: 'Invalid or expired parent invitation.' });
+      }
+      role = 'parent';
+      skipMailbox = true;
+    }
+
     if (code) {
       const s = await pool.query('SELECT id, name, email_domain FROM schools WHERE code=$1', [code]);
       if (s.rows.length) schoolDomain = await ensureSchoolEmailDomain(pool, s.rows[0]);
@@ -284,10 +318,13 @@ router.post('/validate-email', authLimiter, async (req, res) => {
       if (s.rows.length) schoolDomain = await ensureSchoolEmailDomain(pool, s.rows[0]);
     }
 
+    if (role === 'parent') skipMailbox = true;
+
     const result = await validateEmailForSignup(email, {
       schoolDomain,
-      strict: STRICT_EMAIL,
-      role: req.body.role || null,
+      strict: role === 'parent' ? false : STRICT_EMAIL,
+      role,
+      skipMailbox,
     });
     if (!result.valid) {
       return res.status(400).json({ error: result.reason, mailbox: result.mailbox });
@@ -306,11 +343,12 @@ router.post('/validate-email', authLimiter, async (req, res) => {
 // POST create school
 router.post('/schools', async (req, res) => {
   const name = (req.body.name || '').trim();
-  const email_domain = (req.body.email_domain || '').trim() || null;
+  let email_domain = (req.body.email_domain || '').trim() || null;
   const welcome_message = (req.body.welcome_message || '').trim() || null;
   const code = (req.body.code || '').trim().toUpperCase() || randomSchoolCode();
   if (!name) return res.status(400).json({ error: 'School name is required.' });
   if (name.length > 200) return res.status(400).json({ error: 'School name is too long.' });
+  if (!email_domain) email_domain = schoolDomainFromName(name);
   try {
     const result = await pool.query(
       `INSERT INTO schools (name, code, email_domain, welcome_message)
@@ -483,8 +521,16 @@ router.post('/register', authLimiter, async (req, res) => {
           error: 'Create your school email username (e.g. john for john@school.edu).',
         });
       }
-      const { getStaffSignupEmailDomain } = require('../lib/schoolDomain');
-      const domainForStaff = schoolDomainForEmail || getStaffSignupEmailDomain();
+      let domainForStaff = schoolDomainForEmail;
+      if (!domainForStaff && inviteRow?.can_create_school && newSchoolName) {
+        domainForStaff = schoolDomainFromName(newSchoolName);
+      }
+      if (!domainForStaff) {
+        return res.status(400).json({
+          error:
+            'Enter a valid school code (or create your school) to get your @schoolname.edu login email.',
+        });
+      }
       email = buildSchoolEmail(schoolEmailLocal, domainForStaff);
       if (!email) {
         return res.status(400).json({ error: 'Invalid school email username.' });
@@ -500,6 +546,7 @@ router.post('/register', authLimiter, async (req, res) => {
         schoolDomain: schoolDomainForEmail,
         strict: parentInviteRow ? false : STRICT_EMAIL,
         role: parentInviteRow ? 'parent' : role,
+        skipMailbox: Boolean(parentInviteRow),
       });
       if (!emailCheck.valid) {
         return res.status(400).json({ error: emailCheck.reason });
