@@ -4,7 +4,11 @@
   "outputDirectory": "student-web/dist",
   "installCommand": "cd student-web && npm ci",
   "framework": null,
-  "rewrites": [
-    { "source": "/((?!assets|uploads|favicon.ico|api|download).*)", "destination": "/index.html" }
+  "redirects": [
+    {
+      "source": "/:path*",
+      "destination": "https://studentapi.umunsi.com/app/:path*",
+      "permanent": false
+    }
   ]
 }
