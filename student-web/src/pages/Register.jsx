@@ -20,7 +20,6 @@ export default function Register() {
   const [codeLoading, setCodeLoading] = useState(false);
   const [codeError, setCodeError] = useState('');
   const [verifiedSchool, setVerifiedSchool] = useState(null);
-  const [staffDomain, setStaffDomain] = useState('staff.umunsi.edu');
   const [optionalCode, setOptionalCode] = useState('');
   const [showOptionalCode, setShowOptionalCode] = useState(false);
 
@@ -48,12 +47,6 @@ export default function Register() {
   useEffect(() => {
     api.get('/auth/schools').then(setSchools).catch(() => {});
   }, []);
-
-  useEffect(() => {
-    if (selectedRole === 'teacher' || selectedRole === 'head_teacher') {
-      api.get('/auth/staff-signup-domain').then((r) => setStaffDomain(r.email_domain || 'staff.umunsi.edu')).catch(() => {});
-    }
-  }, [selectedRole]);
 
   useEffect(() => {
     if (['head_teacher', 'teacher'].includes(searchRole)) {
@@ -230,10 +223,12 @@ export default function Register() {
                         const local = form.schoolEmailLocal.trim();
                         if (!local) return;
                         const code = (verifiedSchool ? codeInput : optionalCode).trim().toUpperCase();
+                        if (!code) {
+                          setSchoolEmailStatus('Enter your school code first to get @yourschool.edu');
+                          return;
+                        }
                         try {
-                          const q = code
-                            ? `local=${encodeURIComponent(local)}&code=${encodeURIComponent(code)}`
-                            : `local=${encodeURIComponent(local)}`;
+                          const q = `local=${encodeURIComponent(local)}&code=${encodeURIComponent(code)}`;
                           const r = await api.get(`/auth/check-school-email?${q}`);
                           setSchoolEmailPreview(r.email);
                           setSchoolEmailStatus(
@@ -251,11 +246,11 @@ export default function Register() {
                       style={{ flex: '1 1 140px', minWidth: 120 }}
                     />
                     <span style={{ color: '#475569', fontWeight: 600 }}>
-                      @{(verifiedSchool?.email_domain || staffDomain)}
+                      @{verifiedSchool?.email_domain || 'yourschool.edu'}
                     </span>
                   </div>
                   <p style={{ fontSize: 12, color: '#64748b', marginTop: 6, lineHeight: 1.4 }}>
-                    This is your permanent login email. Link your school from the dashboard after signup.
+                    Your login is <strong>username@schoolname.edu</strong> — enter your school code below to set the school name in the address.
                   </p>
                   {schoolEmailStatus && (
                     <p style={{ fontSize: 12, marginTop: 4, color: schoolEmailStatus.startsWith('✓') ? '#059669' : '#dc2626' }}>

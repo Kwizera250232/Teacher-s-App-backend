@@ -240,8 +240,19 @@ export default function InviteSignup() {
                 </label>
               ) : (
                 <label className="form-group">
-                  Email *
-                  <input type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                  {isParentInvite ? 'Personal email (Gmail, Yahoo, Outlook…) *' : 'Email *'}
+                  <input
+                    type="email"
+                    required
+                    value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    placeholder={isParentInvite ? 'you@gmail.com' : undefined}
+                  />
+                  {isParentInvite && (
+                    <p style={{ fontSize: 12, color: '#64748b', marginTop: 6, lineHeight: 1.4 }}>
+                      Use your real personal email (Gmail, Yahoo, Outlook, etc.). School @ addresses are for teachers only.
+                    </p>
+                  )}
                 </label>
               )}
               <label className="form-group">
