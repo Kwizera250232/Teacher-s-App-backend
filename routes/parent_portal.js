@@ -4,7 +4,6 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const { userCanManageClass, userCanInviteParentForStudent } = require('../lib/classAccess');
 const { insertParentNotification, sendParentInAppMessage } = require('../lib/parentHub');
 const { buildParentInviteResponse } = require('../lib/parentInvite');
-const { handleStudentParentInvite } = require('../lib/studentParentInvite');
 
 const router = express.Router();
 
@@ -90,8 +89,8 @@ router.get('/invitable-students', authenticateToken, requireRole('teacher', 'hea
   }
 });
 
-// Parent invite link — teachers/HT for their students, or student for themselves
-router.post('/students/:studentId/parent-link', authenticateToken, async (req, res) => {
+// Parent invite link — teachers/HT for their students, or student for themselves (GET/POST)
+async function parentLinkHandler(req, res) {
   const studentId = parseInt(req.params.studentId, 10);
   if (!Number.isFinite(studentId)) return res.status(400).json({ error: 'Invalid student.' });
   try {
@@ -112,19 +111,12 @@ router.post('/students/:studentId/parent-link', authenticateToken, async (req, r
     console.error('[parent-link]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
-});
-
-// Student: invite own parent (alias)
-async function myParentInviteHandler(req, res) {
-  try {
-    await createParentInviteForStudent(req, res, req.user.id);
-  } catch (err) {
-    console.error('[my/parent-invite]', err);
-    res.status(500).json({ error: 'Internal server error.' });
-  }
 }
-router.get('/my/parent-invite', authenticateToken, requireRole('student'), myParentInviteHandler);
-router.post('/my/parent-invite', authenticateToken, requireRole('student'), myParentInviteHandler);
+router.get('/students/:studentId/parent-link', authenticateToken, parentLinkHandler);
+router.post('/students/:studentId/parent-link', authenticateToken, parentLinkHandler);
+
+router.get('/my/parent-invite', authenticateToken, handleStudentParentInvite);
+router.post('/my/parent-invite', authenticateToken, handleStudentParentInvite);
 
 // Public preview for parent invite
 router.get('/invite-preview', async (req, res) => {
