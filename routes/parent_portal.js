@@ -52,6 +52,43 @@ async function createParentInviteForStudent(req, res, studentId) {
   res.json(payload);
 }
 
+// List students this teacher/HT can create parent invites for
+router.get('/invitable-students', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  try {
+    const user = req.user;
+    let result;
+    if (user.role === 'head_teacher' && user.school_id) {
+      result = await pool.query(
+        `SELECT DISTINCT u.id, u.name, c.id AS class_id, c.name AS class_name
+         FROM class_members cm
+         JOIN users u ON u.id = cm.student_id AND u.role = 'student'
+         JOIN classes c ON c.id = cm.class_id
+         JOIN users t ON t.id = c.teacher_id
+         WHERE t.school_id = $1
+            OR c.teacher_id = $2
+            OR EXISTS (SELECT 1 FROM class_co_teachers ct WHERE ct.class_id = c.id AND ct.teacher_id = $2)
+         ORDER BY c.name ASC, u.name ASC`,
+        [user.school_id, user.id]
+      );
+    } else {
+      result = await pool.query(
+        `SELECT DISTINCT u.id, u.name, c.id AS class_id, c.name AS class_name
+         FROM class_members cm
+         JOIN users u ON u.id = cm.student_id AND u.role = 'student'
+         JOIN classes c ON c.id = cm.class_id
+         WHERE c.teacher_id = $1
+            OR EXISTS (SELECT 1 FROM class_co_teachers ct WHERE ct.class_id = c.id AND ct.teacher_id = $1)
+         ORDER BY c.name ASC, u.name ASC`,
+        [user.id]
+      );
+    }
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[invitable-students]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // Teacher / head teacher: parent invite link for one student
 router.post('/students/:studentId/parent-link', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const studentId = parseInt(req.params.studentId, 10);
