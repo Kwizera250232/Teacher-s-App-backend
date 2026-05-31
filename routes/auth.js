@@ -228,18 +228,25 @@ router.get('/check-school-email', async (req, res) => {
   const code = String(req.query.code || req.query.school_code || '').trim().toUpperCase();
   if (!local) return res.status(400).json({ error: 'Email username is required.' });
   if (local.length < 2) return res.status(400).json({ error: 'Username is too short.' });
-  if (!code) return res.status(400).json({ error: 'School code is required.' });
   try {
-    const schoolRes = await pool.query(
-      'SELECT id, name, email_domain FROM schools WHERE code = $1 LIMIT 1',
-      [code]
-    );
-    if (!schoolRes.rows.length) {
-      return res.status(404).json({ error: 'Invalid school code.' });
-    }
-    const domain = await ensureSchoolEmailDomain(pool, schoolRes.rows[0]);
-    if (!domain) {
-      return res.status(400).json({ error: 'School email domain is not configured.' });
+    const { getStaffSignupEmailDomain } = require('../lib/schoolDomain');
+    let domain;
+    let schoolName = null;
+    if (code) {
+      const schoolRes = await pool.query(
+        'SELECT id, name, email_domain FROM schools WHERE code = $1 LIMIT 1',
+        [code]
+      );
+      if (!schoolRes.rows.length) {
+        return res.status(404).json({ error: 'Invalid school code.' });
+      }
+      domain = await ensureSchoolEmailDomain(pool, schoolRes.rows[0]);
+      schoolName = schoolRes.rows[0].name;
+      if (!domain) {
+        return res.status(400).json({ error: 'School email domain is not configured.' });
+      }
+    } else {
+      domain = getStaffSignupEmailDomain();
     }
     const email = buildSchoolEmail(local, domain);
     const taken = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
@@ -247,11 +254,18 @@ router.get('/check-school-email', async (req, res) => {
       available: taken.rows.length === 0,
       email,
       email_domain: domain,
+      school_name: schoolName,
+      using_platform_domain: !code,
     });
   } catch (err) {
     console.error('[check-school-email]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
+});
+
+router.get('/staff-signup-domain', async (req, res) => {
+  const { getStaffSignupEmailDomain } = require('../lib/schoolDomain');
+  res.json({ email_domain: getStaffSignupEmailDomain() });
 });
 
 // POST validate email (Gmail or school domain + optional mailbox check)
@@ -360,9 +374,6 @@ router.post('/register', authLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Role is required.' });
   }
 
-  if (!invite_token && role === 'teacher' && !school_code) {
-    return res.status(403).json({ error: 'Teacher signup requires a school code. Ask your Head Teacher for the school code.' });
-  }
   if (!['student', 'teacher', 'head_teacher', 'parent'].includes(role)) {
     return res.status(400).json({ error: 'Invalid role.' });
   }
@@ -471,10 +482,9 @@ router.post('/register', authLimiter, async (req, res) => {
           error: 'Create your school email username (e.g. john for john@school.edu).',
         });
       }
-      if (!schoolDomainForEmail) {
-        return res.status(400).json({ error: 'School email domain is not configured. Contact your admin.' });
-      }
-      email = buildSchoolEmail(schoolEmailLocal, schoolDomainForEmail);
+      const { getStaffSignupEmailDomain } = require('../lib/schoolDomain');
+      const domainForStaff = schoolDomainForEmail || getStaffSignupEmailDomain();
+      email = buildSchoolEmail(schoolEmailLocal, domainForStaff);
       if (!email) {
         return res.status(400).json({ error: 'Invalid school email username.' });
       }
@@ -500,7 +510,8 @@ router.post('/register', authLimiter, async (req, res) => {
     }
 
     const hashed = await bcrypt.hash(password, 12);
-    const isApproved = role === 'teacher' ? false : true;
+    const needsSchoolApproval = role === 'teacher' && resolvedSchoolId && codeBasedSignup;
+    const isApproved = !needsSchoolApproval;
     const result = await pool.query(
       `INSERT INTO users (name, email, password, role, school_id, is_approved, phone)
        VALUES ($1,$2,$3,$4,$5,$6,$7)
