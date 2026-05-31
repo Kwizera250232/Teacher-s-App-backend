@@ -27,7 +27,20 @@ ALTER TABLE schools ADD COLUMN IF NOT EXISTS welcome_message TEXT;
 
 - Teachers/HT: `POST /api/parent/students/:studentId/parent-link` (requires manage access to a class the student is in).
 - `GET /api/parent/invitable-students` — student list for dashboard picker.
-- Students: `POST /api/parent/my/parent-invite`, `POST /api/student/parent-invite`, or `POST /api/auth/parent-invite` (stable path when parent routes are not deployed yet).
+- Students: **GET or POST** `/api/auth/parent-invite`, `/api/student/parent-invite`, `/api/parent/my/parent-invite` (returns `invite_link`, `token`, `student_name`).
+- Production (`studentapi.umunsi.com`) must match `main`; after VPS deploy, `POST /api/auth/parent-invite` without token should return **401**, not **404**.
+
+### Composition status (7-day “C. Status”)
+
+- `GET /api/composition-status/mine` — student active status + viewers.
+- `GET /api/composition-status/pickable-shares` — approved compositions to publish.
+- `POST /api/composition-status` body `{ share_id }` — publish (requires approved `student_shares` composition).
+- `GET /api/composition-status/class/:classId` — teachers; `GET /api/composition-status/school` — staff with `school_id`.
+- `POST /api/composition-status/:id/view` — record view (not owner).
+
+### Production API deploy (no GitHub SSH secrets)
+
+Manual on VPS (`93.127.186.217`): `cd` app dir → `git pull origin main` → `npm ci --omit=dev` → `pm2 restart studentapi`. See `scripts/deploy-production.sh` and `DEPLOY.md`.
 - Invite URLs use request `Origin` when allowed, else `FRONTEND_URL` (default `https://student.umunsi.com`).
 - Signup: `/invite?parent_token=...` → `POST /auth/register` with `parent_token`; parents use Gmail/Yahoo/Outlook-style emails.
 
