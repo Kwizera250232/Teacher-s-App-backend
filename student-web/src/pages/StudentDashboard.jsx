@@ -181,7 +181,8 @@ export default function StudentDashboard() {
           </div>
         ))}
 
-        <div ref={classesRef}>
+        <section ref={classesRef} className="student-classes-section" aria-labelledby="student-classes-heading">
+          <h2 id="student-classes-heading" className="student-classes-heading">My classes</h2>
           {classes.length === 0 ? (
             <div className="empty-state">
               <div className="empty-icon">🎒</div>
@@ -222,7 +223,7 @@ export default function StudentDashboard() {
               ))}
             </div>
           )}
-        </div>
+        </section>
 
         {classes.length > 0 && (
           <section className="student-classmates-section">

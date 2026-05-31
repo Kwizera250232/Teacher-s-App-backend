@@ -1,9 +1,10 @@
 {
-  "framework": "vite",
-  "installCommand": "cd student-web && npm ci",
-  "buildCommand": "cd student-web && npm run build",
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "cd student-web && npm ci && VITE_API_URL=https://studentapi.umunsi.com/api npm run build",
   "outputDirectory": "student-web/dist",
+  "installCommand": "cd student-web && npm ci",
+  "framework": null,
   "rewrites": [
-    { "source": "/((?!assets|uploads|favicon.ico|api|download|app).*)", "destination": "/index.html" }
+    { "source": "/((?!assets|uploads|favicon.ico|api|download).*)", "destination": "/index.html" }
   ]
 }

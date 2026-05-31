@@ -1,0 +1,30 @@
+name: Push frontend (Vercel)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'student-web/**'
+      - 'scripts/push-frontend-deploy.sh'
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Push to Teacher-s-App-frontent
+        env:
+          FRONTEND_DEPLOY_TOKEN: ${{ secrets.FRONTEND_DEPLOY_TOKEN }}
+        run: |
+          if [ -z "$FRONTEND_DEPLOY_TOKEN" ]; then
+            echo "::warning::FRONTEND_DEPLOY_TOKEN not set — cannot update student.umunsi.com on Vercel."
+            echo "Add repo secret FRONTEND_DEPLOY_TOKEN (GitHub PAT with repo scope on Teacher-s-App-frontent)."
+            exit 0
+          fi
+          bash scripts/push-frontend-deploy.sh
