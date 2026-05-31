@@ -16,6 +16,7 @@ export default function StaffChatsPanel({ token }) {
   const [text, setText] = useState('');
   const [mobilePanel, setMobilePanel] = useState('list');
   const bottomRef = useRef();
+  const shouldScrollOnSendRef = useRef(false);
 
   useEffect(() => {
     Promise.all([
@@ -53,6 +54,8 @@ export default function StaffChatsPanel({ token }) {
   }, [activeChat, token]);
 
   useEffect(() => {
+    if (!shouldScrollOnSendRef.current) return;
+    shouldScrollOnSendRef.current = false;
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [thread]);
 
@@ -63,6 +66,7 @@ export default function StaffChatsPanel({ token }) {
       const msg = await api.post('/messages', { receiver_id: activeChat, content: text.trim() }, token);
       setThread((t) => [...t, { ...msg, sender_name: user?.name }]);
       setText('');
+      shouldScrollOnSendRef.current = true;
     } catch (err) {
       alert(err.message);
     }
@@ -72,7 +76,7 @@ export default function StaffChatsPanel({ token }) {
   const latestCtx = [...thread].reverse().find((m) => m.context_json)?.context_json;
 
   return (
-    <div className="msg-page phub-chat-wrap wa-chat-shell">
+    <div className="msg-page phub-chat-wrap wa-chat-shell msg-page--hub-embed">
       <div className={`msg-sidebar ${mobilePanel === 'chat' ? 'msg-sidebar-hidden' : ''}`}>
         <div className="msg-sidebar-header">
           <span>Chats</span>
@@ -109,23 +113,31 @@ export default function StaffChatsPanel({ token }) {
                 <div className="phub-chat-meta">{activeContact?.role?.replace('_', ' ')}</div>
               </div>
             </div>
-            <MessageContextBanner ctx={latestCtx} />
-            <div className="msg-messages wa-messages">
-              {thread.map((m) => (
-                <div key={m.id}>
-                  {m.context_json && m.sender_id !== user?.id && (
-                    <MessageContextBanner ctx={m.context_json} />
-                  )}
-                  <div className={`msg-bubble ${m.sender_id === user?.id ? 'sent' : 'received'}`}>
-                    {m.content}
+            <div className="wa-chat-body">
+              <MessageContextBanner ctx={latestCtx} />
+              <div className="msg-thread wa-messages">
+                {thread.map((m) => (
+                  <div key={m.id} className={`msg-bubble-wrap ${m.sender_id === user?.id ? 'mine' : 'theirs'}`}>
+                    {m.context_json && m.sender_id !== user?.id && (
+                      <MessageContextBanner ctx={m.context_json} />
+                    )}
+                    <div className={`msg-bubble ${m.sender_id === user?.id ? 'sent' : 'received'}`}>
+                      {m.content && <p>{m.content}</p>}
+                    </div>
                   </div>
-                </div>
-              ))}
-              <div ref={bottomRef} />
+                ))}
+                <div ref={bottomRef} />
+              </div>
             </div>
-            <form className="msg-input-bar wa-input-bar" onSubmit={sendMsg}>
-              <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Type a message…" />
-              <button type="submit" className="btn btn-primary">Send</button>
+            <form className="msg-input-row wa-input-bar" onSubmit={sendMsg}>
+              <input
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="Type a message…"
+              />
+              <button type="submit" className="msg-send-btn" disabled={!text.trim()}>
+                ➤
+              </button>
             </form>
           </>
         )}

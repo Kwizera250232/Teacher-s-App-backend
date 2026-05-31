@@ -163,7 +163,7 @@ export default function ParentHub() {
 
       <div className="phub-body">
         {tab === 'chats' && (
-          <div className="msg-page phub-chat-wrap wa-chat-shell">
+          <div className="msg-page phub-chat-wrap wa-chat-shell msg-page--hub-embed">
             <div className={`msg-sidebar ${mobilePanel === 'chat' ? 'msg-sidebar-hidden' : ''}`}>
               <div className="msg-sidebar-header">
                 <span>Chats</span>
@@ -210,23 +210,27 @@ export default function ParentHub() {
                       )}
                     </div>
                   </div>
-                  <MessageContextBanner ctx={latestCtx} />
-                  <div className="msg-messages wa-messages">
-                    {thread.map((m) => (
-                      <div key={m.id}>
-                        {m.context_json && m.sender_id !== user?.id && (
-                          <MessageContextBanner ctx={m.context_json} />
-                        )}
-                        <div className={`msg-bubble ${m.sender_id === user?.id ? 'sent' : 'received'}`}>
-                          {m.content}
+                  <div className="wa-chat-body">
+                    <MessageContextBanner ctx={latestCtx} />
+                    <div className="msg-thread msg-messages wa-messages">
+                      {thread.map((m) => (
+                        <div key={m.id}>
+                          {m.context_json && m.sender_id !== user?.id && (
+                            <MessageContextBanner ctx={m.context_json} />
+                          )}
+                          <div className={`msg-bubble ${m.sender_id === user?.id ? 'sent' : 'received'}`}>
+                            {m.content}
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                    <div ref={bottomRef} />
+                      ))}
+                      <div ref={bottomRef} />
+                    </div>
                   </div>
-                  <form className="msg-input-bar wa-input-bar" onSubmit={sendMsg}>
+                  <form className="msg-input-row msg-input-bar wa-input-bar" onSubmit={sendMsg}>
                     <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Type a message…" />
-                    <button type="submit" className="btn btn-primary">Send</button>
+                    <button type="submit" className="msg-send-btn" disabled={!text.trim()} aria-label="Send">
+                      ➤
+                    </button>
                   </form>
                 </>
               )}

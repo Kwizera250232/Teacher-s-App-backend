@@ -5,6 +5,7 @@ export default function MobileStudentHeader({
   user,
   onLogout,
   onParentInvite,
+  onOpenStatus,
   isImpersonating,
   stopImpersonation,
 }) {
@@ -28,6 +29,11 @@ export default function MobileStudentHeader({
         </Link>
       </div>
       <div className="mobile-student-row2">
+        {onOpenStatus && (
+          <button type="button" className="mobile-nav-text-btn mobile-nav-text-btn--muted" onClick={onOpenStatus}>
+            ✍️ C. Status
+          </button>
+        )}
         <Link to="/student/notes" className="mobile-nav-text-btn mobile-nav-text-btn--muted">
           My Notes
         </Link>

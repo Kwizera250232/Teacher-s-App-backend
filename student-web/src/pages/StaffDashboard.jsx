@@ -129,8 +129,8 @@ export default function StaffDashboard({ roleLabel, basePath }) {
         ))}
       </nav>
 
-      <main className="dash-main">
-        <SchoolRequestBanner token={token} user={user} />
+      <main className={`dash-main${hubTab === 'chats' ? ' dash-main--chats-full' : ''}`}>
+        {hubTab !== 'chats' && <SchoolRequestBanner token={token} user={user} />}
         {isHeadTeacher && hubTab === 'school' && <SchoolRequestsPanel token={token} />}
 
         {error && <div className="alert alert-error">{error}</div>}
