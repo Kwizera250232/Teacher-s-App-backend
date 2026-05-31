@@ -89,12 +89,21 @@ router.get('/invitable-students', authenticateToken, requireRole('teacher', 'hea
   }
 });
 
-// Teacher / head teacher: parent invite link for one student
-router.post('/students/:studentId/parent-link', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+// Parent invite link — teachers/HT for their students, or student for themselves
+router.post('/students/:studentId/parent-link', authenticateToken, async (req, res) => {
   const studentId = parseInt(req.params.studentId, 10);
   if (!Number.isFinite(studentId)) return res.status(400).json({ error: 'Invalid student.' });
   try {
-    if (!(await userCanInviteParentForStudent(req.user, studentId))) {
+    if (req.user.role === 'student') {
+      if (req.user.id !== studentId) {
+        return res.status(403).json({ error: 'You can only create a parent invite for your own account.' });
+      }
+      return await createParentInviteForStudent(req, res, studentId);
+    }
+    if (!['teacher', 'head_teacher', 'admin'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Forbidden.' });
+    }
+    if (req.user.role !== 'admin' && !(await userCanInviteParentForStudent(req.user, studentId))) {
       return res.status(403).json({ error: 'You can only invite parents for students in your classes.' });
     }
     await createParentInviteForStudent(req, res, studentId);
@@ -104,7 +113,7 @@ router.post('/students/:studentId/parent-link', authenticateToken, requireRole('
   }
 });
 
-// Student: invite own parent
+// Student: invite own parent (alias)
 router.post('/my/parent-invite', authenticateToken, requireRole('student'), async (req, res) => {
   try {
     await createParentInviteForStudent(req, res, req.user.id);
