@@ -7,6 +7,7 @@ import DonateButton from '../components/DonateButton';
 import MessageContextBanner from '../components/MessageContextBanner';
 import '../pages/Messages.css';
 import DeanSupportFab from '../components/DeanSupportFab';
+import { downloadWord, downloadCatSheetWord } from '../utils/downloadResult';
 import '../styles/WaChatShell.css';
 import './ParentHub.css';
 
@@ -24,7 +25,10 @@ export default function ParentHub() {
   const [text, setText] = useState('');
   const [mobilePanel, setMobilePanel] = useState('list');
   const [marksPeriod, setMarksPeriod] = useState('week');
+  const [downloadingMarks, setDownloadingMarks] = useState(false);
+  const [downloadingQuiz, setDownloadingQuiz] = useState(null);
   const bottomRef = useRef();
+  const threadRef = useRef();
 
   const loadHub = () => {
     api.get('/parent/hub', token).then((data) => {
@@ -36,6 +40,24 @@ export default function ParentHub() {
   };
 
   useEffect(() => { loadHub(); }, [token]);
+
+  useEffect(() => {
+    if (!hub?.teachers?.length) return;
+    setContacts((prev) => {
+      const map = new Map(prev.map((c) => [c.id, { ...c }]));
+      hub.teachers.forEach((t) => {
+        const cur = map.get(t.id) || { id: t.id, name: t.name, role: t.role };
+        map.set(t.id, {
+          ...cur,
+          name: t.name || cur.name,
+          role: t.role || cur.role,
+          email: t.email || cur.email,
+          phone: t.phone || cur.phone,
+        });
+      });
+      return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+    });
+  }, [hub?.teachers]);
 
   useEffect(() => {
     if (typeof Notification === 'undefined' || !hub?.unread_notifications_count) return;
@@ -103,8 +125,27 @@ export default function ParentHub() {
     return () => clearInterval(t);
   }, [activeChat, token]);
 
+  const scrollThreadToBottom = (behavior = 'auto') => {
+    requestAnimationFrame(() => {
+      const el = threadRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+      bottomRef.current?.scrollIntoView({ behavior, block: 'end' });
+    });
+  };
+
+  const openChat = (contactId) => {
+    setActiveChat(contactId);
+    setMobilePanel('chat');
+    setTimeout(() => scrollThreadToBottom('auto'), 0);
+  };
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!activeChat) return;
+    scrollThreadToBottom('auto');
+  }, [activeChat]);
+
+  useEffect(() => {
+    scrollThreadToBottom('smooth');
   }, [thread]);
 
   const sendMsg = async (e) => {
@@ -126,9 +167,75 @@ export default function ParentHub() {
   const child = hub?.children?.find((c) => c.id === selectedChild);
   const latestCtx = [...thread].reverse().find((m) => m.context_json)?.context_json;
   const activeContact = contacts.find((c) => c.id === activeChat);
+  const teachers = hub?.teachers?.length ? hub.teachers : (summary?.teachers || []);
+  const contactById = new Map(contacts.map((c) => [c.id, c]));
+
+  const downloadMarksWord = async () => {
+    if (!selectedChild) return;
+    setDownloadingMarks(true);
+    try {
+      const data = await api.get(`/parent/children/${selectedChild}/marks-export`, token);
+      if (!data.exports?.length) {
+        alert('No CAT marks recorded yet for this child.');
+        return;
+      }
+      const safeName = (data.student_name || 'child').replace(/\s+/g, '_');
+      data.exports.forEach((exp, i) => {
+        const fname = `${safeName}_${(exp.class_name || 'class').replace(/\s+/g, '_')}${data.exports.length > 1 ? `_${i + 1}` : ''}`;
+        downloadCatSheetWord(fname, exp);
+      });
+    } catch (err) {
+      alert(err.message || 'Could not download marks record.');
+    } finally {
+      setDownloadingMarks(false);
+    }
+  };
+
+  const downloadQuizWord = async (quizId, title) => {
+    if (!selectedChild || !quizId) return;
+    setDownloadingQuiz(quizId);
+    try {
+      const data = await api.get(`/parent/children/${selectedChild}/quizzes/${quizId}/report`, token);
+      const safeName = (data.student_name || 'student').replace(/\s+/g, '_');
+      downloadWord(`${data.quiz_title || title}_${safeName}`, data);
+    } catch (err) {
+      alert(err.message || 'Could not download quiz report.');
+    } finally {
+      setDownloadingQuiz(null);
+    }
+  };
+
+  const renderTeacherContact = (t, key) => (
+    <div key={key} className="phub-teacher-card">
+      <div className="phub-teacher-card-head">
+        <strong>{t.name}</strong>
+        <span className="phub-teacher-role">{(t.role || 'teacher').replace('_', ' ')}</span>
+      </div>
+      {t.class_name && (
+        <p className="phub-muted phub-teacher-meta">{t.class_name}{t.subject ? ` · ${t.subject}` : ''}</p>
+      )}
+      {t.student_name && <p className="phub-muted phub-teacher-meta">Child: {t.student_name}</p>}
+      <div className="phub-teacher-actions">
+        {t.email && (
+          <a href={`mailto:${t.email}`} className="phub-contact-link">✉ {t.email}</a>
+        )}
+        {t.phone && (
+          <a href={`tel:${String(t.phone).replace(/\s/g, '')}`} className="phub-contact-link">📞 {t.phone}</a>
+        )}
+        {!t.email && !t.phone && <span className="phub-muted">No contact details on file</span>}
+        <button
+          type="button"
+          className="btn btn-outline btn-sm"
+          onClick={() => openChat(t.id)}
+        >
+          💬 Message
+        </button>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="phub-page wa-theme">
+    <div className={`phub-page wa-theme${tab === 'chats' ? ' phub-page--chats' : ''}`}>
       <header className="phub-header">
         <div className="phub-brand">
           <span className="phub-logo">UClass</span>
@@ -161,9 +268,18 @@ export default function ParentHub() {
         ))}
       </nav>
 
+      {teachers.length > 0 && (
+        <section className="phub-teachers-strip" aria-label="School teachers">
+          <h2 className="phub-teachers-strip-title">Your child&apos;s teachers — contact</h2>
+          <div className="phub-teachers-scroll">
+            {teachers.map((t) => renderTeacherContact(t, `t-${t.id}-${t.class_name || 's'}`))}
+          </div>
+        </section>
+      )}
+
       <div className="phub-body">
         {tab === 'chats' && (
-          <div className="msg-page phub-chat-wrap wa-chat-shell msg-page--hub-embed">
+          <div className="msg-page phub-chat-wrap wa-chat-shell msg-page--hub-embed phub-chat-wrap--full">
             <div className={`msg-sidebar ${mobilePanel === 'chat' ? 'msg-sidebar-hidden' : ''}`}>
               <div className="msg-sidebar-header">
                 <span>Chats</span>
@@ -178,12 +294,15 @@ export default function ParentHub() {
                 <div
                   key={c.id}
                   className={`msg-contact ${activeChat === c.id ? 'active' : ''}`}
-                  onClick={() => { setActiveChat(c.id); setMobilePanel('chat'); }}
+                  onClick={() => openChat(c.id)}
                 >
                   <img src={c.avatar_path ? `${UPLOADS_BASE}${c.avatar_path}` : DEFAULT_AVATAR} alt="" className="msg-contact-avatar" />
                   <div className="msg-contact-info">
                     <span className="msg-contact-name">{c.name}</span>
                     <span className="msg-contact-role">{c.role?.replace('_', ' ')}</span>
+                    {(c.email || c.phone) && (
+                      <span className="msg-contact-sub">{c.email || c.phone}</span>
+                    )}
                   </div>
                 </div>
               ))}
@@ -195,7 +314,7 @@ export default function ParentHub() {
                 <>
                   <div className="phub-chat-header wa-chat-header">
                     <button type="button" className="msg-back-btn" onClick={() => setMobilePanel('list')}>←</button>
-                    <div>
+                    <div className="phub-chat-header-main">
                       <strong>{activeContact?.name}</strong>
                       {(child || latestCtx) && (
                         <div className="phub-chat-meta">
@@ -203,8 +322,19 @@ export default function ParentHub() {
                           {(child?.school_name || latestCtx?.school_name) && (
                             <> · {child?.school_name || latestCtx?.school_name}</>
                           )}
-                          {(child?.district || latestCtx?.district) && (
-                            <> · {[child?.district || latestCtx?.district, child?.sector || latestCtx?.sector].filter(Boolean).join(' / ')}</>
+                        </div>
+                      )}
+                      {(activeContact?.email || activeContact?.phone || contactById.get(activeChat)?.email) && (
+                        <div className="phub-chat-contact-row">
+                          {(activeContact?.email || contactById.get(activeChat)?.email) && (
+                            <a href={`mailto:${activeContact?.email || contactById.get(activeChat)?.email}`}>
+                              ✉ {activeContact?.email || contactById.get(activeChat)?.email}
+                            </a>
+                          )}
+                          {(activeContact?.phone || contactById.get(activeChat)?.phone) && (
+                            <a href={`tel:${String(activeContact?.phone || contactById.get(activeChat)?.phone).replace(/\s/g, '')}`}>
+                              📞 {activeContact?.phone || contactById.get(activeChat)?.phone}
+                            </a>
                           )}
                         </div>
                       )}
@@ -212,7 +342,7 @@ export default function ParentHub() {
                   </div>
                   <div className="wa-chat-body">
                     <MessageContextBanner ctx={latestCtx} />
-                    <div className="msg-thread msg-messages wa-messages">
+                    <div ref={threadRef} className="msg-thread msg-messages wa-messages">
                       {thread.map((m) => (
                         <div key={m.id}>
                           {m.context_json && m.sender_id !== user?.id && (
@@ -314,7 +444,27 @@ export default function ParentHub() {
                   {(child.district || child.sector) && (
                     <p className="phub-muted">{[child.district, child.sector].filter(Boolean).join(' · ')}</p>
                   )}
+                  <div className="phub-download-row">
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      disabled={downloadingMarks}
+                      onClick={downloadMarksWord}
+                    >
+                      {downloadingMarks ? 'Preparing…' : '⬇ Download marks record (Word)'}
+                    </button>
+                  </div>
                 </div>
+
+                {(summary?.teachers?.length > 0) && (
+                  <section className="phub-section">
+                    <h3>Teachers — email &amp; phone</h3>
+                    <div className="phub-teachers-grid">
+                      {summary.teachers.map((t) => renderTeacherContact(t, `child-t-${t.id}-${t.class_name}`))}
+                    </div>
+                  </section>
+                )}
+
                 {summary && (
                   <>
                     <div className="phub-period-tabs">
@@ -337,7 +487,19 @@ export default function ParentHub() {
                     <section className="phub-section">
                       <h3>Quizzes</h3>
                       {summary.quizzes?.length ? summary.quizzes.map((q, i) => (
-                        <div key={i} className="phub-row">{(q.class_name)} — {q.title}: <strong>{q.score}%</strong></div>
+                        <div key={q.quiz_id || i} className="phub-row phub-row--quiz">
+                          <span>{q.class_name} — {q.title}: <strong>{q.score}{q.total ? `/${q.total}` : '%'}</strong></span>
+                          {q.quiz_id && (
+                            <button
+                              type="button"
+                              className="btn btn-outline btn-sm"
+                              disabled={downloadingQuiz === q.quiz_id}
+                              onClick={() => downloadQuizWord(q.quiz_id, q.title)}
+                            >
+                              {downloadingQuiz === q.quiz_id ? '…' : '⬇ Word'}
+                            </button>
+                          )}
+                        </div>
                       )) : <p className="phub-muted">No quiz attempts yet.</p>}
                     </section>
                     <section className="phub-section">

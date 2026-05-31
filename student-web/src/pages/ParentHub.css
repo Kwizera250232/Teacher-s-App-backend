@@ -247,3 +247,202 @@
   border-left: 4px solid #f59e0b;
   background: #fffbeb;
 }
+
+.phub-teachers-strip {
+  background: #fff;
+  border-bottom: 1px solid #e8eaed;
+  padding: 12px 16px 8px;
+  flex-shrink: 0;
+}
+
+.phub-teachers-strip-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #075e54;
+  margin: 0 0 10px;
+}
+
+.phub-teachers-scroll {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.phub-teachers-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+.phub-teacher-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  min-width: 240px;
+  flex-shrink: 0;
+}
+
+.phub-teacher-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.phub-teacher-role {
+  font-size: 11px;
+  text-transform: capitalize;
+  color: #64748b;
+  background: #e2e8f0;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.phub-teacher-meta {
+  margin: 2px 0 8px;
+  font-size: 12px;
+}
+
+.phub-teacher-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.phub-contact-link {
+  font-size: 13px;
+  color: #1a73e8;
+  word-break: break-all;
+}
+
+.phub-chat-contact-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.phub-chat-contact-row a {
+  color: rgba(255, 255, 255, 0.95);
+  text-decoration: underline;
+}
+
+.phub-chat-header-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.msg-contact-sub {
+  display: block;
+  font-size: 11px;
+  color: #667781;
+  margin-top: 2px;
+}
+
+.phub-download-row {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.phub-row--quiz {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.phub-page--chats .phub-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.phub-chat-wrap--full {
+  flex: 1;
+  min-height: 0;
+  height: auto !important;
+}
+
+.phub-page--chats {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
+.phub-page--chats .phub-teachers-strip {
+  max-height: 28vh;
+}
+
+@media (max-width: 768px) {
+  .phub-header {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .phub-header-actions {
+    flex-wrap: wrap;
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .phub-header-actions .btn {
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+
+  .phub-nav {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    padding: 6px 8px;
+  }
+
+  .phub-nav-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    font-size: 12px;
+    padding: 8px 12px;
+  }
+
+  .phub-panel {
+    padding: 12px;
+    height: auto;
+    max-height: none;
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .phub-chat-wrap,
+  .phub-chat-wrap--full {
+    height: calc(100dvh - 200px) !important;
+    min-height: 320px;
+  }
+
+  .phub-page--chats .phub-teachers-strip {
+    max-height: 22vh;
+  }
+
+  .phub-teacher-card {
+    min-width: 200px;
+  }
+
+  .phub-teachers-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 900px) {
+  .phub-page--chats .phub-chat-wrap--full {
+    height: calc(100dvh - 220px) !important;
+    min-height: 480px;
+  }
+}

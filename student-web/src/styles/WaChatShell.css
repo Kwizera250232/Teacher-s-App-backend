@@ -153,4 +153,9 @@
   .phub-chat-wrap.wa-chat-shell {
     height: calc(100dvh - 120px - env(safe-area-inset-bottom, 0px));
   }
+
+  .phub-page--chats .phub-chat-wrap.wa-chat-shell {
+    height: 100% !important;
+    min-height: 280px;
+  }
 }

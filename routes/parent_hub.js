@@ -87,11 +87,43 @@ router.get('/hub', authenticateToken, requireRole('parent'), async (req, res) =>
       [req.user.id]
     );
 
+    const teachers = await pool.query(
+      `SELECT DISTINCT u.id, u.name, u.email, u.phone, u.role,
+              c.name AS class_name, c.subject, st.name AS student_name
+       FROM parent_children pc
+       JOIN users st ON st.id = pc.student_id
+       JOIN class_members cm ON cm.student_id = st.id
+       JOIN classes c ON c.id = cm.class_id
+       JOIN users u ON u.id = c.teacher_id
+       WHERE pc.parent_id = $1
+       UNION
+       SELECT DISTINCT u.id, u.name, u.email, u.phone, u.role,
+              c.name AS class_name, c.subject, st.name AS student_name
+       FROM parent_children pc
+       JOIN users st ON st.id = pc.student_id
+       JOIN class_members cm ON cm.student_id = st.id
+       JOIN class_co_teachers ct ON ct.class_id = cm.class_id
+       JOIN classes c ON c.id = cm.class_id
+       JOIN users u ON u.id = ct.teacher_id
+       WHERE pc.parent_id = $1
+       UNION
+       SELECT DISTINCT ht.id, ht.name, ht.email, ht.phone, ht.role,
+              NULL AS class_name, NULL AS subject, st.name AS student_name
+       FROM parent_children pc
+       JOIN users st ON st.id = pc.student_id
+       JOIN users ht ON ht.school_id = st.school_id
+         AND ht.role = 'head_teacher' AND ht.is_approved = TRUE
+       WHERE pc.parent_id = $1 AND st.school_id IS NOT NULL
+       ORDER BY name`,
+      [req.user.id]
+    );
+
     res.json({
       children: children.rows,
       announcements: announcements.rows,
       notifications: notificationsAfter.rows,
       unread_notifications_count: unreadAfter.rows[0]?.c ?? unreadCount,
+      teachers: teachers.rows,
     });
   } catch (err) {
     console.error('[parent hub]', err);
@@ -147,16 +179,34 @@ router.get('/children/:studentId/summary', authenticateToken, requireRole('paren
       [studentId]
     );
     const classes = await pool.query(
-      `SELECT c.id, c.name, c.subject, u.name AS teacher_name
+      `SELECT c.id, c.name, c.subject, u.name AS teacher_name, u.email AS teacher_email, u.phone AS teacher_phone
        FROM class_members cm JOIN classes c ON c.id = cm.class_id
        JOIN users u ON u.id = c.teacher_id
        WHERE cm.student_id = $1`,
       [studentId]
     );
 
+    const teachers = await pool.query(
+      `SELECT DISTINCT u.id, u.name, u.email, u.phone, u.role, c.name AS class_name, c.subject
+       FROM class_members cm
+       JOIN classes c ON c.id = cm.class_id
+       JOIN users u ON u.id = c.teacher_id
+       WHERE cm.student_id = $1
+       UNION
+       SELECT DISTINCT u.id, u.name, u.email, u.phone, u.role, c.name AS class_name, c.subject
+       FROM class_members cm
+       JOIN class_co_teachers ct ON ct.class_id = cm.class_id
+       JOIN classes c ON c.id = cm.class_id
+       JOIN users u ON u.id = ct.teacher_id
+       WHERE cm.student_id = $1
+       ORDER BY name`,
+      [studentId]
+    );
+
     const quizPeriod = periodClause(period, 'qa.attempted_at');
     const quizzes = await pool.query(
-      `SELECT q.title, q.created_at, qa.score, qa.attempted_at, c.name AS class_name
+      `SELECT q.id AS quiz_id, q.title, q.created_at, qa.id AS attempt_id, qa.score, qa.total,
+              qa.attempted_at, c.name AS class_name, c.id AS class_id
        FROM quiz_attempts qa
        JOIN quizzes q ON q.id = qa.quiz_id
        JOIN classes c ON c.id = q.class_id
@@ -205,6 +255,7 @@ router.get('/children/:studentId/summary', authenticateToken, requireRole('paren
       period,
       student: student.rows[0],
       classes: classes.rows,
+      teachers: teachers.rows,
       quizzes: quizzes.rows,
       homework: homework.rows,
       marks: marks.rows,
@@ -213,6 +264,158 @@ router.get('/children/:studentId/summary', authenticateToken, requireRole('paren
     });
   } catch (err) {
     console.error('[parent summary]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// CAT marks Word export (single child, per class) — uses same shape as downloadCatSheetWord
+router.get('/children/:studentId/marks-export', authenticateToken, requireRole('parent'), async (req, res) => {
+  const studentId = parseInt(req.params.studentId, 10);
+  if (!(await parentOwnsStudent(req.user.id, studentId))) {
+    return res.status(403).json({ error: 'Forbidden.' });
+  }
+  try {
+    const studentRow = await pool.query(
+      `SELECT u.name, s.name AS school_name FROM users u
+       LEFT JOIN schools s ON s.id = u.school_id WHERE u.id = $1`,
+      [studentId]
+    );
+    const studentName = studentRow.rows[0]?.name || 'Student';
+    const schoolName = studentRow.rows[0]?.school_name || '';
+
+    const classRows = await pool.query(
+      `SELECT c.id, c.name, c.subject, t.name AS teacher_name
+       FROM class_members cm
+       JOIN classes c ON c.id = cm.class_id
+       JOIN users t ON t.id = c.teacher_id
+       WHERE cm.student_id = $1`,
+      [studentId]
+    );
+
+    const exports = [];
+    for (const cls of classRows.rows) {
+      const marksRows = await pool.query(
+        `SELECT test_number, marks_obtained, total_marks FROM cat_marks
+         WHERE class_id = $1 AND student_id = $2 ORDER BY test_number`,
+        [cls.id, studentId]
+      );
+      const cats = Array.from({ length: 10 }, (_, i) => {
+        const row = marksRows.rows.find((r) => r.test_number === i + 1);
+        return row ? row.marks_obtained : '';
+      });
+      let sumMarks = 0;
+      let sumTotal = 0;
+      marksRows.rows.forEach((r) => {
+        sumMarks += Number(r.marks_obtained) || 0;
+        sumTotal += Number(r.total_marks) || 100;
+      });
+      const percentage = sumTotal > 0 ? Math.round((1000 * sumMarks) / sumTotal) / 10 : 0;
+      exports.push({
+        class_id: cls.id,
+        class_name: cls.name,
+        subject: cls.subject,
+        teacher_name: cls.teacher_name,
+        school_name: schoolName,
+        rows: [{
+          student_name: studentName,
+          cats,
+          total: sumMarks,
+          percentage,
+        }],
+      });
+    }
+
+    res.json({ student_name: studentName, school_name: schoolName, exports });
+  } catch (err) {
+    console.error('[parent marks-export]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// Quiz result detail for parent Word download
+router.get('/children/:studentId/quizzes/:quizId/report', authenticateToken, requireRole('parent'), async (req, res) => {
+  const studentId = parseInt(req.params.studentId, 10);
+  const quizId = parseInt(req.params.quizId, 10);
+  if (!(await parentOwnsStudent(req.user.id, studentId))) {
+    return res.status(403).json({ error: 'Forbidden.' });
+  }
+  try {
+    const attemptResult = await pool.query(
+      `SELECT qa.*, u.name AS student_name, qz.title AS quiz_title, c.name AS class_name,
+              c.subject AS class_subject, t.name AS teacher_name, s.name AS school_name,
+              (SELECT COUNT(*)::int FROM quizzes q2
+               WHERE q2.class_id = qz.class_id AND q2.created_at <= qz.created_at) AS quiz_number
+       FROM quiz_attempts qa
+       JOIN users u ON u.id = qa.student_id
+       JOIN quizzes qz ON qz.id = qa.quiz_id
+       JOIN classes c ON c.id = qz.class_id
+       JOIN class_members cm ON cm.class_id = c.id AND cm.student_id = qa.student_id
+       JOIN users t ON t.id = c.teacher_id
+       LEFT JOIN schools s ON s.id = t.school_id
+       WHERE qa.quiz_id = $1 AND qa.student_id = $2
+       ORDER BY qa.attempted_at DESC LIMIT 1`,
+      [quizId, studentId]
+    );
+    if (!attemptResult.rows.length) {
+      return res.status(404).json({ error: 'No quiz attempt found for this child.' });
+    }
+    const attempt = attemptResult.rows[0];
+    const answers = attempt.answers || {};
+    const questionsResult = await pool.query(
+      `SELECT id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, order_num
+       FROM quiz_questions WHERE quiz_id = $1 ORDER BY order_num`,
+      [quizId]
+    );
+    const optionMap = { a: 'option_a', b: 'option_b', c: 'option_c', d: 'option_d' };
+    const detailed = questionsResult.rows.map((q, idx) => {
+      const studentAnswer = String(answers[String(q.id)] ?? '');
+      const correctAnswer = q.correct_answer;
+      const qtype = q.question_type || 'multiple_choice';
+      let isCorrect = false;
+      if (qtype === 'fill_blank') {
+        isCorrect = studentAnswer.trim().toLowerCase() === (correctAnswer || '').trim().toLowerCase();
+      } else if (qtype === 'matching') {
+        try {
+          const pairs = JSON.parse(q.passage || '[]');
+          const parts = studentAnswer.split('|');
+          isCorrect = pairs.length > 0 && pairs.every((p, i) =>
+            (parts[i] || '').trim().toLowerCase() === p.right.trim().toLowerCase());
+        } catch {
+          isCorrect = false;
+        }
+      } else {
+        isCorrect = studentAnswer.toLowerCase() === (correctAnswer || '').toLowerCase();
+      }
+      return {
+        number: idx + 1,
+        question: q.question,
+        option_a: q.option_a,
+        option_b: q.option_b,
+        option_c: q.option_c,
+        option_d: q.option_d,
+        student_answer: studentAnswer || 'No answer',
+        student_answer_text: studentAnswer ? (q[optionMap[studentAnswer.toLowerCase()]] || studentAnswer) : 'No answer',
+        correct_answer: correctAnswer,
+        correct_answer_text: q[optionMap[(correctAnswer || '').toLowerCase()]] || correctAnswer,
+        is_correct: isCorrect,
+      };
+    });
+
+    res.json({
+      student_name: attempt.student_name,
+      quiz_title: attempt.quiz_title,
+      quiz_number: attempt.quiz_number,
+      class_name: attempt.class_name,
+      class_subject: attempt.class_subject,
+      teacher_name: attempt.teacher_name,
+      school_name: attempt.school_name || 'N/A',
+      score: attempt.score,
+      total: attempt.total,
+      attempted_at: attempt.attempted_at,
+      questions: detailed,
+    });
+  } catch (err) {
+    console.error('[parent quiz report]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
