@@ -187,4 +187,53 @@ router.post('/chat', authenticateToken, aiRateLimit, async (req, res) => {
   }
 });
 
+/** Dean — app-wide help (no class context). Used by students, parents, teachers. */
+router.post('/dean', authenticateToken, aiRateLimit, async (req, res) => {
+  const cleanMessage = typeof req.body.message === 'string' ? req.body.message.trim() : '';
+  const history = Array.isArray(req.body.history) ? req.body.history : [];
+  if (!cleanMessage) return res.status(400).json({ error: 'message is required.' });
+  if (cleanMessage.length > 1000) return res.status(400).json({ error: 'Message too long.' });
+
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return res.status(503).json({ error: 'AI service not configured.' });
+  const groq = new Groq({ apiKey });
+
+  const systemPrompt = [
+    'You are Dean, the UClass (Umunsi) app assistant — "Our AI Support".',
+    'You help students, parents, teachers, and head teachers use the app.',
+    '',
+    'You know UClass features:',
+    '- Students: join classes, homework, quizzes, compositions, C. Status (7-day composition status), parent invites, classmates, messages.',
+    '- Parents: child feed, marks summary, school announcements, chat with teachers.',
+    '- Teachers / head teachers: create classes, CAT marks, parent invites, composition moderation, classroom feed.',
+    '- Compositions are reviewed (pending → approved) before classmates see them.',
+    '- Parent invite: each student has a unique signup link for their parent.',
+    '',
+    'Answer clearly in English or Kinyarwanda matching the user language.',
+    'Do not invent features that do not exist. If unsure, suggest asking their teacher or school.',
+  ].join('\n');
+
+  try {
+    const messages = [{ role: 'system', content: systemPrompt }];
+    for (const msg of history.slice(-10)) {
+      if (VALID_ROLES.includes(msg.role) && typeof msg.content === 'string' && msg.content.trim()) {
+        messages.push({ role: msg.role, content: msg.content });
+      }
+    }
+    messages.push({ role: 'user', content: cleanMessage });
+
+    const completion = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages,
+      max_tokens: 800,
+      temperature: 0.35,
+    });
+    const replyText = completion.choices[0]?.message?.content?.trim();
+    res.json({ reply: replyText || 'Sorry, I could not answer that. Try again.' });
+  } catch (err) {
+    console.error('[ai/dean]', err?.message);
+    res.status(502).json({ error: 'AI service error. Try again.' });
+  }
+});
+
 module.exports = router;
