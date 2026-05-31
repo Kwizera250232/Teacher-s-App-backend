@@ -877,6 +877,23 @@
   }
 }
 
+.student-classes-section {
+  margin-top: 0.5rem;
+}
+
+.student-classes-heading {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #1a1a2e;
+  margin: 0 0 14px;
+}
+
+@media (min-width: 769px) {
+  .student-classes-heading {
+    display: none;
+  }
+}
+
 /* Square class tiles */
 .student-dashboard-classic .classes-grid--square {
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

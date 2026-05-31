@@ -43,10 +43,14 @@ Rebuild locally: `bash scripts/build-student-web-dist.sh` (requires `frontend/` 
 
 ### Vercel still on old UI?
 
-1. **Fastest (no git):** Open **https://studentapi.umunsi.com/app/** — always matches backend `main` after VPS deploy.
-2. **Update Vercel:** On a machine logged into GitHub as the repo owner:
+`student.umunsi.com` DNS points to **Vercel** (old `student-wa-dashboard` — classes often missing). The live UI is on the API host:
+
+**https://studentapi.umunsi.com/app/**
+
+1. **Fastest:** Use the link above (square class cards, Dean AI, visible **My classes**).
+2. **Auto-push to Vercel:** Add GitHub secret `FRONTEND_DEPLOY_TOKEN` (PAT with `repo` on `Teacher-s-App-frontent`), then run workflow **Push frontend (Vercel)** or:
    ```bash
-   bash scripts/sync-student-web-to-frontend.sh
+   FRONTEND_DEPLOY_TOKEN=ghp_xxx bash scripts/push-frontend-deploy.sh
    ```
-   Or on the VPS (commit may already exist): `cd /root/Teacher-s-App-frontent && git push origin main`
-3. **Or point DNS:** Set `student.umunsi.com` A record to `93.127.186.217` (nginx serves the new build from `/home/umunsi/htdocs/student.umunsi.com/`).
+3. **Or point DNS:** `student.umunsi.com` A → `93.127.186.217` (nginx at `/home/umunsi/htdocs/student.umunsi.com/`).
+4. **Or Vercel project root:** Point the Vercel project at this repo; root `vercel.json` builds `student-web/`.
