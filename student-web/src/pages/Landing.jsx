@@ -277,7 +277,7 @@ export default function Landing() {
           </div>
         </div>
       )}
-      <div className="mx-auto max-w-6xl px-4 pb-20 pt-6 sm:px-6 lg:px-8">
+      <div className="uclass-page-shell w-full max-w-none px-4 pb-20 pt-6 sm:px-8 lg:px-12 xl:px-16 2xl:px-20">
         <header className="mb-10 flex items-center justify-between rounded-2xl bg-white/85 px-4 py-3 shadow-sm ring-1 ring-indigo-100 backdrop-blur sm:px-6">
           <div className="flex items-center gap-2">
             <span className="text-2xl leading-none" role="img" aria-label="graduation cap">🎓</span>

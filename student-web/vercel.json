@@ -2,6 +2,13 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "redirects": [
+    {
+      "source": "/:path*",
+      "destination": "https://studentapi.umunsi.com/app/:path*",
+      "permanent": false
+    }
+  ],
   "rewrites": [
     { "source": "/((?!assets|uploads|favicon.ico|api|download).*)", "destination": "/index.html" }
   ],

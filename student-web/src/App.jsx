@@ -28,6 +28,7 @@ import { InstallProvider } from './components/InstallPrompt';
 import './components/Footer.css';
 import './styles/WaAppShell.css';
 import './styles/WaChatShell.css';
+import './styles/AppFullscreen.css';
 
 function ProtectedRoute({ children, role }) {
   const { user, loading } = useAuth();
