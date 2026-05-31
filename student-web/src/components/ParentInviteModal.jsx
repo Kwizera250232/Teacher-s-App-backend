@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { copyToClipboard } from '../utils/copyToClipboard';
-import { createParentInviteLink, formatParentInviteCode } from '../utils/parentInviteApi';
+import { createParentInviteLink } from '../utils/parentInviteApi';
 import { MODAL_CARD_STYLE, MODAL_OVERLAY_STYLE } from '../utils/modalOverlay';
 import ShareModal from './ShareModal';
 
@@ -8,9 +8,8 @@ export default function ParentInviteModal({ token, studentId, selfStudentId, stu
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [inviteLink, setInviteLink] = useState('');
-  const [inviteToken, setInviteToken] = useState('');
   const [copied, setCopied] = useState(false);
-  const [codeCopied, setCodeCopied] = useState(false);
+  const [whatsappCopied, setWhatsappCopied] = useState(false);
   const [showShare, setShowShare] = useState(false);
 
   useEffect(() => {
@@ -22,7 +21,6 @@ export default function ParentInviteModal({ token, studentId, selfStudentId, stu
         const data = await createParentInviteLink({ token, studentId, selfStudentId });
         if (!cancelled) {
           setInviteLink(data.invite_link || '');
-          setInviteToken(data.token || '');
         }
       } catch (e) {
         if (!cancelled) setError(e.message || 'Could not create invite link.');
@@ -33,9 +31,6 @@ export default function ParentInviteModal({ token, studentId, selfStudentId, stu
     return () => { cancelled = true; };
   }, [token, studentId, selfStudentId]);
 
-  const parentCode = formatParentInviteCode(inviteToken);
-  const signupHint = inviteLink || (parentCode ? `https://student.umunsi.com/invite?parent_token=…` : '');
-
   const handleCopy = async () => {
     if (!inviteLink) return;
     const ok = await copyToClipboard(inviteLink);
@@ -43,11 +38,11 @@ export default function ParentInviteModal({ token, studentId, selfStudentId, stu
     setTimeout(() => setCopied(false), 2500);
   };
 
-  const handleCopyCode = async () => {
+  const handleCopyForWhatsApp = async () => {
     const text = `Join UClass as parent of ${studentName}. Open this link to register:\n${inviteLink}`;
     const ok = await copyToClipboard(text);
-    setCodeCopied(ok);
-    setTimeout(() => setCodeCopied(false), 2500);
+    setWhatsappCopied(ok);
+    setTimeout(() => setWhatsappCopied(false), 2500);
   };
 
   const shareText = `Join UClass as parent of ${studentName}. You will only see ${studentName}'s quizzes, marks, and classroom work.`;
@@ -75,27 +70,6 @@ export default function ParentInviteModal({ token, studentId, selfStudentId, stu
 
           {!loading && !error && inviteLink && (
             <>
-              {parentCode && (
-                <div
-                  style={{
-                    background: '#dcf8c6',
-                    borderRadius: 12,
-                    padding: '14px 16px',
-                    marginBottom: 14,
-                    textAlign: 'center',
-                  }}
-                >
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#075e54', letterSpacing: 1 }}>
-                    YOUR PARENT CODE
-                  </div>
-                  <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: 4, color: '#111b21', margin: '6px 0' }}>
-                    {parentCode}
-                  </div>
-                  <div style={{ fontSize: 12, color: '#54656f' }}>
-                    Parents open your link below — same form for every family
-                  </div>
-                </div>
-              )}
               <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#94a3b8', marginBottom: 6 }}>
                 Invitation link for {studentName}&apos;s parent
               </label>
@@ -112,8 +86,8 @@ export default function ParentInviteModal({ token, studentId, selfStudentId, stu
                 <button type="button" className="btn btn-primary" onClick={handleCopy}>
                   {copied ? '✓ Copied link' : 'Copy link'}
                 </button>
-                <button type="button" className="btn btn-secondary" onClick={handleCopyCode}>
-                  {codeCopied ? '✓ Copied all' : 'Copy for WhatsApp'}
+                <button type="button" className="btn btn-secondary" onClick={handleCopyForWhatsApp}>
+                  {whatsappCopied ? '✓ Copied all' : 'Copy for WhatsApp'}
                 </button>
                 <button type="button" className="btn btn-secondary" onClick={() => setShowShare(true)}>
                   Share
