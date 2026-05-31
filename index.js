@@ -124,12 +124,33 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 // Student web UI (built React app) — https://studentapi.umunsi.com/app/
 const studentUiDist = path.join(__dirname, 'student-web-dist');
+const STUDENT_WEB_HOSTS = new Set(['student.umunsi.com', 'www.student.umunsi.com']);
+
+function isStudentWebHost(hostname) {
+  return STUDENT_WEB_HOSTS.has(String(hostname || '').toLowerCase());
+}
+
 if (fs.existsSync(studentUiDist)) {
   app.use('/app', express.static(studentUiDist, { index: 'index.html', maxAge: '1h' }));
   // Express 5: named wildcard (not /app/*)
   app.get('/app/{*splat}', (req, res) => {
     res.sendFile(path.join(studentUiDist, 'index.html'));
   });
+
+  // student.umunsi.com on VPS (DNS → 93.127.186.217): serve SPA at /, not only /app/
+  app.use((req, res, next) => {
+    if (!isStudentWebHost(req.hostname)) return next();
+    if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) return next();
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    const rel = req.path === '/' ? 'index.html' : req.path.replace(/^\//, '');
+    if (rel.includes('..')) return res.status(400).end();
+    const filePath = path.join(studentUiDist, rel);
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+      return res.sendFile(filePath);
+    }
+    return res.sendFile(path.join(studentUiDist, 'index.html'));
+  });
+
   app.get('/', (req, res, next) => {
     const host = String(req.hostname || '');
     if (host.includes('studentapi.') && !req.path.startsWith('/api')) {
