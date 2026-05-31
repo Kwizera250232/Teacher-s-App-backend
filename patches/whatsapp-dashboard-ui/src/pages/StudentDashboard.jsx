@@ -9,7 +9,7 @@ import ParentInviteModal from '../components/ParentInviteModal';
 import MobileStudentHeader from '../components/MobileStudentHeader';
 import MobileBottomBar from '../components/MobileBottomBar';
 import CompositionStatusPanel from '../components/CompositionStatusPanel';
-import DeanAiModal from '../components/DeanAiModal';
+import DeanSupportFab from '../components/DeanSupportFab';
 import StudentClassmatesList from '../components/StudentClassmatesList';
 import './Dashboard.css';
 import './MobileDashboard.css';
@@ -19,7 +19,7 @@ const QUICK_NAV = (handlers) => [
   { id: 'status', icon: '✍️', label: 'C. Status', onClick: handlers.openStatus },
   { id: 'notes', icon: '📝', label: 'Notes', to: '/student/notes' },
   { id: 'parent', icon: '👪', label: 'Parent', onClick: handlers.openParent },
-  { id: 'dean', icon: '🎓', label: 'Dean', onClick: handlers.openDean },
+  { id: 'dean', icon: '🎓', label: 'Dean AI', onClick: handlers.openDean },
   { id: 'profile', icon: '👤', label: 'Profile', to: '/profile' },
 ];
 
@@ -145,7 +145,7 @@ export default function StudentDashboard() {
             <button type="button" className="btn btn-secondary" onClick={() => setShowParentInvite(true)}>👪 Invite parent</button>
             <button type="button" className="btn btn-secondary" onClick={openStatus}>✍️ C. Status</button>
             <Link to="/student/notes" className="btn btn-secondary">📝 My Notes</Link>
-            <button type="button" className="btn btn-secondary" onClick={() => setShowDean(true)}>🎓 Dean AI</button>
+            <button type="button" className="btn btn-secondary" onClick={() => setShowDean(true)}>🎓 Dean (Our AI Support)</button>
           </div>
         </div>
 
@@ -233,27 +233,16 @@ export default function StudentDashboard() {
 
         <section className="student-dean-banner">
           <div>
-            <strong>Dean — our AI support</strong>
+            <strong>Dean (Our AI Support)</strong>
             <p>Ask how UClass works: join classes, compositions, parent invites, and more.</p>
           </div>
           <button type="button" className="btn btn-primary" onClick={() => setShowDean(true)}>
-            Chat with Dean 🎓
+            Ask Dean (Our AI Support) 🎓
           </button>
         </section>
       </main>
 
-      <div className="dean-fab-wrap" aria-live="polite">
-        {!showDean && <span className="dean-fab-label">Dean · AI support</span>}
-        <button
-          type="button"
-          className="dean-fab-btn"
-          aria-label={showDean ? 'Close Dean AI' : 'Open Dean AI'}
-          onClick={() => setShowDean(!showDean)}
-        >
-          {showDean ? '✕' : '🎓'}
-        </button>
-      </div>
-      {showDean && <DeanAiModal token={token} onClose={() => setShowDean(false)} />}
+      <DeanSupportFab token={token} open={showDean} onOpenChange={setShowDean} />
 
       <MobileBottomBar items={quickNavItems} className="student-bottom-nav" />
 

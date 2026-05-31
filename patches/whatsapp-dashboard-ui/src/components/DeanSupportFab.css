@@ -1,0 +1,41 @@
+.dean-fab-wrap--global {
+  position: fixed;
+  right: 16px;
+  bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.dean-fab-wrap--global .dean-fab-btn,
+.dean-fab-wrap--global .dean-fab-label {
+  pointer-events: auto;
+}
+
+.dean-class-ai-chip {
+  position: fixed;
+  right: 16px;
+  bottom: calc(140px + env(safe-area-inset-bottom, 0px));
+  z-index: 899;
+  border: none;
+  border-radius: 20px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #eef2ff;
+  color: #4338ca;
+  box-shadow: 0 2px 10px rgba(79, 70, 229, 0.2);
+  cursor: pointer;
+}
+
+@media (min-width: 769px) {
+  .dean-fab-wrap--global {
+    bottom: 24px;
+  }
+  .dean-class-ai-chip {
+    bottom: 88px;
+  }
+}
