@@ -1,0 +1,32 @@
+name: Sync and deploy frontend to Vercel
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'student-web/**'
+      - 'student-web-dist/**'
+      - 'scripts/sync-student-web-to-frontend.sh'
+  workflow_dispatch:
+
+jobs:
+  mirror-and-hint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build student-web for Vercel
+        working-directory: student-web
+        run: |
+          npm ci
+          VITE_API_URL=https://studentapi.umunsi.com/api npm run build
+
+      - name: Deployment note
+        run: |
+          echo "::notice::Built dist/ in student-web. Push to Teacher-s-App-frontent manually:"
+          echo "  bash scripts/sync-student-web-to-frontend.sh"
+          echo "Or use https://studentapi.umunsi.com/app/ (always latest from backend main)."
