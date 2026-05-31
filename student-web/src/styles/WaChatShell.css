@@ -61,5 +61,12 @@
 }
 
 .staff-hub-page .phub-chat-wrap.wa-chat-shell {
-  height: min(72vh, calc(100dvh - 180px));
+  height: calc(100dvh - 132px);
+  min-height: 420px;
+  max-height: none;
+}
+
+.staff-hub-page .phub-chat-wrap.wa-chat-shell .msg-chat {
+  flex: 1;
+  min-height: 0;
 }

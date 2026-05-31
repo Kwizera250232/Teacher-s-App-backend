@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-
+import AuthAppShell from '../components/AuthAppShell';
 import './Auth.css';
 
 export default function ForgotPassword({ initialEmail = '', initialCode = '', startStep = 1 }) {
@@ -60,93 +60,84 @@ export default function ForgotPassword({ initialEmail = '', initialCode = '', st
   }
 
   return (
-    <div className="auth-page">
-      <div className="auth-card">
-        <div className="auth-logo">🔑</div>
-        <h1 className="auth-title">Gusubiza Ijambobanga</h1>
-
-        {step === 1 && (
-          <>
-            <p style={{ textAlign: 'center', color: '#666', marginBottom: 20, fontSize: 14 }}>
-              Injiza imeyili yawe. Uzahabwa kode y&apos;imibare 6 (mu gihe cyo gutezimbere, reba ubutumwa bw&apos;umuyobozi).
-            </p>
-            <form onSubmit={handleRequestCode}>
-              <div className="form-group">
-                <label>Imeyili</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="imeyili@example.com"
-                  required
-                />
-              </div>
-              {error && <div className="alert alert-error">{error}</div>}
-              <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
-                {loading ? 'Gutegereza...' : 'Ohereza kode'}
-              </button>
-            </form>
-          </>
-        )}
-
-        {step === 2 && (
-          <form onSubmit={handleReset}>
-            <p style={{ textAlign: 'center', color: '#666', marginBottom: 16, fontSize: 14 }}>
-              {success}
-            </p>
-            {devCode && (
-              <div className="alert alert-success" style={{ marginBottom: 12 }}>
-                Dev code: <strong>{devCode}</strong>
-              </div>
-            )}
+    <AuthAppShell
+      title="Gusubiza Ijambobanga"
+      subtitle="Same WhatsApp-style look as inside the app"
+      footer={<p><Link to="/login">← Subira ku Kwinjira</Link></p>}
+    >
+      {step === 1 && (
+        <>
+          <p className="auth-app-shell__hint">
+            Injiza imeyili yawe. Uzahabwa kode y&apos;imibare 6.
+          </p>
+          <form onSubmit={handleRequestCode}>
             <div className="form-group">
               <label>Imeyili</label>
-              <input type="email" value={email} readOnly />
-            </div>
-            <div className="form-group">
-              <label>Kode (imibare 6)</label>
               <input
-                value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                placeholder="123456"
-                required
-                inputMode="numeric"
-              />
-            </div>
-            <div className="form-group">
-              <label>Ijambobanga Rishya</label>
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Nibura inyuguti 8"
-                required
-              />
-            </div>
-            <div className="form-group">
-              <label>Ongera Ijambobanga</label>
-              <input
-                type="password"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="imeyili@example.com"
                 required
               />
             </div>
             {error && <div className="alert alert-error">{error}</div>}
             <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
-              {loading ? 'Gutegereza...' : 'Hindura Ijambobanga'}
+              {loading ? 'Gutegereza...' : 'Ohereza kode'}
             </button>
           </form>
-        )}
+        </>
+      )}
 
-        {step === 3 && (
-          <div className="alert alert-success">{success}</div>
-        )}
+      {step === 2 && (
+        <form onSubmit={handleReset}>
+          <p className="auth-app-shell__hint">{success}</p>
+          {devCode && (
+            <div className="alert alert-success" style={{ marginBottom: 12 }}>
+              Dev code: <strong>{devCode}</strong>
+            </div>
+          )}
+          <div className="form-group">
+            <label>Imeyili</label>
+            <input type="email" value={email} readOnly />
+          </div>
+          <div className="form-group">
+            <label>Kode (imibare 6)</label>
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="123456"
+              required
+              inputMode="numeric"
+            />
+          </div>
+          <div className="form-group">
+            <label>Ijambobanga Rishya</label>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="Nibura inyuguti 8"
+              required
+            />
+          </div>
+          <div className="form-group">
+            <label>Ongera Ijambobanga</label>
+            <input
+              type="password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              required
+            />
+          </div>
+          {error && <div className="alert alert-error">{error}</div>}
+          <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
+            {loading ? 'Gutegereza...' : 'Hindura Ijambobanga'}
+          </button>
+        </form>
+      )}
 
-        <div style={{ textAlign: 'center', marginTop: 20 }}>
-          <Link to="/login" style={{ color: '#667eea', fontSize: 14 }}>← Subira ku Kwinjira</Link>
-        </div>
-      </div>
-    </div>
+      {step === 3 && <div className="alert alert-success">{success}</div>}
+    </AuthAppShell>
   );
 }
