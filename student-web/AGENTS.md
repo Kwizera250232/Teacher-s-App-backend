@@ -71,4 +71,4 @@ This workspace contains two independent repos:
 - Parent ↔ teacher/HT messaging rules live in `lib/messagingAccess.js`.
 - Hub tables/columns are ensured at startup via `lib/parentHub.js` (`school_announcements`, `parent_notifications`, `schools.district`, `schools.sector`).
 - Join school / add pupils: frontend calls `/api/admin/*` (`SchoolRequestBanner`, `SchoolRequestsPanel`, `AddStudentsModal`).
-- Password reset: `ForgotPassword` uses 6-digit OTP (`/auth/forgot-password` + `/auth/reset-password`); set backend `EXPOSE_RESET_CODE=true` in dev to show code in UI.
+- Password reset: `/forgot-password` — email + new password only (`POST /auth/reset-password`, no OTP code).
