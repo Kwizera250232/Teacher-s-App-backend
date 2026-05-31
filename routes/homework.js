@@ -2,28 +2,11 @@ const express = require('express');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { createUpload } = require('../lib/uploads');
+const { userCanManageClass } = require('../lib/classAccess');
+const { notifyClassParents } = require('../lib/parentClassNotify');
 
 const router = express.Router();
 const uploadHomework = createUpload('file');
-
-async function teacherOwnsClass(classId, user) {
-  const teacherId = user.id;
-  const owned = await pool.query(
-    'SELECT id FROM classes WHERE id = $1 AND teacher_id = $2',
-    [classId, teacherId]
-  );
-  if (owned.rows.length > 0) return true;
-  if (user.role === 'head_teacher' && user.school_id) {
-    const ht = await pool.query(
-      `SELECT c.id FROM classes c
-       JOIN users t ON c.teacher_id = t.id
-       WHERE c.id = $1 AND t.school_id = $2`,
-      [classId, user.school_id]
-    );
-    return ht.rows.length > 0;
-  }
-  return false;
-}
 
 // GET homework for a class
 router.get('/:classId/homework', authenticateToken, async (req, res) => {
@@ -56,14 +39,26 @@ router.post('/:classId/homework', authenticateToken, requireRole('teacher', 'hea
   const fileName = req.file ? req.file.originalname : null;
 
   try {
-    if (!(await teacherOwnsClass(classId, req.user))) {
+    const manage = await userCanManageClass(req.user, classId);
+    if (!manage.ok) {
       return res.status(403).json({ error: 'You do not own this class.' });
     }
     const result = await pool.query(
       'INSERT INTO homework (class_id, title, description, due_date, file_path, file_name) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
       [classId, String(title).trim(), description || null, due_date || null, filePath, fileName]
     );
-    res.status(201).json(result.rows[0]);
+    const hw = result.rows[0];
+    const dueLabel = due_date ? ` Due: ${due_date}` : '';
+    notifyClassParents({
+      classId,
+      senderId: req.user.id,
+      senderRole: req.user.role,
+      schoolId: req.user.school_id,
+      type: 'homework_new',
+      title: `New homework — ${hw.title}`,
+      body: (description || 'Check the class for details.') + dueLabel,
+    }).catch((e) => console.error('[homework notify]', e.message));
+    res.status(201).json(hw);
   } catch (err) {
     console.error('[homework POST] error:', err.message, err.code, err.detail);
     res.status(500).json({ error: 'Failed to create homework. Please try again.' });
@@ -71,11 +66,12 @@ router.post('/:classId/homework', authenticateToken, requireRole('teacher', 'hea
 });
 
 // DELETE homework (teacher)
-router.delete('/:classId/homework/:hwId', authenticateToken, requireRole('teacher'), async (req, res) => {
+router.delete('/:classId/homework/:hwId', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   if (Number.isNaN(classId)) return res.status(400).json({ error: 'Invalid class ID.' });
   try {
-    if (!(await teacherOwnsClass(classId, req.user))) {
+    const manage = await userCanManageClass(req.user, classId);
+    if (!manage.ok) {
       return res.status(403).json({ error: 'You do not own this class.' });
     }
     await pool.query('DELETE FROM homework WHERE id = $1 AND class_id = $2', [req.params.hwId, classId]);
@@ -152,7 +148,8 @@ router.post('/:classId/homework/:hwId/submit', authenticateToken, requireRole('s
 });
 
 // PUT grade a submission (teacher)
-router.put('/:classId/homework/:hwId/submissions/:subId/grade', authenticateToken, requireRole('teacher'), async (req, res) => {
+router.put('/:classId/homework/:hwId/submissions/:subId/grade', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = parseInt(req.params.classId, 10);
   const { grade, feedback, teacher_answer } = req.body;
   if (grade === undefined || grade === null) return res.status(400).json({ error: 'Grade is required.' });
   const gradeNum = parseInt(grade, 10);
@@ -160,13 +157,29 @@ router.put('/:classId/homework/:hwId/submissions/:subId/grade', authenticateToke
     return res.status(400).json({ error: 'Grade must be a number between 0 and 100.' });
   }
   try {
+    const manage = await userCanManageClass(req.user, classId);
+    if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
+
+    const hwRow = await pool.query('SELECT title FROM homework WHERE id = $1', [req.params.hwId]);
     const result = await pool.query(
       `UPDATE homework_submissions SET grade = $1, feedback = $2, teacher_answer = $3, graded_at = NOW()
        WHERE id = $4 RETURNING *`,
       [gradeNum, feedback || null, teacher_answer || null, req.params.subId]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Submission not found.' });
-    res.json(result.rows[0]);
+    const sub = result.rows[0];
+    const st = await pool.query('SELECT name FROM users WHERE id = $1', [sub.student_id]);
+    notifyClassParents({
+      classId,
+      senderId: req.user.id,
+      senderRole: req.user.role,
+      schoolId: req.user.school_id,
+      studentId: sub.student_id,
+      type: 'homework_graded',
+      title: `Homework graded — ${st.rows[0]?.name || 'your child'}`,
+      body: `${hwRow.rows[0]?.title || 'Homework'}: ${gradeNum}/100${feedback ? `. ${feedback}` : ''}`,
+    }).catch((e) => console.error('[homework grade notify]', e.message));
+    res.json(sub);
   } catch (err) {
     console.error('[homework grade] error:', err.message);
     res.status(500).json({ error: 'Internal server error.' });

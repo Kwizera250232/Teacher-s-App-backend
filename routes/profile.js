@@ -5,6 +5,7 @@ const multer = require('multer');
 const rateLimit = require('express-rate-limit');
 const pool = require('../db');
 const { authenticateToken } = require('../middleware/auth');
+const { canUsersMessage } = require('../lib/messagingAccess');
 
 const router = express.Router();
 const auth = authenticateToken;
@@ -195,7 +196,10 @@ router.get('/:id', auth, async (req, res) => {
       [req.user.id, targetId]
     );
     if (!shared.rowCount && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Not in the same class.' });
+      const mayView = await canUsersMessage(req.user.id, targetId, req.user.role);
+      if (!mayView) {
+        return res.status(403).json({ error: 'Not in the same class.' });
+      }
     }
     const result = await pool.query(
       `SELECT u.id, u.name, u.role,

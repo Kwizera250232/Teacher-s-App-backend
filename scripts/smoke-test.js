@@ -7,6 +7,8 @@ const modules = [
   '../lib/messagingAccess',
   '../lib/parentHub',
   '../lib/parentReminders',
+  '../lib/parentClassNotify',
+  '../lib/optionalMailer',
   '../routes/parent_hub',
 ];
 

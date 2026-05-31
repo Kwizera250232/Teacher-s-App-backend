@@ -479,6 +479,7 @@ router.post('/school/teachers', authenticateToken, requireRole('head_teacher'), 
       email,
       role: 'teacher',
       school_id: schoolId,
+      is_approved: true,
     });
     res.status(201).json({
       message: 'Teacher account created. Share the login email and temporary password.',

@@ -1,6 +1,7 @@
 const express = require('express');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { notifyClassParents } = require('../lib/parentClassNotify');
 
 const router = express.Router();
 
@@ -179,8 +180,35 @@ router.post('/:classId/quizzes/:quizId/submit', authenticateToken, requireRole('
       [req.params.quizId, req.user.id, score, total, JSON.stringify(answers)]
     );
 
-    // Auto-award badges
     const percentage = total > 0 ? Math.round((score / total) * 100) : 0;
+    try {
+      const quizInfo = await pool.query(
+        `SELECT q.title, q.class_id, c.teacher_id, t.school_id
+         FROM quizzes q
+         JOIN classes c ON c.id = q.class_id
+         JOIN users t ON t.id = c.teacher_id
+         WHERE q.id = $1`,
+        [req.params.quizId]
+      );
+      const qi = quizInfo.rows[0];
+      if (qi) {
+        const st = await pool.query('SELECT name FROM users WHERE id = $1', [req.user.id]);
+        await notifyClassParents({
+          classId: qi.class_id,
+          senderId: qi.teacher_id,
+          senderRole: 'teacher',
+          schoolId: qi.school_id,
+          studentId: req.user.id,
+          type: 'quiz_result',
+          title: `Quiz result — ${st.rows[0]?.name || 'your child'}`,
+          body: `${qi.title}: ${percentage}% (${score}/${total})`,
+        });
+      }
+    } catch (e) {
+      console.error('[quiz parent notify]', e.message);
+    }
+
+    // Auto-award badges
     const badgesToAward = [];
     if (percentage === 100) badgesToAward.push('perfect_score');
     if (percentage >= 90)  badgesToAward.push('excellence');

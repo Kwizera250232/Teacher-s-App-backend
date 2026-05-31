@@ -88,6 +88,7 @@ app.use('/api/classes', homeworkRoutes);
 app.use('/api/classes', quizRoutes);
 app.use('/api/classes', contentRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/school', adminRoutes);
 app.use('/api/student', studentNotesRoutes);
 app.use('/api/classes', leaderboardRoutes);
 app.use('/api/catmarks', catMarksRoutes);

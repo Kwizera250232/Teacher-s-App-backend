@@ -629,6 +629,17 @@ router.post('/forgot-password', forgotLimiter, async (req, res) => {
     if (process.env.EXPOSE_RESET_CODE === 'true') {
       body.dev_code = token;
     }
+    try {
+      const { sendMail } = require('../lib/optionalMailer');
+      const mailed = await sendMail({
+        to: email,
+        subject: 'UClass password reset code',
+        text: `Your reset code is ${token}. It expires in 15 minutes.`,
+      });
+      if (mailed.sent) body.message = 'Reset code sent to your email.';
+    } catch {
+      /* in-app / dev_code fallback */
+    }
     res.json(body);
   } catch (err) {
     console.error('[forgot-password]', err);

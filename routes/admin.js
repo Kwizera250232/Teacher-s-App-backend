@@ -698,7 +698,7 @@ async function resolveSchoolForAccount(req, school_id) {
   return school_id;
 }
 
-async function createSchoolAccount(req, { name, email, role, school_id, password: customPassword }) {
+async function createSchoolAccount(req, { name, email, role, school_id, password: customPassword, is_approved }) {
   if (!name || !role) {
     const err = new Error('Name and role are required.');
     err.status = 400;
@@ -763,11 +763,15 @@ async function createSchoolAccount(req, { name, email, role, school_id, password
     ? customPassword.trim()
     : Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
   const hashed = await bcrypt.hash(finalPassword, 12);
+  const approved = typeof is_approved === 'boolean'
+    ? is_approved
+    : role !== 'teacher';
+
   const result = await pool.query(
     `INSERT INTO users (name, email, password, role, school_id, is_approved)
      VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING id, name, email, role, school_id`,
-    [name, userEmail, hashed, role, targetSchoolId, role === 'teacher' ? false : true]
+    [name, userEmail, hashed, role, targetSchoolId, approved]
   );
 
   return {
