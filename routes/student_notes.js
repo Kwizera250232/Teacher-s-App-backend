@@ -3,7 +3,7 @@ const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
-const { buildParentInviteResponse } = require('../lib/parentInvite');
+const { handleStudentParentInvite } = require('../lib/studentParentInvite');
 
 // Ensure student_personal_notes table exists
 pool.query(`

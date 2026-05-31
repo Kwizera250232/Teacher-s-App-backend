@@ -41,6 +41,8 @@ ALTER TABLE schools ADD COLUMN IF NOT EXISTS welcome_message TEXT;
 ### Production API deploy (no GitHub SSH secrets)
 
 Manual on VPS (`93.127.186.217`): `cd` app dir → `git pull origin main` → `npm ci --omit=dev` → `pm2 restart studentapi`. See `scripts/deploy-production.sh` and `DEPLOY.md`.
+
+After deploy, these must return **401** without a token (not **404**): `POST /api/auth/parent-invite`, `POST /api/parent/my/parent-invite`, `GET /api/composition-status/mine`. If students see “server update” or parent invite “insufficient role”, production is still on an old build.
 - Invite URLs use request `Origin` when allowed, else `FRONTEND_URL` (default `https://student.umunsi.com`).
 - Signup: `/invite?parent_token=...` → `POST /auth/register` with `parent_token`; parents use Gmail/Yahoo/Outlook-style emails.
 

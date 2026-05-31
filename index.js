@@ -99,7 +99,15 @@ app.use('/api/profile', profileRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/student-shares', studentSharesRoutes);
 app.use('/api/composition-status', compositionStatusRoutes);
+app.use('/api/student/composition-status', compositionStatusRoutes);
 app.use('/api/classroom-feed', classroomFeedRoutes);
+
+// Student parent-invite + composition-status (explicit aliases for production deploy checks)
+for (const method of ['get', 'post']) {
+  app[method]('/api/auth/parent-invite', authenticateToken, handleStudentParentInvite);
+  app[method]('/api/student/parent-invite', authenticateToken, handleStudentParentInvite);
+  app[method]('/api/parent/my/parent-invite', authenticateToken, handleStudentParentInvite);
+}
 app.use('/api/parent', parentPortalRoutes);
 app.use('/api/parent', parentHubRoutes);
 app.use('/api/donate', donateRoutes);

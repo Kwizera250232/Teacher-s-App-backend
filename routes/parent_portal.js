@@ -4,6 +4,7 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const { userCanManageClass, userCanInviteParentForStudent } = require('../lib/classAccess');
 const { insertParentNotification, sendParentInAppMessage } = require('../lib/parentHub');
 const { buildParentInviteResponse } = require('../lib/parentInvite');
+const { handleStudentParentInvite } = require('../lib/studentParentInvite');
 
 const router = express.Router();
 
