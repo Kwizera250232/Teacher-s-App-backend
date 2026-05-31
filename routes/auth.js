@@ -751,8 +751,7 @@ router.post('/reset-password', forgotLimiter, async (req, res) => {
   }
 });
 
-// Student: parent invite (stable path on /api/auth for older API deploys)
-router.post('/parent-invite', authenticateToken, async (req, res) => {
+async function studentParentInviteHandler(req, res) {
   if (req.user.role !== 'student') {
     return res.status(403).json({ error: 'Only students can create a parent invite from here.' });
   }
@@ -769,7 +768,10 @@ router.post('/parent-invite', authenticateToken, async (req, res) => {
     console.error('[auth/parent-invite]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
-});
+}
+
+router.get('/parent-invite', authenticateToken, studentParentInviteHandler);
+router.post('/parent-invite', authenticateToken, studentParentInviteHandler);
 
 // GET current user
 router.get('/me', authenticateToken, async (req, res) => {

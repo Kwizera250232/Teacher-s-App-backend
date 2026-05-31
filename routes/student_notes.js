@@ -59,8 +59,7 @@ router.put('/notes/:id', authenticateToken, requireRole('student'), async (req, 
   } catch (err) { console.error(err); res.status(500).json({ error: 'Internal server error.' }); }
 });
 
-// Student: parent invite link (works on /api/student/parent-invite for older deploy paths)
-router.post('/parent-invite', authenticateToken, requireRole('student'), async (req, res) => {
+async function studentParentInviteRoute(req, res) {
   try {
     const student = await pool.query(
       `SELECT id, name FROM users WHERE id=$1 AND role='student'`,
@@ -73,7 +72,10 @@ router.post('/parent-invite', authenticateToken, requireRole('student'), async (
     console.error('[student/parent-invite]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
-});
+}
+
+router.get('/parent-invite', authenticateToken, requireRole('student'), studentParentInviteRoute);
+router.post('/parent-invite', authenticateToken, requireRole('student'), studentParentInviteRoute);
 
 // DELETE note
 router.delete('/notes/:id', authenticateToken, requireRole('student'), async (req, res) => {

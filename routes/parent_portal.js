@@ -114,14 +114,16 @@ router.post('/students/:studentId/parent-link', authenticateToken, async (req, r
 });
 
 // Student: invite own parent (alias)
-router.post('/my/parent-invite', authenticateToken, requireRole('student'), async (req, res) => {
+async function myParentInviteHandler(req, res) {
   try {
     await createParentInviteForStudent(req, res, req.user.id);
   } catch (err) {
     console.error('[my/parent-invite]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
-});
+}
+router.get('/my/parent-invite', authenticateToken, requireRole('student'), myParentInviteHandler);
+router.post('/my/parent-invite', authenticateToken, requireRole('student'), myParentInviteHandler);
 
 // Public preview for parent invite
 router.get('/invite-preview', async (req, res) => {
