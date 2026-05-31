@@ -79,7 +79,7 @@ export default function StaffDashboard({ roleLabel, basePath }) {
   ];
 
   return (
-    <div className="dashboard staff-hub-page wa-theme">
+    <div className="dashboard staff-hub-page staff-dashboard-classic wa-theme">
       <header className="dash-header phub-header">
         <div className="phub-brand">
           <span className="phub-logo">UClass</span>

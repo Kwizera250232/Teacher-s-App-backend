@@ -179,3 +179,11 @@
   font-size: 13px;
   margin-bottom: 12px;
 }
+
+.auth-app-shell__hint {
+  text-align: center;
+  color: #667781;
+  font-size: 14px;
+  margin: 0 0 16px;
+  line-height: 1.45;
+}

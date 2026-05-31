@@ -912,12 +912,12 @@
 
 /* Staff / HT square class tiles */
 .staff-dashboard-classic .classes-grid--square {
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 22px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 24px;
 }
 .staff-dashboard-classic .class-card--square {
   aspect-ratio: 1;
-  min-height: 240px;
+  min-height: 280px;
   text-align: center;
   padding: 18px 14px;
   border-radius: 12px;
@@ -928,13 +928,13 @@
   color: inherit;
 }
 .staff-dashboard-classic .class-card-icon {
-  width: 72px;
-  height: 72px;
-  margin: 0 auto 10px;
-  border-radius: 18px;
+  width: 88px;
+  height: 88px;
+  margin: 0 auto 12px;
+  border-radius: 20px;
   background: linear-gradient(135deg, #128c7e, #25d366);
   color: #fff;
-  font-size: 30px;
+  font-size: 36px;
   font-weight: 800;
   display: flex;
   align-items: center;
