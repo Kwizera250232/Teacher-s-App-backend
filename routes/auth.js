@@ -5,13 +5,37 @@ const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const pool = require('../db');
 const { authenticateToken } = require('../middleware/auth');
-const {
-  sendVerificationEmail,
-  maybeSendDailyReminder,
-  verifyEmailToken,
-  publicUserFields,
-} = require('../lib/emailVerification');
+const { schoolDomainFromName, normalizeLocalPart, buildSchoolEmail } = require('../lib/schoolDomain');
+const { validateEmailForSignup } = require('../lib/emailValidate');
 require('dotenv').config();
+
+const STRICT_EMAIL = process.env.STRICT_EMAIL_VALIDATE === 'true';
+
+function userPayload(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    role: row.role,
+    school_id: row.school_id,
+    is_approved: row.is_approved !== false,
+  };
+}
+
+async function ensureSchoolEmailDomain(pool, schoolRow) {
+  let domain = schoolRow.email_domain;
+  if (!domain) {
+    domain = schoolDomainFromName(schoolRow.name);
+    if (domain) {
+      await pool.query(
+        `UPDATE schools SET email_domain = $1 WHERE id = $2`,
+        [domain, schoolRow.id]
+      );
+      schoolRow.email_domain = domain;
+    }
+  }
+  return domain;
+}
 
 const router = express.Router();
 
@@ -139,6 +163,7 @@ router.get('/validate-school-code', async (req, res) => {
       return res.status(404).json({ error: 'Invalid school code. Please check and try again.' });
     }
     const school = result.rows[0];
+    const emailDomain = await ensureSchoolEmailDomain(pool, school);
     const htCheck = await pool.query(
       "SELECT 1 FROM users WHERE school_id=$1 AND role='head_teacher' AND is_approved=TRUE LIMIT 1",
       [school.id]
@@ -149,7 +174,7 @@ router.get('/validate-school-code', async (req, res) => {
         id: school.id,
         name: school.name,
         code: school.code,
-        email_domain: school.email_domain || null,
+        email_domain: emailDomain || null,
         welcome_message: school.welcome_message || null,
         has_head_teacher: htCheck.rows.length > 0,
       },
@@ -197,6 +222,72 @@ router.get('/invite-preview', async (req, res) => {
   }
 });
 
+// GET check school email username availability (staff signup)
+router.get('/check-school-email', async (req, res) => {
+  const local = normalizeLocalPart(req.query.local);
+  const code = String(req.query.code || req.query.school_code || '').trim().toUpperCase();
+  if (!local) return res.status(400).json({ error: 'Email username is required.' });
+  if (local.length < 2) return res.status(400).json({ error: 'Username is too short.' });
+  if (!code) return res.status(400).json({ error: 'School code is required.' });
+  try {
+    const schoolRes = await pool.query(
+      'SELECT id, name, email_domain FROM schools WHERE code = $1 LIMIT 1',
+      [code]
+    );
+    if (!schoolRes.rows.length) {
+      return res.status(404).json({ error: 'Invalid school code.' });
+    }
+    const domain = await ensureSchoolEmailDomain(pool, schoolRes.rows[0]);
+    if (!domain) {
+      return res.status(400).json({ error: 'School email domain is not configured.' });
+    }
+    const email = buildSchoolEmail(local, domain);
+    const taken = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+    res.json({
+      available: taken.rows.length === 0,
+      email,
+      email_domain: domain,
+    });
+  } catch (err) {
+    console.error('[check-school-email]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// POST validate email (Gmail or school domain + optional mailbox check)
+router.post('/validate-email', authLimiter, async (req, res) => {
+  const email = (req.body.email || '').trim().toLowerCase();
+  const code = String(req.body.school_code || '').trim().toUpperCase();
+  if (!email) return res.status(400).json({ error: 'Email is required.' });
+
+  try {
+    let schoolDomain = null;
+    if (code) {
+      const s = await pool.query('SELECT id, name, email_domain FROM schools WHERE code=$1', [code]);
+      if (s.rows.length) schoolDomain = await ensureSchoolEmailDomain(pool, s.rows[0]);
+    } else if (req.body.school_id) {
+      const s = await pool.query('SELECT id, name, email_domain FROM schools WHERE id=$1', [req.body.school_id]);
+      if (s.rows.length) schoolDomain = await ensureSchoolEmailDomain(pool, s.rows[0]);
+    }
+
+    const result = await validateEmailForSignup(email, {
+      schoolDomain,
+      strict: STRICT_EMAIL,
+    });
+    if (!result.valid) {
+      return res.status(400).json({ error: result.reason, mailbox: result.mailbox });
+    }
+    res.json({
+      valid: true,
+      type: result.type,
+      mailbox: result.mailbox,
+    });
+  } catch (err) {
+    console.error('[validate-email]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // POST create school
 router.post('/schools', async (req, res) => {
   const name = (req.body.name || '').trim();
@@ -226,16 +317,14 @@ router.post('/schools', async (req, res) => {
 // POST register
 router.post('/register', authLimiter, async (req, res) => {
   const name = (req.body.name || '').trim();
-  const email = (req.body.email || '').trim().toLowerCase();
+  let email = (req.body.email || '').trim().toLowerCase();
+  const schoolEmailLocal = normalizeLocalPart(req.body.school_email_local || req.body.school_email);
   let { password, role, school_id, school_code, phone, invite_token, parent_token } = req.body;
   const newSchoolName = (req.body.new_school_name || '').trim();
   const newSchoolLocation = (req.body.new_school_location || '').trim();
 
-  if (!name || !email || !password) {
-    return res.status(400).json({ error: 'All fields are required.' });
-  }
-  if (!isValidEmail(email)) {
-    return res.status(400).json({ error: 'Invalid email address.' });
+  if (!name || !password) {
+    return res.status(400).json({ error: 'Name and password are required.' });
   }
 
   let parentInviteRow = null;
@@ -283,11 +372,6 @@ router.post('/register', authLimiter, async (req, res) => {
   if (name.length > 150) return res.status(400).json({ error: 'Name is too long.' });
 
   try {
-    const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
-    if (existing.rows.length > 0) {
-      return res.status(409).json({ error: 'Email already registered.' });
-    }
-
     let resolvedSchoolId = school_id || null;
     let schoolCode = null;
     let schoolWelcomeMessage = null;
@@ -371,22 +455,59 @@ router.post('/register', authLimiter, async (req, res) => {
       resolvedSchoolId = school_id;
     }
 
+    let schoolDomainForEmail = null;
+    if (resolvedSchoolId) {
+      const sd = await pool.query('SELECT id, name, email_domain FROM schools WHERE id=$1', [resolvedSchoolId]);
+      if (sd.rows.length) {
+        schoolDomainForEmail = await ensureSchoolEmailDomain(pool, sd.rows[0]);
+      }
+    }
+
+    const isStaffRole = role === 'teacher' || role === 'head_teacher';
+
+    if (isStaffRole) {
+      if (!schoolEmailLocal) {
+        return res.status(400).json({
+          error: 'Create your school email username (e.g. john for john@school.edu).',
+        });
+      }
+      if (!schoolDomainForEmail) {
+        return res.status(400).json({ error: 'School email domain is not configured. Contact your admin.' });
+      }
+      email = buildSchoolEmail(schoolEmailLocal, schoolDomainForEmail);
+      if (!email) {
+        return res.status(400).json({ error: 'Invalid school email username.' });
+      }
+    } else {
+      if (!email) {
+        return res.status(400).json({ error: 'Email is required.' });
+      }
+      if (!isValidEmail(email)) {
+        return res.status(400).json({ error: 'Invalid email address.' });
+      }
+      const emailCheck = await validateEmailForSignup(email, {
+        schoolDomain: schoolDomainForEmail,
+        strict: STRICT_EMAIL,
+      });
+      if (!emailCheck.valid) {
+        return res.status(400).json({ error: emailCheck.reason });
+      }
+    }
+
+    const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: 'Email already registered.' });
+    }
+
     const hashed = await bcrypt.hash(password, 12);
     const isApproved = role === 'teacher' ? false : true;
-    const emailVerified = role === 'admin';
     const result = await pool.query(
-      `INSERT INTO users (name, email, password, role, school_id, is_approved, phone, email_verified)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-       RETURNING id, name, email, role, school_id, is_approved, email_verified`,
-      [name, email, hashed, role, resolvedSchoolId, isApproved, phone || null, emailVerified]
+      `INSERT INTO users (name, email, password, role, school_id, is_approved, phone)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       RETURNING id, name, email, role, school_id, is_approved`,
+      [name, email, hashed, role, resolvedSchoolId, isApproved, phone || null]
     );
     const user = result.rows[0];
-
-    if (!emailVerified) {
-      sendVerificationEmail(user.id).catch((e) =>
-        console.error('[register] verification email:', e.message)
-      );
-    }
 
     if (inviteRow) {
       await pool.query('UPDATE invite_tokens SET used=TRUE WHERE id=$1', [inviteRow.id]);
@@ -410,10 +531,10 @@ router.post('/register', authLimiter, async (req, res) => {
       audit('register', { email, role, status: 'pending_approval' });
       return res.status(202).json({
         pending: true,
-        message: 'Konti yawe yoherejwe. Tegereza ko umuyobozi w\'ishuri ayemera mbere yo kwinjira. Twakoherereje n\'ubutumwa bwo kwemeza imeyili yawe.',
+        message: 'Konti yawe yoherejwe. Tegereza ko umuyobozi w\'ishuri ayemera mbere yo kwinjira.',
         school_code: schoolCode,
         school_welcome_message: schoolWelcomeMessage,
-        email_verification_sent: !emailVerified,
+        login_email: email,
       });
     }
 
@@ -421,8 +542,8 @@ router.post('/register', authLimiter, async (req, res) => {
     audit('register', { email, role });
     res.status(201).json({
       token,
-      user: publicUserFields(user),
-      email_verification_sent: !user.email_verified,
+      user: userPayload(user),
+      login_email: email,
     });
   } catch (err) {
     console.error('[register]', err);
@@ -470,14 +591,11 @@ router.post('/login', authLimiter, async (req, res) => {
       return res.status(403).json({ error: 'Konti yawe irafunzwe. Wasiliana n\'umuyobozi.' });
     }
     resetLoginAttempts(email);
-    maybeSendDailyReminder(user.id).catch((e) =>
-      console.error('[login] verification reminder:', e.message)
-    );
     const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
     audit('login_ok', { email, role: user.role });
     res.json({
       token,
-      user: publicUserFields(user),
+      user: userPayload(user),
     });
   } catch (err) {
     console.error('[login]', err);
@@ -601,57 +719,15 @@ router.post('/reset-password', forgotLimiter, async (req, res) => {
   }
 });
 
-// GET current user (refresh email_verified, trigger daily reminder if needed)
+// GET current user
 router.get('/me', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
     if (!result.rows.length) return res.status(404).json({ error: 'User not found.' });
-    const user = result.rows[0];
-    maybeSendDailyReminder(user.id).catch((e) =>
-      console.error('[auth/me] reminder:', e.message)
-    );
-    res.json({ user: publicUserFields(user) });
+    res.json({ user: userPayload(result.rows[0]) });
   } catch (err) {
     console.error('[auth/me]', err);
     res.status(500).json({ error: 'Internal server error.' });
-  }
-});
-
-// POST confirm email with token from link
-router.post('/verify-email', authLimiter, async (req, res) => {
-  try {
-    const { token: verifyToken } = req.body;
-    const verified = await verifyEmailToken(verifyToken);
-    res.json({
-      message: 'Email confirmed successfully. You can now use all class features.',
-      email: verified.email,
-    });
-  } catch (err) {
-    const status = err.status || 500;
-    if (status >= 500) console.error('[verify-email]', err);
-    res.status(status).json({ error: err.message || 'Verification failed.' });
-  }
-});
-
-// POST resend confirmation email (authenticated)
-router.post('/resend-verification', authenticateToken, authLimiter, async (req, res) => {
-  try {
-    const result = await pool.query(
-      'SELECT id, email_verified FROM users WHERE id = $1',
-      [req.user.id]
-    );
-    if (!result.rows.length) return res.status(404).json({ error: 'User not found.' });
-    if (result.rows[0].email_verified) {
-      return res.json({ message: 'Your email is already confirmed.' });
-    }
-    const sent = await sendVerificationEmail(req.user.id);
-    res.json({
-      message: 'Confirmation email sent. Please check your inbox.',
-      dev_verify_url: sent.verifyUrl,
-    });
-  } catch (err) {
-    console.error('[resend-verification]', err);
-    res.status(500).json({ error: 'Could not send confirmation email. Try again later.' });
   }
 });
 

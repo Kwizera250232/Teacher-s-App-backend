@@ -1,7 +1,6 @@
 const express = require('express');
 const pool = require('../db');
-const { authenticateToken, requireEmailVerified, requireRole } = require('../middleware/auth');
-const { requireEmailVerified } = require('../middleware/requireEmailVerified');
+const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -20,7 +19,7 @@ pool.query(`
 `).catch(console.error);
 
 // GET all notes for this student
-router.get('/notes', authenticateToken, requireEmailVerified, requireRole('student'), async (req, res) => {
+router.get('/notes', authenticateToken, requireRole('student'), async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT * FROM student_personal_notes WHERE student_id = $1 ORDER BY pinned DESC, updated_at DESC`,
@@ -31,7 +30,7 @@ router.get('/notes', authenticateToken, requireEmailVerified, requireRole('stude
 });
 
 // POST create note
-router.post('/notes', authenticateToken, requireEmailVerified, requireRole('student'), async (req, res) => {
+router.post('/notes', authenticateToken, requireRole('student'), async (req, res) => {
   const { title, content, color } = req.body;
   if (!title) return res.status(400).json({ error: 'Title is required.' });
   try {
@@ -45,7 +44,7 @@ router.post('/notes', authenticateToken, requireEmailVerified, requireRole('stud
 });
 
 // PUT update note
-router.put('/notes/:id', authenticateToken, requireEmailVerified, requireRole('student'), async (req, res) => {
+router.put('/notes/:id', authenticateToken, requireRole('student'), async (req, res) => {
   const { title, content, color, pinned } = req.body;
   try {
     const result = await pool.query(
@@ -60,7 +59,7 @@ router.put('/notes/:id', authenticateToken, requireEmailVerified, requireRole('s
 });
 
 // DELETE note
-router.delete('/notes/:id', authenticateToken, requireEmailVerified, requireRole('student'), async (req, res) => {
+router.delete('/notes/:id', authenticateToken, requireRole('student'), async (req, res) => {
   try {
     await pool.query(
       `DELETE FROM student_personal_notes WHERE id=$1 AND student_id=$2`,

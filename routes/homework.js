@@ -1,7 +1,6 @@
 const express = require('express');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
-const { requireEmailVerified } = require('../middleware/requireEmailVerified');
 const { createUpload } = require('../lib/uploads');
 
 const router = express.Router();
@@ -27,7 +26,7 @@ async function teacherOwnsClass(classId, user) {
 }
 
 // GET homework for a class
-router.get('/:classId/homework', authenticateToken, requireEmailVerified, async (req, res) => {
+router.get('/:classId/homework', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
       'SELECT * FROM homework WHERE class_id = $1 ORDER BY created_at DESC',
@@ -41,7 +40,7 @@ router.get('/:classId/homework', authenticateToken, requireEmailVerified, async 
 });
 
 // POST create homework (teacher)
-router.post('/:classId/homework', authenticateToken, requireEmailVerified, requireRole('teacher', 'head_teacher'), (req, res, next) => {
+router.post('/:classId/homework', authenticateToken, requireRole('teacher', 'head_teacher'), (req, res, next) => {
   uploadHomework(req, res, (err) => {
     if (err) return next(err);
     next();
@@ -72,7 +71,7 @@ router.post('/:classId/homework', authenticateToken, requireEmailVerified, requi
 });
 
 // DELETE homework (teacher)
-router.delete('/:classId/homework/:hwId', authenticateToken, requireEmailVerified, requireRole('teacher'), async (req, res) => {
+router.delete('/:classId/homework/:hwId', authenticateToken, requireRole('teacher'), async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   if (Number.isNaN(classId)) return res.status(400).json({ error: 'Invalid class ID.' });
   try {
@@ -88,7 +87,7 @@ router.delete('/:classId/homework/:hwId', authenticateToken, requireEmailVerifie
 });
 
 // GET submissions for a homework (teacher)
-router.get('/:classId/homework/:hwId/submissions', authenticateToken, requireEmailVerified, requireRole('teacher'), async (req, res) => {
+router.get('/:classId/homework/:hwId/submissions', authenticateToken, requireRole('teacher'), async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT hs.*, u.name AS student_name FROM homework_submissions hs
@@ -105,7 +104,7 @@ router.get('/:classId/homework/:hwId/submissions', authenticateToken, requireEma
 });
 
 // GET student's own submission for a homework
-router.get('/:classId/homework/:hwId/my-submission', authenticateToken, requireEmailVerified, requireRole('student'), async (req, res) => {
+router.get('/:classId/homework/:hwId/my-submission', authenticateToken, requireRole('student'), async (req, res) => {
   try {
     const result = await pool.query(
       'SELECT * FROM homework_submissions WHERE homework_id = $1 AND student_id = $2',
@@ -119,7 +118,7 @@ router.get('/:classId/homework/:hwId/my-submission', authenticateToken, requireE
 });
 
 // POST submit homework (student) — file or text
-router.post('/:classId/homework/:hwId/submit', authenticateToken, requireEmailVerified, requireRole('student'), (req, res, next) => {
+router.post('/:classId/homework/:hwId/submit', authenticateToken, requireRole('student'), (req, res, next) => {
   uploadHomework(req, res, (err) => {
     if (err) return next(err);
     next();
@@ -153,7 +152,7 @@ router.post('/:classId/homework/:hwId/submit', authenticateToken, requireEmailVe
 });
 
 // PUT grade a submission (teacher)
-router.put('/:classId/homework/:hwId/submissions/:subId/grade', authenticateToken, requireEmailVerified, requireRole('teacher'), async (req, res) => {
+router.put('/:classId/homework/:hwId/submissions/:subId/grade', authenticateToken, requireRole('teacher'), async (req, res) => {
   const { grade, feedback, teacher_answer } = req.body;
   if (grade === undefined || grade === null) return res.status(400).json({ error: 'Grade is required.' });
   const gradeNum = parseInt(grade, 10);

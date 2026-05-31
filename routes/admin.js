@@ -764,15 +764,10 @@ async function createSchoolAccount(req, { name, email, role, school_id, password
     : Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
   const hashed = await bcrypt.hash(finalPassword, 12);
   const result = await pool.query(
-    `INSERT INTO users (name, email, password, role, school_id, is_approved, email_verified)
-     VALUES ($1, $2, $3, $4, $5, $6, FALSE)
-     RETURNING id, name, email, role, school_id, email_verified`,
+    `INSERT INTO users (name, email, password, role, school_id, is_approved)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, name, email, role, school_id`,
     [name, userEmail, hashed, role, targetSchoolId, role === 'teacher' ? false : true]
-  );
-
-  const { sendVerificationEmail } = require('../lib/emailVerification');
-  sendVerificationEmail(result.rows[0].id).catch((e) =>
-    console.error('[createSchoolAccount] verification email:', e.message)
   );
 
   return {

@@ -1,7 +1,6 @@
 const express = require('express');
 const pool = require('../db');
-const { authenticateToken, requireEmailVerified, requireRole } = require('../middleware/auth');
-const { requireEmailVerified } = require('../middleware/requireEmailVerified');
+const { authenticateToken, requireRole } = require('../middleware/auth');
 const { userCanAccessClass, userCanManageClass, isClassMember } = require('../lib/classAccess');
 const { feedUploadMiddleware } = require('../lib/feedUpload');
 const { ensureFeedTables } = require('../lib/feedSchema');
@@ -24,7 +23,7 @@ function parentFeedFilter(userId) {
 }
 
 // GET aggregated home feed for student (all joined classes)
-router.get('/my/home', authenticateToken, requireEmailVerified, async (req, res) => {
+router.get('/my/home', authenticateToken, async (req, res) => {
   if (req.user.role !== 'student') {
     return res.status(403).json({ error: 'Student home feed only.' });
   }
@@ -62,7 +61,7 @@ router.get('/my/home', authenticateToken, requireEmailVerified, async (req, res)
 });
 
 // GET feed for a class
-router.get('/:classId/posts', authenticateToken, requireEmailVerified, async (req, res) => {
+router.get('/:classId/posts', authenticateToken, async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   const access = await userCanAccessClass(req.user, classId);
   if (!access.ok) return res.status(403).json({ error: 'Forbidden.' });
@@ -100,7 +99,7 @@ router.get('/:classId/posts', authenticateToken, requireEmailVerified, async (re
 });
 
 // POST create post (text or multipart with media)
-router.post('/:classId/posts', authenticateToken, requireEmailVerified, feedUploadMiddleware('file'), async (req, res) => {
+router.post('/:classId/posts', authenticateToken, feedUploadMiddleware('file'), async (req, res) => {
   try {
   const classId = parseInt(req.params.classId, 10);
   if (Number.isNaN(classId)) return res.status(400).json({ error: 'Invalid class.' });
@@ -191,7 +190,7 @@ router.post('/:classId/posts', authenticateToken, requireEmailVerified, feedUplo
 });
 
 // POST like toggle
-router.post('/:classId/posts/:postId/like', authenticateToken, requireEmailVerified, async (req, res) => {
+router.post('/:classId/posts/:postId/like', authenticateToken, async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   const postId = parseInt(req.params.postId, 10);
   const access = await userCanAccessClass(req.user, classId);
@@ -218,7 +217,7 @@ router.post('/:classId/posts/:postId/like', authenticateToken, requireEmailVerif
 });
 
 // GET comments
-router.get('/:classId/posts/:postId/comments', authenticateToken, requireEmailVerified, async (req, res) => {
+router.get('/:classId/posts/:postId/comments', authenticateToken, async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   const postId = parseInt(req.params.postId, 10);
   const access = await userCanAccessClass(req.user, classId);
@@ -240,7 +239,7 @@ router.get('/:classId/posts/:postId/comments', authenticateToken, requireEmailVe
 });
 
 // POST comment
-router.post('/:classId/posts/:postId/comments', authenticateToken, requireEmailVerified, async (req, res) => {
+router.post('/:classId/posts/:postId/comments', authenticateToken, async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   const postId = parseInt(req.params.postId, 10);
   const body = (req.body.body || '').trim();
@@ -269,7 +268,7 @@ router.post('/:classId/posts/:postId/comments', authenticateToken, requireEmailV
 });
 
 // PATCH own post
-router.patch('/:classId/posts/:postId', authenticateToken, requireEmailVerified, async (req, res) => {
+router.patch('/:classId/posts/:postId', authenticateToken, async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   const postId = parseInt(req.params.postId, 10);
   const body = (req.body.body || '').trim();
@@ -295,7 +294,7 @@ router.patch('/:classId/posts/:postId', authenticateToken, requireEmailVerified,
 });
 
 // DELETE own post (or teacher manages class)
-router.delete('/:classId/posts/:postId', authenticateToken, requireEmailVerified, async (req, res) => {
+router.delete('/:classId/posts/:postId', authenticateToken, async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   const postId = parseInt(req.params.postId, 10);
   try {
@@ -313,7 +312,7 @@ router.delete('/:classId/posts/:postId', authenticateToken, requireEmailVerified
 });
 
 // Co-teacher: list
-router.get('/:classId/co-teachers', authenticateToken, requireEmailVerified, requireRole('teacher', 'head_teacher'), async (req, res) => {
+router.get('/:classId/co-teachers', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   const manage = await userCanManageClass(req.user, classId);
   if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
@@ -333,7 +332,7 @@ router.get('/:classId/co-teachers', authenticateToken, requireEmailVerified, req
 });
 
 // Co-teacher invite link
-router.post('/:classId/co-teacher-link', authenticateToken, requireEmailVerified, requireRole('teacher', 'head_teacher'), async (req, res) => {
+router.post('/:classId/co-teacher-link', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const crypto = require('crypto');
   const classId = parseInt(req.params.classId, 10);
   const manage = await userCanManageClass(req.user, classId);
@@ -358,7 +357,7 @@ router.post('/:classId/co-teacher-link', authenticateToken, requireEmailVerified
 });
 
 // Add co-teacher by email
-router.post('/:classId/co-teachers', authenticateToken, requireEmailVerified, requireRole('teacher', 'head_teacher'), async (req, res) => {
+router.post('/:classId/co-teachers', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   const email = (req.body.email || '').trim().toLowerCase();
   if (!email) return res.status(400).json({ error: 'Email is required.' });

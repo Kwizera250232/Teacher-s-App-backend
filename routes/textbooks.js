@@ -3,8 +3,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const pool = require('../db');
-const { authenticateToken, requireEmailVerified, requireRole } = require('../middleware/auth');
-const { requireEmailVerified } = require('../middleware/requireEmailVerified');
+const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -30,7 +29,7 @@ const upload = multer({
 });
 
 // GET all textbooks (any authenticated user)
-router.get('/', authenticateToken, requireEmailVerified, async (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
       'SELECT id, title, subject, grade_level, book_type, file_name, created_at FROM textbooks ORDER BY grade_level, subject, book_type',
@@ -42,7 +41,7 @@ router.get('/', authenticateToken, requireEmailVerified, async (req, res) => {
 });
 
 // POST upload textbook (admin only)
-router.post('/', authenticateToken, requireEmailVerified, requireRole('admin'), upload.single('file'), async (req, res) => {
+router.post('/', authenticateToken, requireRole('admin'), upload.single('file'), async (req, res) => {
   const { title, subject, grade_level, book_type } = req.body;
   if (!title || !subject || !grade_level || !book_type) {
     if (req.file) fs.unlinkSync(req.file.path);
@@ -77,7 +76,7 @@ router.post('/', authenticateToken, requireEmailVerified, requireRole('admin'), 
 });
 
 // DELETE textbook (admin only)
-router.delete('/:id', authenticateToken, requireEmailVerified, requireRole('admin'), async (req, res) => {
+router.delete('/:id', authenticateToken, requireRole('admin'), async (req, res) => {
   try {
     const result = await pool.query(
       'DELETE FROM textbooks WHERE id = $1 RETURNING file_path',

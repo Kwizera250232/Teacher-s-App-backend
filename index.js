@@ -20,7 +20,6 @@ const classroomFeedRoutes = require('./routes/classroom_feed');
 const parentPortalRoutes = require('./routes/parent_portal');
 const donateRoutes = require('./routes/donate');
 const { ensureFeedTables } = require('./lib/feedSchema');
-const { ensureEmailVerificationSchema } = require('./lib/emailVerification');
 
 const downloadRoutes = require('./routes/download');
 const aiRoutes = require('./routes/ai');
@@ -142,7 +141,6 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   ensureFeedTables().catch((e) => console.error('[startup] feed schema:', e.message));
-  ensureEmailVerificationSchema().catch((e) => console.error('[startup] email verification:', e.message));
   // One-time cleanup: remove duplicate quiz attempts, keeping only the best score
   // per student per quiz (if equal score, keep the earliest attempt).
   const pool = require('./db');
