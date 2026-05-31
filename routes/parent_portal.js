@@ -1,9 +1,9 @@
 const express = require('express');
-const crypto = require('crypto');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
-const { userCanManageClass } = require('../lib/classAccess');
+const { userCanManageClass, userCanInviteParentForStudent } = require('../lib/classAccess');
 const { insertParentNotification, sendParentInAppMessage } = require('../lib/parentHub');
+const { buildParentInviteResponse } = require('../lib/parentInvite');
 
 const router = express.Router();
 
@@ -42,43 +42,37 @@ async function ensureParentSchema() {
 
 ensureParentSchema().catch((e) => console.error('[parent_portal] schema:', e.message));
 
-// Teacher: parent invite link for one student
+async function createParentInviteForStudent(req, res, studentId) {
+  const student = await pool.query(
+    `SELECT u.id, u.name FROM users u WHERE u.id=$1 AND u.role='student'`,
+    [studentId]
+  );
+  if (!student.rows.length) return res.status(404).json({ error: 'Student not found.' });
+  const payload = await buildParentInviteResponse(req, studentId, student.rows[0].name);
+  res.json(payload);
+}
+
+// Teacher / head teacher: parent invite link for one student
 router.post('/students/:studentId/parent-link', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const studentId = parseInt(req.params.studentId, 10);
+  if (!Number.isFinite(studentId)) return res.status(400).json({ error: 'Invalid student.' });
   try {
-    const student = await pool.query(
-      `SELECT u.id, u.name, u.school_id FROM users u WHERE u.id=$1 AND u.role='student'`,
-      [studentId]
-    );
-    if (!student.rows.length) return res.status(404).json({ error: 'Student not found.' });
-
-    const allowed = await pool.query(
-      `SELECT 1 FROM class_members cm
-       JOIN classes c ON c.id = cm.class_id
-       JOIN users t ON t.id = c.teacher_id
-       WHERE cm.student_id = $1 AND (
-         c.teacher_id = $2
-         OR EXISTS (SELECT 1 FROM class_co_teachers ct WHERE ct.class_id = c.id AND ct.teacher_id = $2)
-         OR ($3 = 'head_teacher' AND t.school_id = $4)
-       ) LIMIT 1`,
-      [studentId, req.user.id, req.user.role, req.user.school_id]
-    );
-    if (!allowed.rows.length) {
+    if (!(await userCanInviteParentForStudent(req.user, studentId))) {
       return res.status(403).json({ error: 'You can only invite parents for students in your classes.' });
     }
-
-    const token = crypto.randomBytes(22).toString('hex');
-    await pool.query(
-      `INSERT INTO parent_invite_tokens (token, student_id, creator_id) VALUES ($1,$2,$3)`,
-      [token, studentId, req.user.id]
-    );
-    const frontendUrl = process.env.FRONTEND_URL || 'https://student.umunsi.com';
-    res.json({
-      invite_link: `${frontendUrl}/invite?parent_token=${token}`,
-      student_name: student.rows[0].name,
-    });
+    await createParentInviteForStudent(req, res, studentId);
   } catch (err) {
     console.error('[parent-link]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// Student: invite own parent
+router.post('/my/parent-invite', authenticateToken, requireRole('student'), async (req, res) => {
+  try {
+    await createParentInviteForStudent(req, res, req.user.id);
+  } catch (err) {
+    console.error('[my/parent-invite]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });

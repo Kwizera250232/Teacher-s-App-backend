@@ -287,6 +287,7 @@ router.post('/validate-email', authLimiter, async (req, res) => {
     const result = await validateEmailForSignup(email, {
       schoolDomain,
       strict: STRICT_EMAIL,
+      role: req.body.role || null,
     });
     if (!result.valid) {
       return res.status(400).json({ error: result.reason, mailbox: result.mailbox });
@@ -497,7 +498,8 @@ router.post('/register', authLimiter, async (req, res) => {
       }
       const emailCheck = await validateEmailForSignup(email, {
         schoolDomain: schoolDomainForEmail,
-        strict: STRICT_EMAIL,
+        strict: parentInviteRow ? false : STRICT_EMAIL,
+        role: parentInviteRow ? 'parent' : role,
       });
       if (!emailCheck.valid) {
         return res.status(400).json({ error: emailCheck.reason });

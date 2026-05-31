@@ -23,9 +23,16 @@ ALTER TABLE schools ADD COLUMN IF NOT EXISTS welcome_message TEXT;
 - `resolveSchoolForAccount` in `routes/admin.js` fetches `school_id` from the DB when not in the JWT.
 - Roles: `student`, `teacher`, `head_teacher`, `admin`, `parent`.
 
+### Parent invites
+
+- Teachers/HT: `POST /api/parent/students/:studentId/parent-link` (requires manage access to a class the student is in).
+- Students: `POST /api/parent/my/parent-invite`.
+- Invite URLs use request `Origin` when allowed, else `FRONTEND_URL` (default `https://student.umunsi.com`).
+- Signup: `/invite?parent_token=...` → `POST /auth/register` with `parent_token`; parents use Gmail/Yahoo/Outlook-style emails.
+
 ### No test suite
 
-`npm test` is a placeholder. Manual API testing or frontend UI testing is used for verification.
+`npm test` runs a small smoke script. Manual API testing or frontend UI testing is used for verification.
 
 ### Parent hub API (mounted at `/api/parent` alongside `parent_portal`)
 
