@@ -1,20 +1,22 @@
 # Deploy to Teacher-s-App-frontent (Vercel)
 
-The UI is synced from `student-web/` in this repo. To update https://student.umunsi.com:
+Latest UI from `student-web/` in this repo, for [Teacher-s-App-frontent](https://github.com/Kwizera250232/Teacher-s-App-frontent) → [Vercel project](https://vercel.com/kwizera-jean-de-dieus-projects/teacher-s-app-frontent) → `student.umunsi.com`.
+
+## Push to GitHub (triggers Vercel if Git is connected)
 
 ```bash
 git clone https://github.com/Kwizera250232/Teacher-s-App-frontent.git
 cd Teacher-s-App-frontent
-git pull ../Teacher-s-App-backend/patches/frontend-vercel-deploy/frontend-deploy.bundle main
+git pull /path/to/Teacher-s-App-backend/patches/frontend-vercel-deploy/frontend-deploy.bundle f4391eea3ce171087162c070b50873ca1217bf50
 git push origin main
 ```
 
-Or from backend repo path:
+In Vercel: **Settings → Git → Connect** `Kwizera250232/Teacher-s-App-frontent` if not linked yet.
+
+## Or deploy with Vercel CLI
 
 ```bash
-git pull "$(pwd)/patches/frontend-vercel-deploy/frontend-deploy.bundle" main
+VERCEL_TOKEN=your_token bash scripts/deploy-vercel-frontend.sh
 ```
 
-Vercel project: https://vercel.com/kwizera-jean-de-dieus-projects/teacher-s-app-frontent
-
-Connect Git in Vercel → Settings → Git → `Teacher-s-App-frontent` if not already linked.
+Get a token: https://vercel.com/account/tokens
