@@ -39,4 +39,14 @@ This serves the built React app from `student-web-dist/` (square class cards, De
 
 Rebuild locally: `bash scripts/build-student-web-dist.sh` (requires `frontend/` clone).
 
-`student.umunsi.com` on Vercel updates only after pushing `Teacher-s-App-frontent` **or** pointing Vercel to `student-web/` in this repo.
+`student.umunsi.com` on Vercel updates only after pushing `Teacher-s-App-frontent` **or** pointing DNS to the VPS (see below).
+
+### Vercel still on old UI?
+
+1. **Fastest (no git):** Open **https://studentapi.umunsi.com/app/** — always matches backend `main` after VPS deploy.
+2. **Update Vercel:** On a machine logged into GitHub as the repo owner:
+   ```bash
+   bash scripts/sync-student-web-to-frontend.sh
+   ```
+   Or on the VPS (commit may already exist): `cd /root/Teacher-s-App-frontent && git push origin main`
+3. **Or point DNS:** Set `student.umunsi.com` A record to `93.127.186.217` (nginx serves the new build from `/home/umunsi/htdocs/student.umunsi.com/`).
