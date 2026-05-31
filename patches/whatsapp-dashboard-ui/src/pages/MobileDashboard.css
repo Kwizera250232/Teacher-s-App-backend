@@ -745,3 +745,166 @@
     bottom: 24px;
   }
 }
+
+/* Student classic dashboard — desktop + mobile parity */
+.student-dashboard-classic .student-bottom-nav {
+  display: flex !important;
+}
+
+.student-dashboard-classic .dash-main {
+  padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+  max-width: 1200px;
+}
+
+.student-dash-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.student-desktop-quick-nav {
+  display: none;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 1.25rem;
+  padding: 12px 14px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+
+.student-desktop-quick-nav__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 20px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  text-decoration: none;
+  font-family: inherit;
+}
+
+.student-desktop-quick-nav__btn:hover {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+  color: #4338ca;
+}
+
+.student-announcement {
+  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  border: 1px solid #93c5fd;
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 0.75rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.student-announcement p {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: #374151;
+}
+
+.student-dean-banner {
+  margin-top: 2rem;
+  padding: 1.25rem 1.5rem;
+  background: linear-gradient(135deg, #eef2ff, #faf5ff);
+  border: 1px solid #c7d2fe;
+  border-radius: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.student-dean-banner strong {
+  display: block;
+  font-size: 1.05rem;
+  color: #312e81;
+  margin-bottom: 4px;
+}
+
+.student-dean-banner p {
+  margin: 0;
+  font-size: 14px;
+  color: #475569;
+}
+
+@media (min-width: 769px) {
+  .student-dashboard-classic .student-desktop-quick-nav {
+    display: flex;
+  }
+
+  .student-dashboard-classic .dean-fab-wrap {
+    bottom: 96px;
+  }
+
+  .student-dashboard-classic .mobile-donate-fab {
+    bottom: 100px;
+  }
+}
+
+/* Square class tiles */
+.student-dashboard-classic .classes-grid--square {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 20px;
+}
+
+.student-dashboard-classic .class-card-wrap--square {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.student-dashboard-classic .class-card--square {
+  aspect-ratio: 1;
+  min-height: 200px;
+  justify-content: space-between;
+  text-align: center;
+  padding: 16px 14px;
+  border-radius: 12px 12px 0 0;
+}
+
+.student-dashboard-classic .class-card-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 8px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff;
+  font-size: 24px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.student-dashboard-classic .class-card--square .class-card-header h3 {
+  font-size: 16px;
+  margin-bottom: 4px;
+}
+
+.student-dashboard-classic .class-card--square .class-code-display {
+  padding: 6px 10px;
+  margin: 4px 0;
+}
+
+.student-dashboard-classic .class-card--square .code-value {
+  font-size: 16px;
+  letter-spacing: 2px;
+}
+
+.student-dashboard-classic .class-card-wrap--square .class-card-note-btn {
+  border-radius: 0 0 12px 12px;
+  margin-top: 0;
+}

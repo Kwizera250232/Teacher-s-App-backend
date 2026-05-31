@@ -14,6 +14,15 @@ import StudentClassmatesList from '../components/StudentClassmatesList';
 import './Dashboard.css';
 import './MobileDashboard.css';
 
+const QUICK_NAV = (handlers) => [
+  { id: 'classes', icon: '📚', label: 'Classes', onClick: handlers.scrollClasses, active: true },
+  { id: 'status', icon: '✍️', label: 'C. Status', onClick: handlers.openStatus },
+  { id: 'notes', icon: '📝', label: 'Notes', to: '/student/notes' },
+  { id: 'parent', icon: '👪', label: 'Parent', onClick: handlers.openParent },
+  { id: 'dean', icon: '🎓', label: 'Dean', onClick: handlers.openDean },
+  { id: 'profile', icon: '👤', label: 'Profile', to: '/profile' },
+];
+
 export default function StudentDashboard() {
   const { user, token, logout, isImpersonating, stopImpersonation } = useAuth();
   const [classes, setClasses] = useState([]);
@@ -27,6 +36,18 @@ export default function StudentDashboard() {
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
   const [showDean, setShowDean] = useState(false);
   const classesRef = useRef(null);
+
+  const openStatus = () => {
+    setStatusPickerOpen(false);
+    setShowCompositionStatus(true);
+  };
+
+  const navHandlers = {
+    scrollClasses: () => classesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+    openStatus,
+    openParent: () => setShowParentInvite(true),
+    openDean: () => setShowDean(true),
+  };
 
   const loadClasses = () => {
     api.get('/classes/my', token).then(data => {
@@ -75,9 +96,7 @@ export default function StudentDashboard() {
     }
   };
 
-  const scrollTo = (ref) => {
-    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
+  const quickNavItems = QUICK_NAV(navHandlers);
 
   return (
     <div className="dashboard student-dashboard-classic">
@@ -105,12 +124,7 @@ export default function StudentDashboard() {
           <Link to="/student/notes" className="btn btn-secondary btn-sm">📝 My Notes</Link>
           <DonateButton />
           <button type="button" className="btn btn-outline btn-sm" onClick={logout}>Logout</button>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={() => setShowParentInvite(true)}
-            title="Invite parent"
-          >
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowParentInvite(true)}>
             👪 Invite parent
           </button>
         </div>
@@ -126,53 +140,44 @@ export default function StudentDashboard() {
             <h1>My classes</h1>
             <p className="dash-sub">Open a class for homework, quizzes, and class chat</p>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-start' }}>
-            <button type="button" className="btn btn-primary" onClick={() => setShowJoin(true)}>
-              + Join class
-            </button>
-            <button type="button" className="btn btn-secondary" onClick={() => setShowParentInvite(true)}>
-              👪 Invite parent
-            </button>
+          <div className="student-dash-actions">
+            <button type="button" className="btn btn-primary" onClick={() => setShowJoin(true)}>+ Join class</button>
+            <button type="button" className="btn btn-secondary" onClick={() => setShowParentInvite(true)}>👪 Invite parent</button>
+            <button type="button" className="btn btn-secondary" onClick={openStatus}>✍️ C. Status</button>
+            <Link to="/student/notes" className="btn btn-secondary">📝 My Notes</Link>
+            <button type="button" className="btn btn-secondary" onClick={() => setShowDean(true)}>🎓 Dean AI</button>
           </div>
         </div>
+
+        <nav className="student-desktop-quick-nav" aria-label="Quick actions">
+          {quickNavItems.map((item) =>
+            item.to ? (
+              <Link key={item.id} to={item.to} className="student-desktop-quick-nav__btn">
+                <span aria-hidden>{item.icon}</span> {item.label}
+              </Link>
+            ) : (
+              <button key={item.id} type="button" className="student-desktop-quick-nav__btn" onClick={item.onClick}>
+                <span aria-hidden>{item.icon}</span> {item.label}
+              </button>
+            )
+          )}
+        </nav>
 
         <div className="wa-invite-banner student-parent-invite-banner">
           <strong>👪 Invite your parent</strong>
           <p>Share a link so they can see your quizzes, marks, and class work.</p>
-          <button type="button" onClick={() => setShowParentInvite(true)}>
-            Get parent invite link
-          </button>
+          <button type="button" onClick={() => setShowParentInvite(true)}>Get parent invite link</button>
         </div>
 
         {error && <div className="alert alert-error">{error}</div>}
 
         {announcements.filter(a => !dismissed.includes(a.id)).map(a => (
-          <div
-            key={a.id}
-            style={{
-              background: 'linear-gradient(135deg, #eff6ff, #dbeafe)',
-              border: '1px solid #93c5fd',
-              borderRadius: 12,
-              padding: '1rem 1.25rem',
-              marginBottom: '0.75rem',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'flex-start',
-              gap: '1rem',
-            }}
-          >
+          <div key={a.id} className="student-announcement">
             <div>
-              <strong style={{ color: '#1e40af' }}>📢 {a.title}</strong>
-              <p style={{ margin: '4px 0 0', fontSize: 14, color: '#374151' }}>{a.message}</p>
+              <strong>📢 {a.title}</strong>
+              <p>{a.message}</p>
             </div>
-            <button
-              type="button"
-              onClick={() => dismissAnnouncement(a.id)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '1.2rem' }}
-              aria-label="Dismiss"
-            >
-              ✕
-            </button>
+            <button type="button" onClick={() => dismissAnnouncement(a.id)} aria-label="Dismiss">✕</button>
           </div>
         ))}
 
@@ -185,23 +190,24 @@ export default function StudentDashboard() {
               <button type="button" className="btn btn-primary" onClick={() => setShowJoin(true)}>Join class</button>
             </div>
           ) : (
-            <div className="classes-grid">
+            <div className="classes-grid classes-grid--square">
               {classes.map(cls => (
-                <div key={cls.id} className="class-card-wrap">
-                  <Link to={`/student/classes/${cls.id}`} className="class-card">
+                <div key={cls.id} className="class-card-wrap class-card-wrap--square">
+                  <Link to={`/student/classes/${cls.id}`} className="class-card class-card--square">
+                    <div className="class-card-icon">{(cls.name || 'C').slice(0, 1)}</div>
                     <div className="class-card-header">
                       <h3>{cls.name}</h3>
                       {cls.subject && <span className="subject-tag">{cls.subject}</span>}
                     </div>
                     {cls.class_code && (
                       <div className="class-code-display">
-                        <span className="code-label">Class code</span>
+                        <span className="code-label">Code</span>
                         <span className="code-value">{cls.class_code}</span>
                       </div>
                     )}
                     <p className="class-teacher">👨‍🏫 {cls.teacher_name || 'Teacher'}</p>
                     <div className="class-card-footer">
-                      <span>Open class</span>
+                      <span>Open</span>
                       <span className="arrow">→</span>
                     </div>
                   </Link>
@@ -224,17 +230,24 @@ export default function StudentDashboard() {
             <StudentClassmatesList token={token} classes={classes} />
           </section>
         )}
+
+        <section className="student-dean-banner">
+          <div>
+            <strong>Dean — our AI support</strong>
+            <p>Ask how UClass works: join classes, compositions, parent invites, and more.</p>
+          </div>
+          <button type="button" className="btn btn-primary" onClick={() => setShowDean(true)}>
+            Chat with Dean 🎓
+          </button>
+        </section>
       </main>
 
-      {/* Dean — AI app support (floating) */}
       <div className="dean-fab-wrap" aria-live="polite">
-        {!showDean && (
-          <span className="dean-fab-label">Ask Dean · AI support ✨</span>
-        )}
+        {!showDean && <span className="dean-fab-label">Dean · AI support</span>}
         <button
           type="button"
           className="dean-fab-btn"
-          aria-label={showDean ? 'Close Dean AI' : 'Open Dean AI support'}
+          aria-label={showDean ? 'Close Dean AI' : 'Open Dean AI'}
           onClick={() => setShowDean(!showDean)}
         >
           {showDean ? '✕' : '🎓'}
@@ -242,42 +255,17 @@ export default function StudentDashboard() {
       </div>
       {showDean && <DeanAiModal token={token} onClose={() => setShowDean(false)} />}
 
-      <MobileBottomBar
-        items={[
-          { id: 'classes', icon: '📚', label: 'Classes', onClick: () => scrollTo(classesRef), active: true },
-          { id: 'status', icon: '✍️', label: 'C. Status', onClick: () => { setStatusPickerOpen(false); setShowCompositionStatus(true); } },
-          { id: 'notes', icon: '📝', label: 'Notes', to: '/student/notes' },
-          { id: 'parent', icon: '👪', label: 'Parent', onClick: () => setShowParentInvite(true) },
-          { id: 'dean', icon: '🎓', label: 'Dean', onClick: () => setShowDean(true) },
-          { id: 'profile', icon: '👤', label: 'Profile', to: '/profile' },
-        ]}
-      />
+      <MobileBottomBar items={quickNavItems} className="student-bottom-nav" />
 
       {showJoin && (
-        <JoinClassModal
-          token={token}
-          onClose={() => setShowJoin(false)}
-          onJoined={() => { setShowJoin(false); loadClasses(); }}
-        />
+        <JoinClassModal token={token} onClose={() => setShowJoin(false)} onJoined={() => { setShowJoin(false); loadClasses(); }} />
       )}
-
       {showParentInvite && user?.name && (
-        <ParentInviteModal
-          token={token}
-          selfStudentId={user.id}
-          studentName={user.name}
-          onClose={() => setShowParentInvite(false)}
-        />
+        <ParentInviteModal token={token} selfStudentId={user.id} studentName={user.name} onClose={() => setShowParentInvite(false)} />
       )}
-
       {showCompositionStatus && (
-        <CompositionStatusPanel
-          token={token}
-          openPickerInitially={statusPickerOpen}
-          onClose={() => setShowCompositionStatus(false)}
-        />
+        <CompositionStatusPanel token={token} openPickerInitially={statusPickerOpen} onClose={() => setShowCompositionStatus(false)} />
       )}
-
       {quickNote?.open && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setQuickNote(null)}>
           <div className="modal" style={{ maxWidth: 420 }}>
@@ -292,12 +280,7 @@ export default function StudentDashboard() {
             />
             <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'flex-end' }}>
               <button type="button" className="btn btn-outline" onClick={() => setQuickNote(null)}>Cancel</button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={quickNote.saving || !quickNote.text.trim()}
-                onClick={saveQuickNote}
-              >
+              <button type="button" className="btn btn-primary" disabled={quickNote.saving || !quickNote.text.trim()} onClick={saveQuickNote}>
                 {quickNote.saving ? 'Saving…' : 'Save'}
               </button>
             </div>
