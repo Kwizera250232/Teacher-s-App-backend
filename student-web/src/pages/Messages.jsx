@@ -41,6 +41,20 @@ export default function Messages() {
   const inboxDataRef = useRef({});
   const shouldScrollOnSendRef = useRef(false);
 
+  const scrollThreadToBottom = (behavior = 'auto') => {
+    requestAnimationFrame(() => {
+      const el = threadRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+      bottomRef.current?.scrollIntoView({ behavior, block: 'end' });
+    });
+  };
+
+  const openChat = (contactId) => {
+    setActiveId(contactId);
+    setMobilePanel('chat');
+    setTimeout(() => scrollThreadToBottom('auto'), 0);
+  };
+
   useEffect(() => {
     Promise.all([
       api.get('/profile/contacts/list', token),
@@ -54,15 +68,20 @@ export default function Messages() {
       setContacts([...contactList, ...extra]);
     }).catch(() => {});
     const uid = searchParams.get('to');
-    if (uid) { setActiveId(parseInt(uid)); setMobilePanel('chat'); }
+    if (uid) openChat(parseInt(uid, 10));
   }, [token]);
 
   useEffect(() => {
     if (!activeId) return;
+    let firstLoad = true;
     const load = () => {
       api.get(`/messages/thread/${activeId}`, token).then(msgs => {
         setThread(msgs);
         setInbox(prev => prev.filter(m => m.sender_id !== activeId));
+        if (firstLoad) {
+          firstLoad = false;
+          scrollThreadToBottom('auto');
+        }
       }).catch(() => {});
     };
     load();
@@ -73,7 +92,7 @@ export default function Messages() {
   useEffect(() => {
     if (!shouldScrollOnSendRef.current) return;
     shouldScrollOnSendRef.current = false;
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    scrollThreadToBottom('smooth');
   }, [thread]);
 
   // Close emoji panel on outside click
@@ -149,7 +168,7 @@ export default function Messages() {
             <div
               key={c.id}
               className={`msg-contact ${activeId === c.id ? 'active' : ''}${isUnread ? ' unread' : ''}`}
-              onClick={() => { setActiveId(c.id); setMobilePanel('chat'); }}
+              onClick={() => openChat(c.id)}
             >
               <div className="msg-contact-avatar-wrap">
                 <img src={c.avatar_path ? `${UPLOADS_BASE}${c.avatar_path}` : DEFAULT_AVATAR} alt="" className="msg-contact-avatar" />
@@ -180,7 +199,7 @@ export default function Messages() {
           <div
             key={c.id}
             className={`msg-contact ${activeId === c.id ? 'active' : ''}`}
-            onClick={() => { setActiveId(c.id); setMobilePanel('chat'); }}
+            onClick={() => openChat(c.id)}
           >
             <div className="msg-contact-avatar-wrap">
               <img src={c.avatar_path ? `${UPLOADS_BASE}${c.avatar_path}` : DEFAULT_AVATAR} alt="" className="msg-contact-avatar" />
