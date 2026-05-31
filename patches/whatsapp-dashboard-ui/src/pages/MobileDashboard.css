@@ -1,0 +1,910 @@
+/* Shared mobile dashboard chrome */
+
+.mobile-nav-text-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 14px;
+  font-weight: 600;
+  color: #128c7e;
+  text-decoration: none;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.mobile-nav-text-btn--muted {
+  color: #54656f;
+}
+
+.mobile-staff-header {
+  display: none;
+  width: 100%;
+}
+
+.mobile-staff-row2 {
+  gap: 16px;
+}
+
+.mobile-bottom-bar {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: #fff;
+  border-top: 1px solid #e8eaed;
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+  justify-content: space-around;
+  align-items: stretch;
+  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.mobile-bottom-bar__btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 6px 4px;
+  border: none;
+  background: none;
+  color: #667781;
+  text-decoration: none;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: 8px;
+}
+
+.mobile-bottom-bar__btn--active {
+  color: #075e54;
+  background: #e7fce8;
+}
+
+.mobile-bottom-bar__icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.mobile-bottom-bar__label {
+  font-size: 10px;
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-donate-fab {
+  display: none;
+  position: fixed;
+  z-index: 110;
+  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  right: 14px;
+}
+
+.mobile-staff-quick-bar {
+  display: none;
+  position: fixed;
+  bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  left: 0;
+  right: 0;
+  z-index: 99;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1px solid #e8eaed;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.mobile-staff-quick-bar button {
+  flex: 1;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 20px;
+  padding: 8px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #075e54;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.student-wa-dashboard {
+  background: #e5ddd5;
+  min-height: 100dvh;
+}
+
+.student-wa-dashboard .dash-main {
+  background: transparent;
+  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+}
+
+.wa-class-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 16px;
+}
+
+.wa-class-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #fff;
+  text-decoration: none;
+  color: inherit;
+  border-bottom: 1px solid #f0f2f5;
+  transition: background 0.15s;
+}
+
+.wa-class-row:active {
+  background: #f5f6f6;
+}
+
+.wa-class-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #25d366, #128c7e);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.wa-class-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.wa-class-body strong {
+  display: block;
+  font-size: 16px;
+  color: #111b21;
+  margin-bottom: 2px;
+}
+
+.wa-class-body span {
+  font-size: 13px;
+  color: #667781;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wa-class-arrow {
+  color: #aebac1;
+  font-size: 18px;
+}
+
+.wa-search-bar {
+  background: #fff;
+  border-radius: 8px;
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: #667781;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wa-invite-banner {
+  background: #dcf8c6;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.wa-invite-banner strong {
+  color: #075e54;
+  font-size: 14px;
+}
+
+.wa-invite-banner p {
+  margin: 4px 0 10px;
+  font-size: 13px;
+  color: #3b4a54;
+}
+
+.wa-invite-banner button {
+  background: #25d366;
+  color: #fff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+@media (max-width: 768px) {
+  .mobile-bottom-bar {
+    display: flex;
+  }
+
+  .mobile-donate-fab {
+    display: block;
+  }
+
+  .mobile-staff-header {
+    display: block;
+  }
+
+  .staff-hub-page .phub-header .dash-user {
+    display: none !important;
+  }
+
+  .staff-hub-page .phub-brand {
+    display: none;
+  }
+
+  .staff-hub-page .phub-header {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 10px 14px 0;
+    border: none;
+    background: #f0f2f5;
+  }
+
+  .mobile-staff-quick-bar {
+    display: flex;
+  }
+
+  .staff-hub-page .staff-hub-nav {
+    bottom: 0;
+  }
+
+  .staff-hub-page .dash-main {
+    padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .student-wa-dashboard .dash-header-desktop-brand,
+  .student-wa-dashboard .dash-header-desktop-actions {
+    display: none !important;
+  }
+
+  .student-wa-dashboard .dash-header--student {
+    background: #128c7e;
+    border: none;
+    padding: 10px 14px 12px;
+  }
+
+  .student-wa-dashboard .mobile-student-greet {
+    color: #fff;
+  }
+
+  .student-wa-dashboard .mobile-nav-text-btn {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.2);
+    padding: 6px 12px;
+    border-radius: 20px;
+  }
+
+  .student-wa-dashboard .mobile-student-row2 {
+    gap: 14px;
+  }
+
+  .student-wa-dashboard .mobile-student-row2 .mobile-nav-text-btn--muted {
+    color: rgba(255, 255, 255, 0.95);
+    background: none;
+    padding: 0;
+  }
+
+  .student-wa-dashboard .mobile-student-icon-btn {
+    background: rgba(255, 255, 255, 0.25);
+    box-shadow: none;
+  }
+
+  .dash-top--hidden-mobile {
+    display: none !important;
+  }
+}
+
+/* Student desktop WhatsApp header */
+.student-wa-dashboard .dash-header--wa {
+  background: #128c7e;
+  border: none;
+  color: #fff;
+  padding: 10px 20px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.student-wa-dashboard .dash-header--wa .dash-brand {
+  color: #fff;
+  font-weight: 700;
+}
+
+.student-wa-dashboard .dash-user--wa {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.student-wa-dashboard .wa-header-name {
+  color: #fff;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.student-wa-dashboard .wa-header-link {
+  color: #fff;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.student-wa-dashboard .wa-header-link--btn {
+  opacity: 0.95;
+}
+
+.student-wa-dashboard .wa-header-icon-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+  font-size: 1.1rem;
+}
+
+.wa-chat-screen {
+  background: #e5ddd5;
+  min-height: 50vh;
+}
+
+.wa-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #128c7e;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 16px 0 8px;
+  padding: 0 4px;
+}
+
+.wa-section-hint {
+  font-size: 13px;
+  color: #667781;
+  padding: 8px;
+}
+
+.wa-toolbar-top {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.wa-pill-btn {
+  border: none;
+  background: #25d366;
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.wa-pill-btn--outline {
+  background: #fff;
+  color: #075e54;
+  border: 1px solid #d1d5db;
+}
+
+.wa-pill-btn--primary {
+  background: #128c7e;
+}
+
+.wa-announce-chip {
+  background: #fff;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.wa-empty-chat {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+  text-align: center;
+  color: #667781;
+}
+
+.wa-class-row--mate {
+  width: 100%;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+
+.wa-class-avatar--mate {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+}
+
+.wa-class-meta {
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.wa-class-time {
+  font-size: 11px;
+  color: #667781;
+}
+
+.wa-preview {
+  color: #667781 !important;
+}
+
+.wa-chat-section {
+  margin-top: 8px;
+}
+
+.wa-class-header {
+  background: #128c7e !important;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px !important;
+  border: none !important;
+}
+
+.wa-back-btn {
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.wa-class-header-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.wa-class-header-title strong {
+  display: block;
+  font-size: 17px;
+}
+
+.wa-class-header-title span {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.wa-staff-class-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.staff-hub-page .phub-header {
+  background: #128c7e;
+  border: none;
+}
+
+.staff-hub-page .phub-header .phub-logo,
+.staff-hub-page .phub-header .phub-sub,
+.staff-hub-page .phub-header .dash-user .btn,
+.staff-hub-page .phub-header .dash-user span {
+  color: #fff;
+}
+
+.staff-hub-page .phub-header .btn-secondary {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  border: none;
+}
+
+.staff-hub-page .staff-hub-nav {
+  background: #fff;
+}
+
+.class-page.wa-theme {
+  background: #e5ddd5;
+  min-height: 100dvh;
+}
+
+@media (min-width: 769px) {
+  .mobile-donate-fab {
+    display: none !important;
+  }
+
+  .student-wa-dashboard .mobile-student-header {
+    display: none !important;
+  }
+}
+
+/* Staff / teacher WhatsApp dashboard */
+.staff-wa-dashboard {
+  background: #e5ddd5;
+  min-height: 100dvh;
+}
+
+.staff-wa-dashboard .dash-main.wa-chat-screen {
+  background: transparent;
+}
+
+.staff-wa-dashboard .phub-header {
+  background: #128c7e;
+  border: none;
+  color: #fff;
+}
+
+.staff-wa-dashboard .phub-logo,
+.staff-wa-dashboard .phub-sub {
+  color: #fff;
+}
+
+.staff-wa-dashboard .dash-user .btn {
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+
+.wa-toolbar-top--staff {
+  justify-content: flex-start;
+}
+
+.wa-class-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+.wa-class-row--mate {
+  width: 100%;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+
+.wa-announce-meta {
+  display: block;
+  font-size: 11px;
+  color: #667781;
+  margin-top: 4px;
+}
+
+.wa-tools-panel {
+  background: #fff;
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.wa-tools-panel h2 {
+  font-size: 17px;
+  color: #075e54;
+  margin: 0 0 10px;
+}
+
+.wa-chat-section {
+  margin-top: 8px;
+}
+
+@media (max-width: 768px) {
+  .staff-wa-dashboard .staff-hub-nav {
+    display: none;
+  }
+
+  .staff-wa-dashboard .phub-header {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 10px 14px 0;
+    background: #128c7e;
+  }
+
+  .staff-wa-dashboard .phub-brand {
+    display: none;
+  }
+
+  .staff-wa-dashboard .phub-header .dash-user {
+    display: none !important;
+  }
+
+  .staff-wa-dashboard .mobile-staff-header .mobile-student-greet,
+  .staff-wa-dashboard .mobile-staff-header .mobile-nav-text-btn {
+    color: #fff;
+  }
+
+  .staff-wa-dashboard .mobile-staff-header .mobile-nav-text-btn--muted {
+    color: rgba(255, 255, 255, 0.92);
+    background: none;
+  }
+
+  .staff-wa-dashboard .dash-main {
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .mobile-staff-quick-bar {
+    display: none !important;
+  }
+}
+
+/* Classic student dashboard + Dean FAB */
+.student-dashboard-classic {
+  background: #f5f6fa;
+  min-height: 100dvh;
+}
+
+.student-dashboard-classic .dash-main {
+  padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+}
+
+.student-dashboard-classic .dash-header--student {
+  background: #fff;
+  border-bottom: 1px solid #e8eaed;
+}
+
+.student-dashboard-classic .mobile-student-greet {
+  color: #1e293b;
+}
+
+.student-dashboard-classic .mobile-nav-text-btn {
+  color: #128c7e;
+}
+
+.student-dashboard-classic .mobile-nav-text-btn--muted {
+  color: #54656f;
+}
+
+.student-parent-invite-banner {
+  margin-bottom: 1.25rem;
+}
+
+.student-classmates-section {
+  margin-top: 2rem;
+}
+
+.student-section-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #1a1a2e;
+  margin: 0 0 12px;
+}
+
+.dean-fab-wrap {
+  position: fixed;
+  bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  right: 16px;
+  z-index: 9000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.dean-fab-label {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  color: #fff;
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 4px 18px rgba(79, 70, 229, 0.45);
+  white-space: nowrap;
+}
+
+.dean-fab-btn {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  color: #fff;
+  font-size: 26px;
+  cursor: pointer;
+  box-shadow: 0 6px 24px rgba(79, 70, 229, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dean-fab-btn:hover {
+  transform: scale(1.06);
+}
+
+@media (min-width: 769px) {
+  .dean-fab-wrap {
+    bottom: 24px;
+  }
+}
+
+/* Student classic dashboard — desktop + mobile parity */
+.student-dashboard-classic .student-bottom-nav {
+  display: flex !important;
+}
+
+.student-dashboard-classic .dash-main {
+  padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+  max-width: 1200px;
+}
+
+.student-dash-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.student-desktop-quick-nav {
+  display: none;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 1.25rem;
+  padding: 12px 14px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+
+.student-desktop-quick-nav__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 20px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  text-decoration: none;
+  font-family: inherit;
+}
+
+.student-desktop-quick-nav__btn:hover {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+  color: #4338ca;
+}
+
+.student-announcement {
+  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  border: 1px solid #93c5fd;
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 0.75rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.student-announcement p {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: #374151;
+}
+
+.student-dean-banner {
+  margin-top: 2rem;
+  padding: 1.25rem 1.5rem;
+  background: linear-gradient(135deg, #eef2ff, #faf5ff);
+  border: 1px solid #c7d2fe;
+  border-radius: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.student-dean-banner strong {
+  display: block;
+  font-size: 1.05rem;
+  color: #312e81;
+  margin-bottom: 4px;
+}
+
+.student-dean-banner p {
+  margin: 0;
+  font-size: 14px;
+  color: #475569;
+}
+
+@media (min-width: 769px) {
+  .student-dashboard-classic .student-desktop-quick-nav {
+    display: flex;
+  }
+
+  .student-dashboard-classic .dean-fab-wrap {
+    bottom: 96px;
+  }
+
+  .student-dashboard-classic .mobile-donate-fab {
+    bottom: 100px;
+  }
+}
+
+/* Square class tiles */
+.student-dashboard-classic .classes-grid--square {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 20px;
+}
+
+.student-dashboard-classic .class-card-wrap--square {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.student-dashboard-classic .class-card--square {
+  aspect-ratio: 1;
+  min-height: 200px;
+  justify-content: space-between;
+  text-align: center;
+  padding: 16px 14px;
+  border-radius: 12px 12px 0 0;
+}
+
+.student-dashboard-classic .class-card-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 8px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff;
+  font-size: 24px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.student-dashboard-classic .class-card--square .class-card-header h3 {
+  font-size: 16px;
+  margin-bottom: 4px;
+}
+
+.student-dashboard-classic .class-card--square .class-code-display {
+  padding: 6px 10px;
+  margin: 4px 0;
+}
+
+.student-dashboard-classic .class-card--square .code-value {
+  font-size: 16px;
+  letter-spacing: 2px;
+}
+
+.student-dashboard-classic .class-card-wrap--square .class-card-note-btn {
+  border-radius: 0 0 12px 12px;
+  margin-top: 0;
+}

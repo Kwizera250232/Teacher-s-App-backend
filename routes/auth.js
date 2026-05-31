@@ -751,27 +751,10 @@ router.post('/reset-password', forgotLimiter, async (req, res) => {
   }
 });
 
-async function studentParentInviteHandler(req, res) {
-  if (req.user.role !== 'student') {
-    return res.status(403).json({ error: 'Only students can create a parent invite from here.' });
-  }
-  try {
-    const { buildParentInviteResponse } = require('../lib/parentInvite');
-    const row = await pool.query(
-      `SELECT id, name FROM users WHERE id=$1 AND role='student'`,
-      [req.user.id]
-    );
-    if (!row.rows.length) return res.status(404).json({ error: 'Student not found.' });
-    const payload = await buildParentInviteResponse(req, row.rows[0].id, row.rows[0].name);
-    res.json(payload);
-  } catch (err) {
-    console.error('[auth/parent-invite]', err);
-    res.status(500).json({ error: 'Internal server error.' });
-  }
-}
+const { handleStudentParentInvite } = require('../lib/studentParentInvite');
 
-router.get('/parent-invite', authenticateToken, studentParentInviteHandler);
-router.post('/parent-invite', authenticateToken, studentParentInviteHandler);
+router.get('/parent-invite', authenticateToken, handleStudentParentInvite);
+router.post('/parent-invite', authenticateToken, handleStudentParentInvite);
 
 // GET current user
 router.get('/me', authenticateToken, async (req, res) => {

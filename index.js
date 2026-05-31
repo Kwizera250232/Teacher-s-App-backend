@@ -28,6 +28,8 @@ const aiRoutes = require('./routes/ai');
 const textbookRoutes = require('./routes/textbooks');
 const profileRoutes = require('./routes/profile');
 const messageRoutes = require('./routes/messages');
+const { authenticateToken } = require('./middleware/auth');
+const { handleStudentParentInvite } = require('./lib/studentParentInvite');
 
 const app = express();
 
