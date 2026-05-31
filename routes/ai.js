@@ -3,6 +3,7 @@ const rateLimit = require('express-rate-limit');
 const Groq = require('groq-sdk');
 const pool = require('../db');
 const { authenticateToken } = require('../middleware/auth');
+const { requireEmailVerified } = require('../middleware/requireEmailVerified');
 
 const router = express.Router();
 const VALID_ROLES = ['user', 'assistant'];
@@ -16,7 +17,7 @@ const aiRateLimit = rateLimit({
   legacyHeaders: false,
 });
 
-router.post('/chat', authenticateToken, aiRateLimit, async (req, res) => {
+router.post('/chat', authenticateToken, requireEmailVerified, aiRateLimit, async (req, res) => {
   const { classId, message, history = [] } = req.body;
   const cleanMessage = typeof message === 'string' ? message.trim() : '';
 

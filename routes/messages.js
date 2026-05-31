@@ -3,9 +3,10 @@ const multer = require('multer');
 const path = require('path');
 const pool = require('../db');
 const { authenticateToken } = require('../middleware/auth');
+const { requireEmailVerified } = require('../middleware/requireEmailVerified');
 
 const router = express.Router();
-const auth = authenticateToken;
+const auth = [authenticateToken, requireEmailVerified];
 
 // Multer for message images
 const msgImageStorage = multer.diskStorage({

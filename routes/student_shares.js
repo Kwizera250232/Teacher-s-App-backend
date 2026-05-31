@@ -1,6 +1,7 @@
 const express = require('express');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { requireEmailVerified } = require('../middleware/requireEmailVerified');
 
 const router = express.Router();
 const VALID_TYPES = ['lesson', 'dream', 'motivation', 'composition'];
@@ -38,7 +39,7 @@ pool.query(`
   );
 `).catch(e => console.error('[student_shares] migration error:', e.message));
 
-router.post('/', authenticateToken, requireRole('student'), async (req, res) => {
+router.post('/', authenticateToken, requireEmailVerified, requireRole('student'), async (req, res) => {
   const { type, content, school, class_name, teacher_name } = req.body;
   if (!VALID_TYPES.includes(type) || !content || content.length < 5) {
     return res.status(400).json({ error: 'Invalid share.' });
@@ -56,7 +57,7 @@ router.post('/', authenticateToken, requireRole('student'), async (req, res) => 
   }
 });
 
-router.get('/', authenticateToken, requireRole('student'), async (req, res) => {
+router.get('/', authenticateToken, requireEmailVerified, requireRole('student'), async (req, res) => {
   const { type } = req.query;
   if (type && !VALID_TYPES.includes(type)) {
     return res.status(400).json({ error: 'Invalid type.' });
@@ -92,7 +93,7 @@ router.get('/', authenticateToken, requireRole('student'), async (req, res) => {
   }
 });
 
-router.post('/:id/like', authenticateToken, requireRole('student'), async (req, res) => {
+router.post('/:id/like', authenticateToken, requireEmailVerified, requireRole('student'), async (req, res) => {
   try {
     const existing = await pool.query(
       'SELECT 1 FROM student_share_likes WHERE share_id=$1 AND student_id=$2',
@@ -110,7 +111,7 @@ router.post('/:id/like', authenticateToken, requireRole('student'), async (req, 
   }
 });
 
-router.get('/user/:userId', authenticateToken, async (req, res) => {
+router.get('/user/:userId', authenticateToken, requireEmailVerified, async (req, res) => {
   const targetId = parseInt(req.params.userId, 10);
   const viewerId = req.user.id;
   const viewerRole = req.user.role;
@@ -157,7 +158,7 @@ router.get('/user/:userId', authenticateToken, async (req, res) => {
   }
 });
 
-router.delete('/:id', authenticateToken, requireRole('student'), async (req, res) => {
+router.delete('/:id', authenticateToken, requireEmailVerified, requireRole('student'), async (req, res) => {
   try {
     const del = await pool.query(
       'DELETE FROM student_shares WHERE id=$1 AND student_id=$2 RETURNING id',

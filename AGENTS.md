@@ -26,3 +26,10 @@ ALTER TABLE schools ADD COLUMN IF NOT EXISTS welcome_message TEXT;
 ### No test suite
 
 `npm test` is a placeholder. Manual API testing or frontend UI testing is used for verification.
+
+### Email confirmation
+
+- New accounts need `email_verified` before homework, quizzes, messages, and most class APIs (`403` + `code: EMAIL_NOT_VERIFIED`).
+- Configure SMTP in `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `APP_PUBLIC_URL`).
+- Without SMTP, links are logged in dev only when resend returns `dev_verify_url`.
+- Daily reminder emails run at most once per 24h on login and `GET /auth/me`.

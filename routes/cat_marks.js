@@ -1,6 +1,7 @@
 const express = require('express');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { requireEmailVerified } = require('../middleware/requireEmailVerified');
 
 const router = express.Router();
 
@@ -21,7 +22,7 @@ pool.query(`
   CREATE INDEX IF NOT EXISTS idx_cat_marks_student ON cat_marks(student_id);
 `).catch(e => console.error('[cat_marks] migration error:', e.message));
 
-router.get('/:classId/overview', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+router.get('/:classId/overview', authenticateToken, requireEmailVerified, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const classId = req.params.classId;
   try {
     const roster = await pool.query(
@@ -97,7 +98,7 @@ router.get('/:classId/overview', authenticateToken, requireRole('teacher', 'head
   }
 });
 
-router.get('/:classId/student/:studentId', authenticateToken, async (req, res) => {
+router.get('/:classId/student/:studentId', authenticateToken, requireEmailVerified, async (req, res) => {
   const { classId, studentId } = req.params;
   try {
     const result = await pool.query(
@@ -110,7 +111,7 @@ router.get('/:classId/student/:studentId', authenticateToken, async (req, res) =
   }
 });
 
-router.post('/:classId/entry', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+router.post('/:classId/entry', authenticateToken, requireEmailVerified, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const { student_id, test_number, marks_obtained, total_marks } = req.body;
   const classId = req.params.classId;
   if (!student_id || !test_number || marks_obtained === undefined) {
@@ -132,7 +133,7 @@ router.post('/:classId/entry', authenticateToken, requireRole('teacher', 'head_t
   }
 });
 
-router.post('/:classId/fromquiz', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+router.post('/:classId/fromquiz', authenticateToken, requireEmailVerified, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const { quiz_id, test_number } = req.body;
   const classId = req.params.classId;
   if (!quiz_id || !test_number) {
@@ -165,7 +166,7 @@ router.post('/:classId/fromquiz', authenticateToken, requireRole('teacher', 'hea
   }
 });
 
-router.delete('/:classId/entry/:markId', authenticateToken, requireRole('teacher'), async (req, res) => {
+router.delete('/:classId/entry/:markId', authenticateToken, requireEmailVerified, requireRole('teacher'), async (req, res) => {
   try {
     await pool.query(
       `DELETE FROM cat_marks WHERE id = $1 AND class_id = $2`,

@@ -5,6 +5,12 @@ const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const pool = require('../db');
 const { authenticateToken } = require('../middleware/auth');
+const {
+  sendVerificationEmail,
+  maybeSendDailyReminder,
+  verifyEmailToken,
+  publicUserFields,
+} = require('../lib/emailVerification');
 require('dotenv').config();
 
 const router = express.Router();
@@ -265,17 +271,6 @@ router.post('/register', authLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Role is required.' });
   }
 
-  // Check if email domain is a school domain - not allowed for self-signup (skip for invite)
-  if (!invite_token && !parent_token) {
-    const emailDomain = email.split('@')[1];
-    if (emailDomain) {
-      const schoolCheck = await pool.query('SELECT id FROM schools WHERE email_domain = $1 LIMIT 1', [emailDomain]);
-      if (schoolCheck.rows.length > 0) {
-        return res.status(403).json({ error: 'Emails from school domains are not allowed for self-signup. Contact your school admin or head teacher to create your account.' });
-      }
-    }
-  }
-
   if (!invite_token && role === 'teacher' && !school_code) {
     return res.status(403).json({ error: 'Teacher signup requires a school code. Ask your Head Teacher for the school code.' });
   }
@@ -378,13 +373,20 @@ router.post('/register', authLimiter, async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 12);
     const isApproved = role === 'teacher' ? false : true;
+    const emailVerified = role === 'admin';
     const result = await pool.query(
-      `INSERT INTO users (name, email, password, role, school_id, is_approved, phone)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
-       RETURNING id, name, email, role, school_id, is_approved`,
-      [name, email, hashed, role, resolvedSchoolId, isApproved, phone || null]
+      `INSERT INTO users (name, email, password, role, school_id, is_approved, phone, email_verified)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING id, name, email, role, school_id, is_approved, email_verified`,
+      [name, email, hashed, role, resolvedSchoolId, isApproved, phone || null, emailVerified]
     );
     const user = result.rows[0];
+
+    if (!emailVerified) {
+      sendVerificationEmail(user.id).catch((e) =>
+        console.error('[register] verification email:', e.message)
+      );
+    }
 
     if (inviteRow) {
       await pool.query('UPDATE invite_tokens SET used=TRUE WHERE id=$1', [inviteRow.id]);
@@ -408,15 +410,20 @@ router.post('/register', authLimiter, async (req, res) => {
       audit('register', { email, role, status: 'pending_approval' });
       return res.status(202).json({
         pending: true,
-        message: 'Konti yawe yoherejwe. Tegereza ko umuyobozi w\'ishuri ayemera mbere yo kwinjira.',
+        message: 'Konti yawe yoherejwe. Tegereza ko umuyobozi w\'ishuri ayemera mbere yo kwinjira. Twakoherereje n\'ubutumwa bwo kwemeza imeyili yawe.',
         school_code: schoolCode,
         school_welcome_message: schoolWelcomeMessage,
+        email_verification_sent: !emailVerified,
       });
     }
 
     const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
     audit('register', { email, role });
-    res.status(201).json({ token, user });
+    res.status(201).json({
+      token,
+      user: publicUserFields(user),
+      email_verification_sent: !user.email_verified,
+    });
   } catch (err) {
     console.error('[register]', err);
     res.status(500).json({ error: 'Internal server error.' });
@@ -463,9 +470,15 @@ router.post('/login', authLimiter, async (req, res) => {
       return res.status(403).json({ error: 'Konti yawe irafunzwe. Wasiliana n\'umuyobozi.' });
     }
     resetLoginAttempts(email);
+    maybeSendDailyReminder(user.id).catch((e) =>
+      console.error('[login] verification reminder:', e.message)
+    );
     const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
     audit('login_ok', { email, role: user.role });
-    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, school_id: user.school_id } });
+    res.json({
+      token,
+      user: publicUserFields(user),
+    });
   } catch (err) {
     console.error('[login]', err);
     res.status(500).json({ error: 'Internal server error.' });
@@ -585,6 +598,60 @@ router.post('/reset-password', forgotLimiter, async (req, res) => {
   } catch (err) {
     console.error('[reset-password]', err);
     res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// GET current user (refresh email_verified, trigger daily reminder if needed)
+router.get('/me', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
+    if (!result.rows.length) return res.status(404).json({ error: 'User not found.' });
+    const user = result.rows[0];
+    maybeSendDailyReminder(user.id).catch((e) =>
+      console.error('[auth/me] reminder:', e.message)
+    );
+    res.json({ user: publicUserFields(user) });
+  } catch (err) {
+    console.error('[auth/me]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// POST confirm email with token from link
+router.post('/verify-email', authLimiter, async (req, res) => {
+  try {
+    const { token: verifyToken } = req.body;
+    const verified = await verifyEmailToken(verifyToken);
+    res.json({
+      message: 'Email confirmed successfully. You can now use all class features.',
+      email: verified.email,
+    });
+  } catch (err) {
+    const status = err.status || 500;
+    if (status >= 500) console.error('[verify-email]', err);
+    res.status(status).json({ error: err.message || 'Verification failed.' });
+  }
+});
+
+// POST resend confirmation email (authenticated)
+router.post('/resend-verification', authenticateToken, authLimiter, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT id, email_verified FROM users WHERE id = $1',
+      [req.user.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'User not found.' });
+    if (result.rows[0].email_verified) {
+      return res.json({ message: 'Your email is already confirmed.' });
+    }
+    const sent = await sendVerificationEmail(req.user.id);
+    res.json({
+      message: 'Confirmation email sent. Please check your inbox.',
+      dev_verify_url: sent.verifyUrl,
+    });
+  } catch (err) {
+    console.error('[resend-verification]', err);
+    res.status(500).json({ error: 'Could not send confirmation email. Try again later.' });
   }
 });
 

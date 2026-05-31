@@ -1,11 +1,12 @@
 const express = require('express');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { requireEmailVerified } = require('../middleware/requireEmailVerified');
 
 const router = express.Router();
 
 // GET announcements for a class
-router.get('/:classId/announcements', authenticateToken, async (req, res) => {
+router.get('/:classId/announcements', authenticateToken, requireEmailVerified, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT a.*, u.name AS teacher_name FROM announcements a
@@ -20,7 +21,7 @@ router.get('/:classId/announcements', authenticateToken, async (req, res) => {
 });
 
 // POST create announcement (teacher)
-router.post('/:classId/announcements', authenticateToken, requireRole('teacher'), async (req, res) => {
+router.post('/:classId/announcements', authenticateToken, requireEmailVerified, requireRole('teacher'), async (req, res) => {
   const { content } = req.body;
   if (!content) return res.status(400).json({ error: 'Content is required.' });
   try {
@@ -35,7 +36,7 @@ router.post('/:classId/announcements', authenticateToken, requireRole('teacher')
 });
 
 // DELETE announcement (teacher)
-router.delete('/:classId/announcements/:id', authenticateToken, requireRole('teacher'), async (req, res) => {
+router.delete('/:classId/announcements/:id', authenticateToken, requireEmailVerified, requireRole('teacher'), async (req, res) => {
   try {
     await pool.query('DELETE FROM announcements WHERE id = $1 AND class_id = $2', [req.params.id, req.params.classId]);
     res.json({ message: 'Announcement deleted.' });
@@ -45,7 +46,7 @@ router.delete('/:classId/announcements/:id', authenticateToken, requireRole('tea
 });
 
 // GET discussions for a class
-router.get('/:classId/discussions', authenticateToken, async (req, res) => {
+router.get('/:classId/discussions', authenticateToken, requireEmailVerified, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT d.*, u.name AS author_name, u.role AS author_role,
@@ -63,7 +64,7 @@ router.get('/:classId/discussions', authenticateToken, async (req, res) => {
 });
 
 // POST create discussion message
-router.post('/:classId/discussions', authenticateToken, async (req, res) => {
+router.post('/:classId/discussions', authenticateToken, requireEmailVerified, async (req, res) => {
   const { content } = req.body;
   if (!content) return res.status(400).json({ error: 'Content is required.' });
   try {
@@ -78,7 +79,7 @@ router.post('/:classId/discussions', authenticateToken, async (req, res) => {
 });
 
 // POST like / unlike a discussion
-router.post('/discussions/:discussionId/like', authenticateToken, async (req, res) => {
+router.post('/discussions/:discussionId/like', authenticateToken, requireEmailVerified, async (req, res) => {
   const did = parseInt(req.params.discussionId);
   try {
     const existing = await pool.query(
@@ -100,7 +101,7 @@ router.post('/discussions/:discussionId/like', authenticateToken, async (req, re
 });
 
 // GET comments for a discussion
-router.get('/discussions/:discussionId/comments', authenticateToken, async (req, res) => {
+router.get('/discussions/:discussionId/comments', authenticateToken, requireEmailVerified, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT dc.*, u.name AS author_name, u.role AS author_role
@@ -116,7 +117,7 @@ router.get('/discussions/:discussionId/comments', authenticateToken, async (req,
 });
 
 // POST add comment to a discussion
-router.post('/discussions/:discussionId/comments', authenticateToken, async (req, res) => {
+router.post('/discussions/:discussionId/comments', authenticateToken, requireEmailVerified, async (req, res) => {
   const { content } = req.body;
   if (!content?.trim()) return res.status(400).json({ error: 'Content required.' });
   try {

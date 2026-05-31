@@ -1,7 +1,8 @@
 const express = require('express');
 const crypto = require('crypto');
 const pool = require('../db');
-const { authenticateToken, requireRole } = require('../middleware/auth');
+const { authenticateToken, requireEmailVerified, requireRole } = require('../middleware/auth');
+const { requireEmailVerified } = require('../middleware/requireEmailVerified');
 const { userCanManageClass } = require('../lib/classAccess');
 
 const router = express.Router();
@@ -42,7 +43,7 @@ async function ensureParentSchema() {
 ensureParentSchema().catch((e) => console.error('[parent_portal] schema:', e.message));
 
 // Teacher: parent invite link for one student
-router.post('/students/:studentId/parent-link', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+router.post('/students/:studentId/parent-link', authenticateToken, requireEmailVerified, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const studentId = parseInt(req.params.studentId, 10);
   try {
     const student = await pool.query(
@@ -106,7 +107,7 @@ router.get('/invite-preview', async (req, res) => {
 });
 
 // Parent dashboard: linked children
-router.get('/children', authenticateToken, requireRole('parent'), async (req, res) => {
+router.get('/children', authenticateToken, requireEmailVerified, requireRole('parent'), async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT u.id, u.name, u.email,
@@ -123,7 +124,7 @@ router.get('/children', authenticateToken, requireRole('parent'), async (req, re
 });
 
 // Parent: feed for child's class (filtered)
-router.get('/children/:studentId/feed', authenticateToken, requireRole('parent'), async (req, res) => {
+router.get('/children/:studentId/feed', authenticateToken, requireEmailVerified, requireRole('parent'), async (req, res) => {
   const studentId = parseInt(req.params.studentId, 10);
   const classId = req.query.class_id ? parseInt(req.query.class_id, 10) : null;
   try {
@@ -163,7 +164,7 @@ router.get('/children/:studentId/feed', authenticateToken, requireRole('parent')
 });
 
 // Teacher: build weekly digest for a class (returns JSON; email when SMTP configured)
-router.post('/classes/:classId/weekly-digest', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+router.post('/classes/:classId/weekly-digest', authenticateToken, requireEmailVerified, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   const manage = await userCanManageClass(req.user, classId);
   if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });

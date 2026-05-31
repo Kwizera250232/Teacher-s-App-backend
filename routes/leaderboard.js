@@ -1,6 +1,7 @@
 const express = require('express');
 const pool = require('../db');
 const { authenticateToken } = require('../middleware/auth');
+const { requireEmailVerified } = require('../middleware/requireEmailVerified');
 
 const router = express.Router();
 
@@ -132,7 +133,7 @@ pool.query(`
 `).catch(console.error);
 
 // GET leaderboard for a class (best score per student per quiz, then summed)
-router.get('/:classId/leaderboard', authenticateToken, async (req, res) => {
+router.get('/:classId/leaderboard', authenticateToken, requireEmailVerified, async (req, res) => {
   try {
     const result = await pool.query(
       `WITH best_attempts AS (
@@ -165,7 +166,7 @@ router.get('/:classId/leaderboard', authenticateToken, async (req, res) => {
 });
 
 // GET leaderboard for a specific quiz (deduplicated: best score per student)
-router.get('/:classId/quizzes/:quizId/leaderboard', authenticateToken, async (req, res) => {
+router.get('/:classId/quizzes/:quizId/leaderboard', authenticateToken, requireEmailVerified, async (req, res) => {
   try {
     const quizInfo = await pool.query('SELECT title FROM quizzes WHERE id=$1', [req.params.quizId]);
     const result = await pool.query(
@@ -195,7 +196,7 @@ router.get('/:classId/quizzes/:quizId/leaderboard', authenticateToken, async (re
 });
 
 // GET my badges
-router.get('/my-badges', authenticateToken, async (req, res) => {
+router.get('/my-badges', authenticateToken, requireEmailVerified, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT sb.*, q.title AS quiz_title, c.name AS class_name
@@ -210,7 +211,7 @@ router.get('/my-badges', authenticateToken, async (req, res) => {
 });
 
 // GET top scorer per quiz for a class (used on dashboard cards)
-router.get('/:classId/top-scorers', authenticateToken, async (req, res) => {
+router.get('/:classId/top-scorers', authenticateToken, requireEmailVerified, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT DISTINCT ON (q.id)
@@ -232,7 +233,7 @@ router.get('/:classId/top-scorers', authenticateToken, async (req, res) => {
 });
 
 // GET termly (3 months) composition leaderboard with auto best-composition pick
-router.get('/:classId/composition-leaderboard', authenticateToken, async (req, res) => {
+router.get('/:classId/composition-leaderboard', authenticateToken, requireEmailVerified, async (req, res) => {
   try {
     const classId = parseInt(req.params.classId, 10);
     if (isNaN(classId)) return res.status(400).json({ error: 'Invalid class id.' });

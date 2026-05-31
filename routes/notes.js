@@ -1,6 +1,7 @@
 const express = require('express');
 const pool = require('../db');
-const { authenticateToken, requireRole } = require('../middleware/auth');
+const { authenticateToken, requireEmailVerified, requireRole } = require('../middleware/auth');
+const { requireEmailVerified } = require('../middleware/requireEmailVerified');
 const { createUpload } = require('../lib/uploads');
 
 const router = express.Router();
@@ -26,7 +27,7 @@ async function teacherOwnsClass(classId, user) {
 }
 
 // GET notes for a class
-router.get('/:classId/notes', authenticateToken, async (req, res) => {
+router.get('/:classId/notes', authenticateToken, requireEmailVerified, async (req, res) => {
   try {
     const result = await pool.query(
       'SELECT * FROM notes WHERE class_id = $1 ORDER BY created_at DESC',
@@ -40,7 +41,7 @@ router.get('/:classId/notes', authenticateToken, async (req, res) => {
 });
 
 // POST upload note (teacher)
-router.post('/:classId/notes', authenticateToken, requireRole('teacher', 'head_teacher'), (req, res, next) => {
+router.post('/:classId/notes', authenticateToken, requireEmailVerified, requireRole('teacher', 'head_teacher'), (req, res, next) => {
   uploadNote(req, res, (err) => {
     if (err) return next(err);
     next();
@@ -70,7 +71,7 @@ router.post('/:classId/notes', authenticateToken, requireRole('teacher', 'head_t
 });
 
 // DELETE note (teacher)
-router.delete('/:classId/notes/:noteId', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+router.delete('/:classId/notes/:noteId', authenticateToken, requireEmailVerified, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   if (Number.isNaN(classId)) return res.status(400).json({ error: 'Invalid class ID.' });
   try {
