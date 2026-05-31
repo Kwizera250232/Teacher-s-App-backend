@@ -31,6 +31,7 @@ pool.query(`
   ALTER TABLE student_shares ADD CONSTRAINT student_shares_status_check
     CHECK (status IN ('pending','approved','declined'));
   UPDATE student_shares SET status='approved' WHERE status IS NULL;
+  ALTER TABLE student_shares ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT FALSE;
   CREATE TABLE IF NOT EXISTS student_share_likes (
     share_id INTEGER NOT NULL REFERENCES student_shares(id) ON DELETE CASCADE,
     student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -56,6 +57,62 @@ router.post('/', authenticateToken, requireRole('student'), async (req, res) => 
   }
 });
 
+/** Class + own compositions for student home (classmates, teachers, parents via approved). */
+router.get('/dashboard', authenticateToken, requireRole('student'), async (req, res) => {
+  const studentId = req.user.id;
+  try {
+    const shares = await pool.query(
+      `SELECT s.id, s.student_id, s.type, s.content, s.created_at, s.pinned,
+              s.school, s.class_name, s.teacher_name, s.status, s.review_note,
+              u.name AS student_name,
+              COUNT(l.student_id)::int AS like_count,
+              BOOL_OR(l.student_id = $1) AS liked_by_me
+       FROM student_shares s
+       JOIN users u ON u.id = s.student_id
+       LEFT JOIN student_share_likes l ON l.share_id = s.id
+       WHERE s.type = 'composition'
+         AND (
+           s.student_id = $1
+           OR (
+             s.status = 'approved'
+             AND s.student_id IN (
+               SELECT DISTINCT cm2.student_id
+               FROM class_members cm1
+               JOIN class_members cm2 ON cm1.class_id = cm2.class_id
+               WHERE cm1.student_id = $1 AND cm2.student_id <> $1
+             )
+           )
+         )
+       GROUP BY s.id, u.name
+       ORDER BY s.pinned DESC, s.created_at DESC
+       LIMIT 80`,
+      [studentId]
+    );
+    res.json(shares.rows);
+  } catch (err) {
+    console.error('[student_shares/dashboard]', err.message);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.patch('/:id/pin', authenticateToken, requireRole('student'), async (req, res) => {
+  const shareId = parseInt(req.params.id, 10);
+  const { pinned } = req.body;
+  if (!Number.isFinite(shareId)) return res.status(400).json({ error: 'Invalid share.' });
+  try {
+    const upd = await pool.query(
+      `UPDATE student_shares SET pinned = $1
+       WHERE id = $2 AND student_id = $3 AND type = 'composition'
+       RETURNING id, pinned`,
+      [Boolean(pinned), shareId, req.user.id]
+    );
+    if (upd.rowCount === 0) return res.status(404).json({ error: 'Composition not found.' });
+    res.json(upd.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 router.get('/', authenticateToken, requireRole('student'), async (req, res) => {
   const { type } = req.query;
   if (type && !VALID_TYPES.includes(type)) {
@@ -63,7 +120,7 @@ router.get('/', authenticateToken, requireRole('student'), async (req, res) => {
   }
   try {
     const shares = await pool.query(
-      `SELECT s.id, s.student_id, s.type, s.content, s.created_at,
+      `SELECT s.id, s.student_id, s.type, s.content, s.created_at, s.pinned,
               s.school, s.class_name, s.teacher_name, s.status, s.review_note,
               u.name AS student_name,
               COUNT(l.student_id)::int AS like_count,
@@ -82,7 +139,7 @@ router.get('/', authenticateToken, requireRole('student'), async (req, res) => {
            )
          )
        GROUP BY s.id, u.name
-       ORDER BY s.created_at DESC
+       ORDER BY s.pinned DESC, s.created_at DESC
        LIMIT 200`,
       [type || null, req.user.id]
     );
@@ -132,7 +189,7 @@ router.get('/user/:userId', authenticateToken, async (req, res) => {
 
   try {
     const shares = await pool.query(
-      `SELECT s.id, s.student_id, s.type, s.content, s.created_at,
+      `SELECT s.id, s.student_id, s.type, s.content, s.created_at, s.pinned,
               s.school, s.class_name, s.teacher_name, s.status, s.review_note,
               u.name AS student_name,
               COUNT(l.student_id)::int AS like_count,
@@ -144,10 +201,10 @@ router.get('/user/:userId', authenticateToken, async (req, res) => {
          AND (
            s.status = 'approved'
            OR s.student_id = $2
-           OR $3 IN ('teacher', 'admin', 'head_teacher')
+           OR $3 IN ('teacher', 'admin', 'head_teacher', 'parent')
          )
        GROUP BY s.id, u.name
-       ORDER BY s.created_at DESC
+       ORDER BY s.pinned DESC, s.created_at DESC
        LIMIT 100`,
       [targetId, viewerId, viewerRole]
     );
