@@ -11,18 +11,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Skip if SSH not configured
-        id: check
+      - name: Require SSH deploy secrets
         run: |
-          if [ -z "${{ secrets.SSH_HOST }}" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::Set SSH_HOST, SSH_USER, SSH_PRIVATE_KEY in repo secrets to auto-deploy."
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
+          if [ -z "${{ secrets.SSH_HOST }}" ] || [ -z "${{ secrets.SSH_USER }}" ] || [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
+            echo "::error::Production API was NOT updated. Add GitHub repo secrets: SSH_HOST, SSH_USER, SSH_PRIVATE_KEY (optional: BACKEND_APP_DIR, SSH_PORT)."
+            echo "Then re-run this workflow or push to main. Manual: ssh to server, cd app dir, git pull origin main, npm ci --omit=dev, pm2 restart studentapi"
+            exit 1
           fi
 
       - name: Deploy via SSH
-        if: steps.check.outputs.skip != 'true'
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
