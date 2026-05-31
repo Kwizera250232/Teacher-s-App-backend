@@ -3,7 +3,6 @@ const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { createUpload } = require('../lib/uploads');
 const { userCanManageClass } = require('../lib/classAccess');
-const { notifyClassParents } = require('../lib/parentClassNotify');
 
 const router = express.Router();
 const uploadHomework = createUpload('file');
@@ -47,18 +46,7 @@ router.post('/:classId/homework', authenticateToken, requireRole('teacher', 'hea
       'INSERT INTO homework (class_id, title, description, due_date, file_path, file_name) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
       [classId, String(title).trim(), description || null, due_date || null, filePath, fileName]
     );
-    const hw = result.rows[0];
-    const dueLabel = due_date ? ` Due: ${due_date}` : '';
-    notifyClassParents({
-      classId,
-      senderId: req.user.id,
-      senderRole: req.user.role,
-      schoolId: req.user.school_id,
-      type: 'homework_new',
-      title: `New homework — ${hw.title}`,
-      body: (description || 'Check the class for details.') + dueLabel,
-    }).catch((e) => console.error('[homework notify]', e.message));
-    res.status(201).json(hw);
+    res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('[homework POST] error:', err.message, err.code, err.detail);
     res.status(500).json({ error: 'Failed to create homework. Please try again.' });
@@ -160,7 +148,6 @@ router.put('/:classId/homework/:hwId/submissions/:subId/grade', authenticateToke
     const manage = await userCanManageClass(req.user, classId);
     if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
 
-    const hwRow = await pool.query('SELECT title FROM homework WHERE id = $1', [req.params.hwId]);
     const result = await pool.query(
       `UPDATE homework_submissions SET grade = $1, feedback = $2, teacher_answer = $3, graded_at = NOW()
        WHERE id = $4 RETURNING *`,
@@ -168,17 +155,6 @@ router.put('/:classId/homework/:hwId/submissions/:subId/grade', authenticateToke
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Submission not found.' });
     const sub = result.rows[0];
-    const st = await pool.query('SELECT name FROM users WHERE id = $1', [sub.student_id]);
-    notifyClassParents({
-      classId,
-      senderId: req.user.id,
-      senderRole: req.user.role,
-      schoolId: req.user.school_id,
-      studentId: sub.student_id,
-      type: 'homework_graded',
-      title: `Homework graded — ${st.rows[0]?.name || 'your child'}`,
-      body: `${hwRow.rows[0]?.title || 'Homework'}: ${gradeNum}/100${feedback ? `. ${feedback}` : ''}`,
-    }).catch((e) => console.error('[homework grade notify]', e.message));
     res.json(sub);
   } catch (err) {
     console.error('[homework grade] error:', err.message);

@@ -11,13 +11,13 @@ pool.query(`
   ALTER TABLE invite_tokens ADD COLUMN IF NOT EXISTS class_id INTEGER REFERENCES classes(id);
 `).catch(() => {});
 
-function parentFeedFilter(userId) {
+/** Parents only see posts their linked child authored (not whole-class teacher feed). */
+function parentFeedFilter() {
   return `(
-    p.author_id IN (SELECT student_id FROM parent_children WHERE parent_id = $2)
-    OR p.author_id IN (SELECT c.teacher_id FROM classes c WHERE c.id = p.class_id)
-    OR EXISTS (
-      SELECT 1 FROM users u
-      WHERE u.id = p.author_id AND u.role IN ('teacher', 'head_teacher')
+    p.author_id IN (
+      SELECT pc.student_id FROM parent_children pc
+      JOIN class_members cm ON cm.student_id = pc.student_id AND cm.class_id = p.class_id
+      WHERE pc.parent_id = $2
     )
   )`;
 }
@@ -72,7 +72,7 @@ router.get('/:classId/posts', authenticateToken, async (req, res) => {
     const params = [classId];
 
     if (req.user.role === 'parent') {
-      where += ` AND ${parentFeedFilter(req.user.id)}`;
+      where += ` AND ${parentFeedFilter()}`;
       params.push(req.user.id);
     }
 

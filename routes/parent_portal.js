@@ -149,10 +149,7 @@ router.get('/children/:studentId/feed', authenticateToken, requireRole('parent')
        JOIN users u ON u.id = p.author_id
        JOIN classes c ON c.id = p.class_id
        JOIN class_members mem ON mem.class_id = p.class_id AND mem.student_id = $1
-       WHERE (
-         p.author_id = $1
-         OR u.role IN ('teacher', 'head_teacher')
-       ) ${classFilter}
+       WHERE p.author_id = $1 ${classFilter}
        ORDER BY p.created_at DESC
        LIMIT 80`,
       params

@@ -15,6 +15,12 @@ const router = express.Router();
 
 ensureParentHubSchema().catch((e) => console.error('[parent_hub] schema:', e.message));
 
+const SQL_PARENT_NOTIF_SCOPE = `
+  parent_id = $1 AND (
+    student_id IN (SELECT student_id FROM parent_children WHERE parent_id = $1)
+    OR (student_id IS NULL AND type = 'school_announcement')
+  )`;
+
 async function getSenderSchoolId(user) {
   if (user.school_id) return user.school_id;
   const row = await pool.query('SELECT school_id FROM users WHERE id = $1', [user.id]);
@@ -34,7 +40,7 @@ router.get('/hub', authenticateToken, requireRole('parent'), async (req, res) =>
   try {
     const unreadRow = await pool.query(
       `SELECT COUNT(*)::int AS c FROM parent_notifications
-       WHERE parent_id = $1 AND is_read = FALSE`,
+       WHERE ${SQL_PARENT_NOTIF_SCOPE} AND is_read = FALSE`,
       [req.user.id]
     );
     const unreadCount = unreadRow.rows[0]?.c || 0;
@@ -67,14 +73,15 @@ router.get('/hub', authenticateToken, requireRole('parent'), async (req, res) =>
     );
 
     const notificationsAfter = await pool.query(
-      `SELECT * FROM parent_notifications WHERE parent_id = $1
+      `SELECT * FROM parent_notifications
+       WHERE ${SQL_PARENT_NOTIF_SCOPE}
        ORDER BY created_at DESC LIMIT 40`,
       [req.user.id]
     );
 
     const unreadAfter = await pool.query(
       `SELECT COUNT(*)::int AS c FROM parent_notifications
-       WHERE parent_id = $1 AND is_read = FALSE`,
+       WHERE ${SQL_PARENT_NOTIF_SCOPE} AND is_read = FALSE`,
       [req.user.id]
     );
 
@@ -93,7 +100,7 @@ router.get('/hub', authenticateToken, requireRole('parent'), async (req, res) =>
 router.get('/notifications', authenticateToken, requireRole('parent'), async (req, res) => {
   try {
     const r = await pool.query(
-      `SELECT * FROM parent_notifications WHERE parent_id = $1 ORDER BY created_at DESC LIMIT 100`,
+      `SELECT * FROM parent_notifications WHERE ${SQL_PARENT_NOTIF_SCOPE} ORDER BY created_at DESC LIMIT 100`,
       [req.user.id]
     );
     res.json(r.rows);

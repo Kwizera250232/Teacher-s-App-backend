@@ -1,7 +1,7 @@
 const express = require('express');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
-const { notifyClassParents } = require('../lib/parentClassNotify');
+const { notifyParentsOfStudent } = require('../lib/parentClassNotify');
 
 const router = express.Router();
 
@@ -193,15 +193,12 @@ router.post('/:classId/quizzes/:quizId/submit', authenticateToken, requireRole('
       const qi = quizInfo.rows[0];
       if (qi) {
         const st = await pool.query('SELECT name FROM users WHERE id = $1', [req.user.id]);
-        await notifyClassParents({
-          classId: qi.class_id,
-          senderId: qi.teacher_id,
-          senderRole: 'teacher',
-          schoolId: qi.school_id,
+        await notifyParentsOfStudent({
           studentId: req.user.id,
+          senderId: qi.teacher_id,
           type: 'quiz_result',
-          title: `Quiz result — ${st.rows[0]?.name || 'your child'}`,
-          body: `${qi.title}: ${percentage}% (${score}/${total})`,
+          title: `Your child completed a quiz`,
+          body: `${st.rows[0]?.name}: ${qi.title} — ${percentage}% (${score}/${total})`,
         });
       }
     } catch (e) {
