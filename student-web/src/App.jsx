@@ -47,7 +47,7 @@ function HomeRedirect() {
 
 function AppShell() {
   const location = useLocation();
-  const hideFooter = location.pathname === '/messages' || location.pathname.endsWith('/messages');
+  const hideFooter = /\/messages(\/|$)/.test(location.pathname);
 
   return (
     <div className={`app-wa-shell${hideFooter ? ' app-wa-shell--chat-fullscreen' : ''}`} style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>

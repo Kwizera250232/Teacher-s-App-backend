@@ -18,6 +18,12 @@
   max-height: 100dvh;
   width: 100%;
   max-width: none;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-sizing: border-box;
+}
+
+.app-wa-shell--chat-fullscreen .msg-input-row {
+  padding-bottom: max(10px, env(safe-area-inset-bottom, 0px));
 }
 
 .app-wa-shell--chat-fullscreen {

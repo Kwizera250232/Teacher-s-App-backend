@@ -234,10 +234,11 @@ router.get('/invite-preview', async (req, res) => {
 router.get('/check-school-email', async (req, res) => {
   const local = normalizeLocalPart(req.query.local);
   const code = String(req.query.code || req.query.school_code || '').trim().toUpperCase();
+  const schoolNameInput = String(req.query.school_name || '').trim();
   if (!local) return res.status(400).json({ error: 'Email username is required.' });
   if (local.length < 2) return res.status(400).json({ error: 'Username is too short.' });
   try {
-    const { getStaffSignupEmailDomain } = require('../lib/schoolDomain');
+    const { schoolDomainFromName } = require('../lib/schoolDomain');
     let domain;
     let schoolName = null;
     if (code) {
@@ -253,9 +254,15 @@ router.get('/check-school-email', async (req, res) => {
       if (!domain) {
         return res.status(400).json({ error: 'School email domain is not configured.' });
       }
+    } else if (schoolNameInput) {
+      domain = schoolDomainFromName(schoolNameInput);
+      schoolName = schoolNameInput;
+      if (!domain) {
+        return res.status(400).json({ error: 'Enter a valid school name (letters and numbers).' });
+      }
     } else {
       return res.status(400).json({
-        error: 'Enter your school code to create your login email (@yourschool.edu).',
+        error: 'Enter your school name to create your login email (@schoolname.edu).',
       });
     }
     const email = buildSchoolEmail(local, domain);
@@ -375,6 +382,7 @@ router.post('/register', authLimiter, async (req, res) => {
   let { password, role, school_id, school_code, phone, invite_token, parent_token } = req.body;
   const newSchoolName = (req.body.new_school_name || '').trim();
   const newSchoolLocation = (req.body.new_school_location || '').trim();
+  const staffSchoolName = (req.body.staff_school_name || req.body.school_name || '').trim();
 
   if (!name || !password) {
     return res.status(400).json({ error: 'Name and password are required.' });
@@ -525,10 +533,13 @@ router.post('/register', authLimiter, async (req, res) => {
       if (!domainForStaff && inviteRow?.can_create_school && newSchoolName) {
         domainForStaff = schoolDomainFromName(newSchoolName);
       }
+      if (!domainForStaff && staffSchoolName) {
+        domainForStaff = schoolDomainFromName(staffSchoolName);
+      }
       if (!domainForStaff) {
         return res.status(400).json({
           error:
-            'Enter a valid school code (or create your school) to get your @schoolname.edu login email.',
+            'Enter your school name (or a valid school code) to get your @schoolname.edu login email.',
         });
       }
       email = buildSchoolEmail(schoolEmailLocal, domainForStaff);

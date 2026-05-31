@@ -48,3 +48,8 @@
   padding-left: 24px;
   padding-right: 24px;
 }
+
+/* /messages — full viewport chat; site footer hidden in App.jsx */
+.app-wa-shell--chat-fullscreen .app-footer {
+  display: none !important;
+}

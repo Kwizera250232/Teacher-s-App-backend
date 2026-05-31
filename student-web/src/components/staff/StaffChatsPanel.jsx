@@ -18,6 +18,18 @@ export default function StaffChatsPanel({ token }) {
   const bottomRef = useRef();
   const shouldScrollOnSendRef = useRef(false);
 
+  const scrollThreadToBottom = (behavior = 'auto') => {
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior, block: 'end' });
+    });
+  };
+
+  const openChat = (contactId) => {
+    setActiveChat(contactId);
+    setMobilePanel('chat');
+    setTimeout(() => scrollThreadToBottom('auto'), 0);
+  };
+
   useEffect(() => {
     Promise.all([
       api.get('/profile/contacts/list', token).catch(() => []),
@@ -47,7 +59,14 @@ export default function StaffChatsPanel({ token }) {
 
   useEffect(() => {
     if (!activeChat) return;
-    const load = () => api.get(`/messages/thread/${activeChat}`, token).then(setThread).catch(() => {});
+    let firstLoad = true;
+    const load = () => api.get(`/messages/thread/${activeChat}`, token).then((msgs) => {
+      setThread(msgs);
+      if (firstLoad) {
+        firstLoad = false;
+        scrollThreadToBottom('auto');
+      }
+    }).catch(() => {});
     load();
     const t = setInterval(load, 4000);
     return () => clearInterval(t);
@@ -56,7 +75,7 @@ export default function StaffChatsPanel({ token }) {
   useEffect(() => {
     if (!shouldScrollOnSendRef.current) return;
     shouldScrollOnSendRef.current = false;
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    scrollThreadToBottom('smooth');
   }, [thread]);
 
   const sendMsg = async (e) => {
@@ -88,7 +107,7 @@ export default function StaffChatsPanel({ token }) {
           <div
             key={c.id}
             className={`msg-contact ${activeChat === c.id ? 'active' : ''}`}
-            onClick={() => { setActiveChat(c.id); setMobilePanel('chat'); }}
+            onClick={() => openChat(c.id)}
           >
             <img src={c.avatar_path ? `${UPLOADS_BASE}${c.avatar_path}` : DEFAULT_AVATAR} alt="" className="msg-contact-avatar" />
             <div className="msg-contact-info">
