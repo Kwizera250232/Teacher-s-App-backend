@@ -54,7 +54,7 @@ router.get('/my-school', authenticateToken, requireRole('teacher', 'head_teacher
   }
 });
 
-router.post('/request-school', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+router.post('/request-school', authenticateToken, requireRole('teacher'), async (req, res) => {
   const { school_id, message } = req.body;
   if (!school_id) return res.status(400).json({ error: 'School is required.' });
   try {
@@ -76,7 +76,7 @@ router.post('/request-school', authenticateToken, requireRole('teacher', 'head_t
   }
 });
 
-router.get('/my-school-request', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+router.get('/my-school-request', authenticateToken, requireRole('teacher'), async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT sjr.*, s.name AS school_name FROM school_join_requests sjr
@@ -848,3 +848,4 @@ router.put('/settings', ...teacherOrAbove, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.createSchoolAccount = createSchoolAccount;

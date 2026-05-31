@@ -27,6 +27,12 @@ ALTER TABLE schools ADD COLUMN IF NOT EXISTS welcome_message TEXT;
 
 `npm test` is a placeholder. Manual API testing or frontend UI testing is used for verification.
 
+### Parent hub API (mounted at `/api/parent` alongside `parent_portal`)
+
+- `routes/parent_hub.js` — hub overview, child summary, school announcements, parent notify, HT add teacher.
+- Schema helpers in `lib/parentHub.js`; messaging policy in `lib/messagingAccess.js`.
+- School join requests: only `teacher` role may use `POST /api/admin/request-school` (not head_teacher).
+
 ### Email rules
 
 - **Teachers / head teachers:** create a unique **school email** at signup (`school_email_local` → `name@schooldomain.edu`). That address is the login email.

@@ -18,6 +18,7 @@ const studentSharesRoutes = require('./routes/student_shares');
 const catMarksRoutes = require('./routes/cat_marks');
 const classroomFeedRoutes = require('./routes/classroom_feed');
 const parentPortalRoutes = require('./routes/parent_portal');
+const parentHubRoutes = require('./routes/parent_hub');
 const donateRoutes = require('./routes/donate');
 const { ensureFeedTables } = require('./lib/feedSchema');
 
@@ -97,6 +98,7 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/student-shares', studentSharesRoutes);
 app.use('/api/classroom-feed', classroomFeedRoutes);
 app.use('/api/parent', parentPortalRoutes);
+app.use('/api/parent', parentHubRoutes);
 app.use('/api/donate', donateRoutes);
 
 // Serve avatars

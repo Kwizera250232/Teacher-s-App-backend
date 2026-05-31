@@ -98,8 +98,8 @@ router.get('/contacts/list', auth, async (req, res) => {
         [req.user.id]
       );
       rows = result.rows;
-    } else if (req.user.role === 'teacher') {
-      const result = await pool.query(
+    } else if (req.user.role === 'teacher' || req.user.role === 'head_teacher') {
+      const students = await pool.query(
         `SELECT DISTINCT u.id, u.name, u.role, p.avatar_path
          FROM users u
          LEFT JOIN user_profiles p ON p.user_id = u.id
@@ -107,6 +107,41 @@ router.get('/contacts/list', auth, async (req, res) => {
            SELECT cm.student_id FROM classes c
            JOIN class_members cm ON cm.class_id = c.id
            WHERE c.teacher_id = $1
+         )`,
+        [req.user.id]
+      );
+      const parents = await pool.query(
+        `SELECT DISTINCT u.id, u.name, u.role, p.avatar_path
+         FROM users u
+         LEFT JOIN user_profiles p ON p.user_id = u.id
+         JOIN parent_children pc ON pc.parent_id = u.id
+         JOIN class_members cm ON cm.student_id = pc.student_id
+         JOIN classes c ON c.id = cm.class_id
+         WHERE u.id != $1 AND c.teacher_id = $2`,
+        [req.user.id, req.user.id]
+      );
+      const merged = new Map();
+      [...students.rows, ...parents.rows].forEach((r) => merged.set(r.id, r));
+      rows = [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
+    } else if (req.user.role === 'parent') {
+      const result = await pool.query(
+        `SELECT DISTINCT u.id, u.name, u.role, p.avatar_path
+         FROM users u
+         LEFT JOIN user_profiles p ON p.user_id = u.id
+         WHERE u.id != $1 AND (
+           u.id IN (
+             SELECT c.teacher_id FROM parent_children pc
+             JOIN class_members cm ON cm.student_id = pc.student_id
+             JOIN classes c ON c.id = cm.class_id
+             WHERE pc.parent_id = $1
+           )
+           OR u.id IN (
+             SELECT ht.id FROM parent_children pc
+             JOIN users st ON st.id = pc.student_id
+             JOIN users ht ON ht.school_id = st.school_id
+               AND ht.role = 'head_teacher' AND ht.is_approved = TRUE
+             WHERE pc.parent_id = $1
+           )
          )
          ORDER BY u.name`,
         [req.user.id]

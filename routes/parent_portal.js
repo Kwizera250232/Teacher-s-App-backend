@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { userCanManageClass } = require('../lib/classAccess');
+const { insertParentNotification, sendParentInAppMessage } = require('../lib/parentHub');
 
 const router = express.Router();
 
@@ -204,13 +205,41 @@ router.post('/classes/:classId/weekly-digest', authenticateToken, requireRole('t
          VALUES ($1,$2,$3,$4)`,
         [student.id, classId, req.user.id, JSON.stringify(digest)]
       );
+
+      const title = `Weekly update — ${student.name}`;
+      const body = [
+        digest.behavior_note && `Behavior: ${digest.behavior_note}`,
+        digest.work_summary && `Work: ${digest.work_summary}`,
+        digest.attendance && `Attendance: ${digest.attendance}`,
+        digest.gaps && `Areas to improve: ${digest.gaps}`,
+      ].filter(Boolean).join('\n');
+
+      for (const parent of parents.rows) {
+        await insertParentNotification({
+          parentId: parent.id,
+          studentId: student.id,
+          senderId: req.user.id,
+          type: 'weekly_digest',
+          title,
+          body: body || 'Weekly school update is available.',
+          payload: digest,
+        });
+        await sendParentInAppMessage({
+          senderId: req.user.id,
+          parentId: parent.id,
+          content: `📊 ${title}\n\n${body || 'See your child summary in UClass.'}`,
+          messageType: 'weekly_digest',
+          contextJson: { student_name: student.name, ...digest },
+        });
+      }
+
       digests.push(digest);
     }
 
     res.json({
-      message: 'Weekly digest saved. Configure SMTP on the server to email parents automatically.',
+      message: 'Weekly digest saved and sent to linked parents in the app.',
       digests,
-      emailed: false,
+      notified_in_app: true,
     });
   } catch (err) {
     console.error('[weekly-digest]', err);

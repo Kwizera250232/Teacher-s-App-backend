@@ -3,6 +3,7 @@ const multer = require('multer');
 const path = require('path');
 const pool = require('../db');
 const { authenticateToken } = require('../middleware/auth');
+const { canUsersMessage } = require('../lib/messagingAccess');
 
 const router = express.Router();
 const auth = [authenticateToken];
@@ -38,20 +39,9 @@ router.post('/', auth, async (req, res) => {
   if (isNaN(rid) || rid === req.user.id) {
     return res.status(400).json({ error: 'Invalid receiver.' });
   }
-  // Ensure sender and receiver share a class
-  const shared = await pool.query(
-    `SELECT 1 FROM class_members cm1
-     JOIN class_members cm2 ON cm1.class_id = cm2.class_id
-     WHERE cm1.student_id = $1 AND cm2.student_id = $2
-     UNION
-     SELECT 1 FROM class_members cm
-     JOIN classes c ON c.id = cm.class_id
-     WHERE (cm.student_id = $1 AND c.teacher_id = $2)
-        OR (cm.student_id = $2 AND c.teacher_id = $1)`,
-    [req.user.id, rid]
-  );
-  if (!shared.rowCount && req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'You can only message people in your classes.' });
+  const allowed = await canUsersMessage(req.user.id, rid, req.user.role);
+  if (!allowed) {
+    return res.status(403).json({ error: 'You cannot message this user.' });
   }
   try {
     const result = await pool.query(
@@ -70,6 +60,8 @@ router.post('/image', auth, uploadMsgImage.single('image'), async (req, res) => 
   if (!receiver_id || !req.file) return res.status(400).json({ error: 'receiver_id and image required.' });
   const rid = parseInt(receiver_id);
   if (isNaN(rid) || rid === req.user.id) return res.status(400).json({ error: 'Invalid receiver.' });
+  const allowed = await canUsersMessage(req.user.id, rid, req.user.role);
+  if (!allowed) return res.status(403).json({ error: 'You cannot message this user.' });
   try {
     const imagePath = `/uploads/msg_images/${req.file.filename}`;
     const result = await pool.query(
