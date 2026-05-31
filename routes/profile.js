@@ -107,6 +107,7 @@ router.get('/contacts/list', auth, async (req, res) => {
            SELECT cm.student_id FROM classes c
            JOIN class_members cm ON cm.class_id = c.id
            WHERE c.teacher_id = $1
+              OR EXISTS (SELECT 1 FROM class_co_teachers ct WHERE ct.class_id = c.id AND ct.teacher_id = $1)
          )`,
         [req.user.id]
       );
@@ -117,11 +118,24 @@ router.get('/contacts/list', auth, async (req, res) => {
          JOIN parent_children pc ON pc.parent_id = u.id
          JOIN class_members cm ON cm.student_id = pc.student_id
          JOIN classes c ON c.id = cm.class_id
-         WHERE u.id != $1 AND c.teacher_id = $2`,
+         WHERE u.id != $1 AND (
+           c.teacher_id = $2
+           OR EXISTS (SELECT 1 FROM class_co_teachers ct WHERE ct.class_id = c.id AND ct.teacher_id = $2)
+         )`,
         [req.user.id, req.user.id]
       );
+      let staffPeers = { rows: [] };
+      if (req.user.role === 'head_teacher' && req.user.school_id) {
+        staffPeers = await pool.query(
+          `SELECT DISTINCT u.id, u.name, u.role, p.avatar_path
+           FROM users u
+           LEFT JOIN user_profiles p ON p.user_id = u.id
+           WHERE u.school_id = $1 AND u.id != $2 AND u.role IN ('teacher', 'head_teacher')`,
+          [req.user.school_id, req.user.id]
+        );
+      }
       const merged = new Map();
-      [...students.rows, ...parents.rows].forEach((r) => merged.set(r.id, r));
+      [...students.rows, ...parents.rows, ...staffPeers.rows].forEach((r) => merged.set(r.id, r));
       rows = [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
     } else if (req.user.role === 'parent') {
       const result = await pool.query(
@@ -133,6 +147,12 @@ router.get('/contacts/list', auth, async (req, res) => {
              SELECT c.teacher_id FROM parent_children pc
              JOIN class_members cm ON cm.student_id = pc.student_id
              JOIN classes c ON c.id = cm.class_id
+             WHERE pc.parent_id = $1
+           )
+           OR u.id IN (
+             SELECT ct.teacher_id FROM parent_children pc
+             JOIN class_members cm ON cm.student_id = pc.student_id
+             JOIN class_co_teachers ct ON ct.class_id = cm.class_id
              WHERE pc.parent_id = $1
            )
            OR u.id IN (

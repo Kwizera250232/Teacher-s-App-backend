@@ -30,8 +30,11 @@ ALTER TABLE schools ADD COLUMN IF NOT EXISTS welcome_message TEXT;
 ### Parent hub API (mounted at `/api/parent` alongside `parent_portal`)
 
 - `routes/parent_hub.js` — hub overview, child summary, school announcements, parent notify, HT add teacher.
-- Schema helpers in `lib/parentHub.js`; messaging policy in `lib/messagingAccess.js`.
+- Schema helpers in `lib/parentHub.js`; messaging policy in `lib/messagingAccess.js`; in-app homework reminders in `lib/parentReminders.js` (runs on `GET /parent/hub`).
+- JWT is enriched with `school_id` on every authenticated request (`lib/enrichUser.js` via `middleware/auth.js`).
+- School admin routes are under `/api/admin/*` (not `/api/school/*`).
 - School join requests: only `teacher` role may use `POST /api/admin/request-school` (not head_teacher).
+- Local Postgres: `docker compose up -d` in backend repo; `npm test` runs module smoke tests.
 
 ### Email rules
 

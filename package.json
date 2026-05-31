@@ -8,7 +8,8 @@
     "dev": "nodemon index.js",
     "init-db": "node initDb.js",
     "check-email": "node scripts/check-email.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node scripts/smoke-test.js",
+    "smoke": "node scripts/smoke-test.js"
   },
   "keywords": [],
   "author": "",

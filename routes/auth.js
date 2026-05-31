@@ -624,9 +624,12 @@ router.post('/forgot-password', forgotLimiter, async (req, res) => {
       `INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES ($1,$2,$3)`,
       [userId, token, expiresAt]
     );
-    // In production you'd send email; here we return the token directly for in-app flow
     audit('password_reset_requested', { email });
-    res.json({ message: 'Reset code generated.', token });
+    const body = { message: 'If this email exists, a 6-digit reset code was generated. Enter it on the next screen.' };
+    if (process.env.EXPOSE_RESET_CODE === 'true') {
+      body.dev_code = token;
+    }
+    res.json(body);
   } catch (err) {
     console.error('[forgot-password]', err);
     res.status(500).json({ error: 'Internal server error.' });
@@ -650,8 +653,13 @@ router.post('/check-email', forgotLimiter, async (req, res) => {
   }
 });
 
-// POST /api/auth/reset-password-direct — set new password after email verified in UI
+// POST /api/auth/reset-password-direct — legacy; disabled in production (use reset-password + OTP)
 router.post('/reset-password-direct', forgotLimiter, async (req, res) => {
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_INSECURE_PASSWORD_RESET !== 'true') {
+    return res.status(403).json({
+      error: 'Use the reset code from forgot-password. Direct reset is disabled in production.',
+    });
+  }
   const email = (req.body.email || '').trim().toLowerCase();
   const newPassword = req.body.newPassword || req.body.new_password || '';
 

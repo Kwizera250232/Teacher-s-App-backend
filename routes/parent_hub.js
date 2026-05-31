@@ -9,6 +9,7 @@ const {
   sendParentInAppMessage,
   resolveParentRecipients,
 } = require('../lib/parentHub');
+const { runParentDailyReminders } = require('../lib/parentReminders');
 
 const router = express.Router();
 
@@ -31,11 +32,16 @@ async function parentOwnsStudent(parentId, studentId) {
 // ── Parent hub overview ───────────────────────────────────────────────────────
 router.get('/hub', authenticateToken, requireRole('parent'), async (req, res) => {
   try {
+    const unreadRow = await pool.query(
+      `SELECT COUNT(*)::int AS c FROM parent_notifications
+       WHERE parent_id = $1 AND is_read = FALSE`,
+      [req.user.id]
+    );
+    const unreadCount = unreadRow.rows[0]?.c || 0;
+
     const children = await pool.query(
       `SELECT u.id, u.name,
-              s.id AS school_id, s.name AS school_name, s.district, s.sector, s.location,
-              (SELECT COUNT(*)::int FROM parent_notifications pn
-               WHERE pn.parent_id = $1 AND pn.is_read = FALSE) AS unread_notifications
+              s.id AS school_id, s.name AS school_name, s.district, s.sector, s.location
        FROM parent_children pc
        JOIN users u ON u.id = pc.student_id
        LEFT JOIN schools s ON s.id = u.school_id
@@ -56,16 +62,27 @@ router.get('/hub', authenticateToken, requireRole('parent'), async (req, res) =>
       [req.user.id]
     );
 
-    const notifications = await pool.query(
+    await runParentDailyReminders(req.user.id).catch((e) =>
+      console.error('[parent reminders]', e.message)
+    );
+
+    const notificationsAfter = await pool.query(
       `SELECT * FROM parent_notifications WHERE parent_id = $1
        ORDER BY created_at DESC LIMIT 40`,
+      [req.user.id]
+    );
+
+    const unreadAfter = await pool.query(
+      `SELECT COUNT(*)::int AS c FROM parent_notifications
+       WHERE parent_id = $1 AND is_read = FALSE`,
       [req.user.id]
     );
 
     res.json({
       children: children.rows,
       announcements: announcements.rows,
-      notifications: notifications.rows,
+      notifications: notificationsAfter.rows,
+      unread_notifications_count: unreadAfter.rows[0]?.c ?? unreadCount,
     });
   } catch (err) {
     console.error('[parent hub]', err);
@@ -244,13 +261,20 @@ router.post('/notify', authenticateToken, requireRole('teacher', 'head_teacher')
         senderRole: req.user.role,
         schoolId,
       });
+    } else if (audience === 'class' && class_id) {
+      recipients = await resolveParentRecipients({
+        senderId: req.user.id,
+        senderRole: req.user.role,
+        schoolId,
+        classId: parseInt(class_id, 10),
+      });
     } else {
       recipients = await resolveParentRecipients({
         senderId: req.user.id,
         senderRole: req.user.role,
         schoolId,
         studentId: student_id ? parseInt(student_id, 10) : null,
-        classId: class_id ? parseInt(class_id, 10) : null,
+        classId: audience !== 'class' && class_id ? parseInt(class_id, 10) : null,
         parentIds: audience === 'selected' ? parent_ids : null,
       });
     }

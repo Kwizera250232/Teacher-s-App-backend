@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const { enrichUserFromDb } = require('../lib/enrichUser');
 require('dotenv').config();
 
 function authenticateToken(req, res, next) {
@@ -6,9 +7,9 @@ function authenticateToken(req, res, next) {
   const token = authHeader && authHeader.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Access denied. No token provided.' });
 
-  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+  jwt.verify(token, process.env.JWT_SECRET, async (err, user) => {
     if (err) return res.status(403).json({ error: 'Invalid or expired token.' });
-    req.user = user;
+    req.user = await enrichUserFromDb(user);
     next();
   });
 }
