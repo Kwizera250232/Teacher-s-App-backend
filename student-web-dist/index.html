@@ -5,6 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎓</text></svg>" />
     <title>UClass - Urubuga rw'Inyigisho</title>
+    <!-- Prefer latest UI on API host when this domain still serves an old Vercel bundle -->
+    <script>
+      (function () {
+        var h = location.hostname;
+        if (h !== 'student.umunsi.com' && h !== 'www.student.umunsi.com') return;
+        var el = document.querySelector('script[type="module"]');
+        if (el && el.src && el.src.indexOf('index-Dr5jq81L') !== -1) {
+          location.replace('https://studentapi.umunsi.com/app' + location.pathname + location.search + location.hash);
+        }
+      })();
+    </script>
 
     <!-- ========== Open Graph (WhatsApp · Facebook · LinkedIn · Telegram) ========== -->
     <meta property="og:type"             content="website" />
@@ -43,8 +54,8 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="🎓 UClass" />
     <link rel="apple-touch-icon" href="/app/icon.svg" />
-    <script type="module" crossorigin src="/app/assets/index-BO3LoE-Q.js"></script>
-    <link rel="stylesheet" crossorigin href="/app/assets/index-CGjgl9xG.css">
+    <script type="module" crossorigin src="/app/assets/index-zY4_72o4.js"></script>
+    <link rel="stylesheet" crossorigin href="/app/assets/index-OIp2bQOn.css">
   </head>
   <body>
     <div id="root">

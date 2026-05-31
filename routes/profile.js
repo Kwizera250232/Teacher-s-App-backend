@@ -140,7 +140,7 @@ router.get('/contacts/list', auth, async (req, res) => {
       rows = [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
     } else if (req.user.role === 'parent') {
       const result = await pool.query(
-        `SELECT DISTINCT u.id, u.name, u.role, p.avatar_path
+        `SELECT DISTINCT u.id, u.name, u.role, u.email, u.phone, p.avatar_path
          FROM users u
          LEFT JOIN user_profiles p ON p.user_id = u.id
          WHERE u.id != $1 AND (
