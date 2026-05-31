@@ -106,6 +106,7 @@ export default function StudentDashboard() {
           user={user}
           onLogout={logout}
           onParentInvite={() => setShowParentInvite(true)}
+          onOpenStatus={openStatus}
           isImpersonating={isImpersonating}
           stopImpersonation={stopImpersonation}
         />
@@ -120,6 +121,7 @@ export default function StudentDashboard() {
           {isImpersonating && (
             <button type="button" className="btn btn-secondary btn-sm" onClick={stopImpersonation}>↩ Return Admin</button>
           )}
+          <button type="button" className="btn btn-secondary btn-sm" onClick={openStatus}>✍️ C. Status</button>
           <Link to="/profile" className="btn btn-secondary btn-sm">👤 Profile</Link>
           <Link to="/student/notes" className="btn btn-secondary btn-sm">📝 My Notes</Link>
           <DonateButton />

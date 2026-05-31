@@ -230,36 +230,38 @@ export default function Messages() {
               </div>
             </div>
 
-            <div className="msg-thread" ref={threadRef}>
-              {thread.length === 0 && <div className="msg-empty msg-thread-empty">Start the conversation!</div>}
-              {thread.map(m => (
-                <div key={m.id} className={`msg-bubble-wrap ${m.sender_id === user?.id ? 'mine' : 'theirs'}`}>
-                  <div className={`msg-bubble ${m.message_type && m.message_type !== 'chat' ? 'msg-bubble-announce' : ''}`}>
-                    {m.message_type && m.message_type !== 'chat' && (
-                      <span className="msg-type-tag">{m.message_type.replace(/_/g, ' ')}</span>
-                    )}
-                    {m.image_path && (
-                      <img
-                        src={`${UPLOADS_BASE}${m.image_path}`}
-                        alt="shared"
-                        className="msg-img"
-                        onClick={() => window.open(`${UPLOADS_BASE}${m.image_path}`, '_blank')}
-                      />
-                    )}
-                    {m.content && <p>{m.content}</p>}
-                    <span className="msg-time">{new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            <div className="wa-chat-body">
+              <div className="msg-thread" ref={threadRef}>
+                {thread.length === 0 && <div className="msg-empty msg-thread-empty">Start the conversation!</div>}
+                {thread.map(m => (
+                  <div key={m.id} className={`msg-bubble-wrap ${m.sender_id === user?.id ? 'mine' : 'theirs'}`}>
+                    <div className={`msg-bubble ${m.message_type && m.message_type !== 'chat' ? 'msg-bubble-announce' : ''}`}>
+                      {m.message_type && m.message_type !== 'chat' && (
+                        <span className="msg-type-tag">{m.message_type.replace(/_/g, ' ')}</span>
+                      )}
+                      {m.image_path && (
+                        <img
+                          src={`${UPLOADS_BASE}${m.image_path}`}
+                          alt="shared"
+                          className="msg-img"
+                          onClick={() => window.open(`${UPLOADS_BASE}${m.image_path}`, '_blank')}
+                        />
+                      )}
+                      {m.content && <p>{m.content}</p>}
+                      <span className="msg-time">{new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
                   </div>
-                </div>
-              ))}
-              <div ref={bottomRef} />
-            </div>
-
-            {imgPreview && (
-              <div className="msg-img-preview">
-                <img src={imgPreview} alt="preview" />
-                <button className="msg-img-clear" onClick={clearImg}>✕</button>
+                ))}
+                <div ref={bottomRef} />
               </div>
-            )}
+
+              {imgPreview && (
+                <div className="msg-img-preview">
+                  <img src={imgPreview} alt="preview" />
+                  <button className="msg-img-clear" onClick={clearImg}>✕</button>
+                </div>
+              )}
+            </div>
 
             <form className="msg-input-row" onSubmit={send}>
               <div className="msg-attach-wrap">
