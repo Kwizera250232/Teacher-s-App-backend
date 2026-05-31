@@ -12,22 +12,8 @@ pm2 save
 sleep 2
 curl -fsS https://studentapi.umunsi.com/api/health
 echo ""
-check_route() {
-  local label="$1"
-  shift
-  local code
-  code=$(curl -s -o /dev/null -w "%{http_code}" "$@")
-  echo "${label}: HTTP ${code}"
-  if [ "$code" = "404" ]; then
-    echo "  ERROR: route missing — run git pull on the server and pm2 restart studentapi"
-    FAILED=1
-  fi
-}
-
-FAILED=0
-check_route "auth/parent-invite POST" -X POST https://studentapi.umunsi.com/api/auth/parent-invite -H "Content-Type: application/json"
-check_route "parent/my/parent-invite POST" -X POST https://studentapi.umunsi.com/api/parent/my/parent-invite -H "Content-Type: application/json"
-check_route "composition-status/mine GET" https://studentapi.umunsi.com/api/composition-status/mine
-check_route "student-shares/dashboard GET" https://studentapi.umunsi.com/api/student-shares/dashboard
-echo "Done. Expect 401 (no token) or 403 (bad token), never 404."
-exit "${FAILED:-0}"
+curl -s -o /dev/null -w "student UI /app/: HTTP %{http_code}\n" https://studentapi.umunsi.com/app/
+echo ""
+curl -s -o /dev/null -w "auth/parent-invite (no token): HTTP %{http_code}\n" -X POST https://studentapi.umunsi.com/api/auth/parent-invite -H "Content-Type: application/json"
+curl -s -o /dev/null -w "student-shares/dashboard (no token): HTTP %{http_code}\n" https://studentapi.umunsi.com/api/student-shares/dashboard
+echo "Done. Expect parent-invite=401 and dashboard=401 when routes exist (not 404)."

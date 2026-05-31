@@ -1,0 +1,117 @@
+.classroom-feed { margin-top: 0.5rem; }
+.feed-composer {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1.25rem;
+}
+.feed-type-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem; }
+.feed-type-btn {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  border-radius: 20px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.feed-type-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+.feed-textarea, .feed-input {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.6rem;
+  margin-bottom: 0.5rem;
+  font-family: inherit;
+}
+.feed-photo-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+.feed-file-name { font-size: 0.85rem; color: #166534; font-weight: 600; }
+.feed-composer-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.feed-readonly-hint { color: #64748b; font-size: 0.9rem; margin-bottom: 1rem; }
+.feed-empty { color: #94a3b8; text-align: center; padding: 2rem; }
+.feed-list { display: flex; flex-direction: column; gap: 1rem; }
+.feed-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1rem;
+}
+.feed-card-head { margin-bottom: 0.5rem; }
+.feed-meta { display: block; font-size: 0.75rem; color: #64748b; font-weight: normal; }
+.feed-summary { background: #eff6ff; padding: 0.5rem 0.75rem; border-radius: 8px; font-size: 0.9rem; }
+.feed-body { white-space: pre-wrap; line-height: 1.5; }
+.feed-body-preview { color: #374151; }
+.feed-read-toggle {
+  background: none;
+  border: none;
+  color: #2563eb;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0;
+  margin-left: 6px;
+}
+.feed-read-toggle:hover { text-decoration: underline; }
+.feed-media-img { max-width: 100%; border-radius: 8px; margin-top: 0.5rem; }
+.feed-audio { width: 100%; margin-top: 0.5rem; }
+.feed-doc-link { display: inline-block; margin-top: 0.5rem; color: #2563eb; }
+.feed-card-foot { display: flex; gap: 1rem; margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid #f1f5f9; }
+.feed-action { background: none; border: none; cursor: pointer; font-size: 0.9rem; }
+.feed-comments { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px dashed #e2e8f0; }
+.feed-comment { font-size: 0.9rem; margin-bottom: 0.35rem; }
+.feed-comment-form { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+.feed-comment-form input { flex: 1; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.4rem 0.6rem; }
+.whiteboard-wrap { margin: 0.75rem 0; }
+.whiteboard-tools { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+.wb-color { width: 28px; height: 28px; border-radius: 50%; border: 2px solid #e2e8f0; cursor: pointer; }
+.wb-color.active { border-color: #111827; transform: scale(1.1); }
+.whiteboard-canvas {
+  width: 100%;
+  height: 280px;
+  border: 2px solid #cbd5e1;
+  border-radius: 8px;
+  touch-action: none;
+  cursor: crosshair;
+}
+.whiteboard-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+.whiteboard-tabs { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+.whiteboard-tabs button {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  padding: 0.35rem 0.75rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.whiteboard-tabs button.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+.wb-graph-panel {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0.75rem;
+  background: #f0f9ff;
+  border-radius: 8px;
+  border: 1px solid #bae6fd;
+}
+.wb-graph-panel label { font-size: 0.8rem; font-weight: 600; display: block; }
+.wb-graph-panel select, .wb-graph-panel textarea {
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.4rem;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+}
+.cat-cell-input {
+  width: 3rem;
+  padding: 0.25rem;
+  text-align: center;
+  border: 2px solid #2563eb;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+.cat-cell-clickable {
+  cursor: pointer;
+  min-width: 2.5rem;
+  text-align: center;
+}
+.cat-cell-clickable:hover { background: #eff6ff; }
+.feed-own-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }

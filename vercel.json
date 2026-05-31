@@ -1,0 +1,9 @@
+{
+  "framework": "vite",
+  "installCommand": "cd student-web && npm ci",
+  "buildCommand": "cd student-web && npm run build",
+  "outputDirectory": "student-web/dist",
+  "rewrites": [
+    { "source": "/((?!assets|uploads|favicon.ico|api|download|app).*)", "destination": "/index.html" }
+  ]
+}

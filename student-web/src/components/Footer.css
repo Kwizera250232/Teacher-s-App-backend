@@ -1,0 +1,169 @@
+.app-footer {
+  background: #1a1a2e;
+  color: #ccc;
+  padding: 0;
+  margin-top: auto;
+  width: 100%;
+}
+
+.footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 32px;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 32px 24px 20px;
+}
+
+.footer-brands-title,
+.footer-contact-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #888;
+  margin-bottom: 14px;
+  font-weight: 600;
+}
+
+.footer-brands-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: center;
+}
+
+.footer-brand-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  color: #ddd;
+  font-size: 13px;
+  font-weight: 500;
+  transition: opacity 0.2s;
+}
+
+.footer-brand-item:hover {
+  opacity: 0.8;
+}
+
+.footer-brand-logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #333;
+}
+
+.footer-brand-uclass {
+  cursor: default;
+}
+
+.footer-uclass-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6c63ff, #4ecdc4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  border: 2px solid #333;
+}
+
+.footer-contact-num {
+  color: #ddd;
+  text-decoration: none;
+  font-size: 15px;
+  font-weight: 500;
+  display: block;
+}
+
+.footer-contact-num:hover {
+  color: #fff;
+}
+
+.footer-powered {
+  border-top: 1px solid #2a2a3e;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #888;
+}
+
+.footer-powered-logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.footer-powered a {
+  color: #f0a500;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.footer-powered a:hover {
+  text-decoration: underline;
+}
+
+.footer-install-btn {
+  margin-top: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.15s;
+  letter-spacing: 0.3px;
+}
+
+.footer-install-btn:hover {
+  opacity: 0.88;
+  transform: translateY(-1px);
+}
+
+.footer-install-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.footer-umunsimedia {
+  border-top: 1px solid #2a2a3e;
+  padding: 14px 24px;
+  background: #111122;
+}
+.footer-umunsimedia-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  max-width: 900px;
+  margin: 0 auto;
+  color: #f59e0b;
+  font-size: 13px;
+  transition: opacity 0.2s;
+}
+.footer-umunsimedia-link:hover { opacity: 0.85; }
+.footer-umunsimedia-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #f59e0b;
+  flex-shrink: 0;
+}
+.footer-umunsimedia-link strong { color: #fbbf24; }

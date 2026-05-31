@@ -1,0 +1,214 @@
+.phub-page {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: #f8fafc;
+  font-family: 'Google Sans', 'Segoe UI', system-ui, sans-serif;
+}
+
+.phub-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: #fff;
+  border-bottom: 1px solid #e8eaed;
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.06);
+}
+
+.phub-brand { display: flex; flex-direction: column; }
+.phub-logo { font-weight: 700; font-size: 20px; color: #1a73e8; }
+.phub-sub { font-size: 12px; color: #5f6368; }
+
+.phub-header-actions { display: flex; gap: 8px; align-items: center; }
+
+.phub-nav {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px;
+  background: #fff;
+  border-bottom: 1px solid #e8eaed;
+}
+
+.phub-nav-btn {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 10px 12px;
+  border-radius: 24px;
+  font-weight: 600;
+  font-size: 14px;
+  color: #5f6368;
+  cursor: pointer;
+  position: relative;
+}
+
+.phub-nav-btn.active {
+  background: #e8f0fe;
+  color: #1a73e8;
+}
+
+.phub-badge {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  background: #d93025;
+  color: #fff;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+
+.phub-body { flex: 1; overflow: hidden; }
+.phub-chat-wrap { height: calc(100dvh - 120px); }
+.phub-panel { padding: 16px 20px; max-width: 720px; margin: 0 auto; overflow-y: auto; height: calc(100dvh - 120px); }
+
+.phub-card {
+  background: #fff;
+  border: 1px solid #e8eaed;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.05);
+}
+
+.phub-card-unread { border-left: 4px solid #1a73e8; }
+.phub-child-hero { background: linear-gradient(135deg, #e8f0fe, #fff); }
+.phub-muted { color: #5f6368; font-size: 14px; }
+.phub-section { margin-top: 20px; }
+.phub-section h3 { font-size: 15px; color: #202124; margin-bottom: 8px; }
+.phub-row { font-size: 14px; padding: 8px 0; border-bottom: 1px solid #f1f3f4; }
+.phub-select-label { display: block; margin-bottom: 16px; font-weight: 600; }
+.phub-select-label select { display: block; width: 100%; margin-top: 6px; padding: 8px; border-radius: 8px; }
+
+.phub-chat-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #eee;
+  background: #fff;
+}
+
+.phub-chat-meta { font-size: 12px; color: #5f6368; margin-top: 4px; line-height: 1.4; }
+
+@media (min-width: 900px) {
+  .phub-nav { max-width: 400px; margin: 0 auto; border-radius: 0 0 24px 24px; }
+}
+
+/* WhatsApp-inspired accents (mobile-first) */
+.wa-theme.phub-page,
+.staff-hub-page {
+  --wa-green: #25d366;
+  --wa-green-dark: #128c7e;
+  --wa-chat-bg: #e5ddd5;
+  --wa-bubble-in: #ffffff;
+  --wa-bubble-out: #d9fdd3;
+}
+
+.wa-theme .phub-nav-btn.active {
+  background: #dcf8c6;
+  color: #075e54;
+}
+
+.wa-theme .msg-bubble.sent {
+  background: var(--wa-bubble-out);
+  color: #111;
+}
+
+.wa-theme .msg-bubble.received {
+  background: var(--wa-bubble-in);
+}
+
+.wa-messages {
+  background: var(--wa-chat-bg);
+}
+
+.wa-context-banner {
+  background: #fff;
+  border-left: 4px solid var(--wa-green, #25d366);
+  padding: 10px 12px;
+  margin: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #303030;
+  line-height: 1.45;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.wa-chat-header {
+  background: var(--wa-green-dark, #128c7e) !important;
+  color: #fff !important;
+}
+
+.wa-chat-header .phub-chat-meta {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.wa-input-bar {
+  background: #f0f2f5;
+}
+
+.staff-hub-page {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: #f0f2f5;
+}
+
+.staff-hub-page .dash-main {
+  flex: 1;
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.staff-hub-nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+@media (max-width: 768px) {
+  .staff-hub-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    top: auto;
+    border-top: 1px solid #e8eaed;
+    border-bottom: none;
+    padding-bottom: env(safe-area-inset-bottom, 8px);
+  }
+  .staff-hub-page .dash-main {
+    padding-bottom: 72px;
+  }
+}
+
+.phub-period-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.phub-period-tabs button {
+  border: 1px solid #dadce0;
+  background: #fff;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.phub-period-tabs button.active {
+  background: #dcf8c6;
+  border-color: #25d366;
+  color: #075e54;
+  font-weight: 600;
+}
+
+.phub-pinned {
+  border-left: 4px solid #f59e0b;
+  background: #fffbeb;
+}

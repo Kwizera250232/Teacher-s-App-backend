@@ -1,0 +1,65 @@
+/* WhatsApp-style chat: messages scroll, input pinned to bottom */
+.wa-chat-shell.msg-page,
+.msg-page.wa-chat-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.wa-chat-shell .msg-sidebar,
+.wa-chat-shell .msg-chat {
+  min-height: 0;
+}
+
+.wa-chat-shell .msg-chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.wa-chat-shell .msg-thread,
+.wa-chat-shell .msg-messages,
+.wa-chat-shell .wa-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.wa-chat-shell .msg-input-row,
+.wa-chat-shell .msg-input-bar,
+.wa-chat-shell .wa-input-bar {
+  flex-shrink: 0;
+  margin-top: auto;
+  position: relative;
+  bottom: 0;
+  z-index: 2;
+}
+
+.wa-chat-shell .msg-chat-header,
+.wa-chat-shell .phub-chat-header,
+.wa-chat-shell .wa-chat-header {
+  flex-shrink: 0;
+}
+
+.wa-chat-shell .msg-img-preview {
+  flex-shrink: 0;
+}
+
+.phub-chat-wrap.wa-chat-shell {
+  height: calc(100dvh - 56px);
+  max-height: calc(100dvh - 56px);
+}
+
+@media (max-width: 768px) {
+  .phub-chat-wrap.wa-chat-shell {
+    height: calc(100dvh - 120px - env(safe-area-inset-bottom, 0px));
+  }
+}
+
+.staff-hub-page .phub-chat-wrap.wa-chat-shell {
+  height: min(72vh, calc(100dvh - 180px));
+}

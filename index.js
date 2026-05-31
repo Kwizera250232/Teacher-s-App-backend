@@ -28,8 +28,6 @@ const aiRoutes = require('./routes/ai');
 const textbookRoutes = require('./routes/textbooks');
 const profileRoutes = require('./routes/profile');
 const messageRoutes = require('./routes/messages');
-const { authenticateToken } = require('./middleware/auth');
-const { handleStudentParentInvite } = require('./lib/studentParentInvite');
 
 const app = express();
 
@@ -123,6 +121,22 @@ app.post('/api/pwa/install', async (req, res) => {
 });
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+
+// Student web UI (built React app) — live at /app/ when Vercel has not updated yet
+const studentUiDist = path.join(__dirname, 'student-web-dist');
+if (fs.existsSync(studentUiDist)) {
+  app.use('/app', express.static(studentUiDist, { index: 'index.html', maxAge: '1h' }));
+  app.get('/app/*', (req, res) => {
+    res.sendFile(path.join(studentUiDist, 'index.html'));
+  });
+  app.get('/', (req, res, next) => {
+    const host = String(req.hostname || '');
+    if (host.includes('studentapi.') && !req.path.startsWith('/api')) {
+      return res.redirect(302, '/app/');
+    }
+    return next();
+  });
+}
 
 // Central error handler — never leak internal error details to clients
 // eslint-disable-next-line no-unused-vars

@@ -1,0 +1,181 @@
+.auth-app-shell {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: #f0f2f5;
+}
+
+.auth-app-shell__header {
+  background: linear-gradient(135deg, #128c7e, #25d366);
+  color: #fff;
+  padding: 16px 18px 20px;
+  flex-shrink: 0;
+}
+
+.auth-app-shell__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.auth-app-shell__logo {
+  font-size: 36px;
+  line-height: 1;
+}
+
+.auth-app-shell__brand strong {
+  display: block;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.auth-app-shell__brand span {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.auth-app-shell__dean {
+  margin: 10px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.95;
+}
+
+.auth-app-shell__main {
+  flex: 1;
+  padding: 20px 16px 24px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.auth-app-shell__card {
+  width: 100%;
+  max-width: 440px;
+  background: #fff;
+  border-radius: 14px;
+  padding: 24px 20px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.auth-app-shell__card h1 {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 800;
+  color: #075e54;
+  text-align: center;
+}
+
+.auth-app-shell__sub {
+  margin: 0 0 20px;
+  text-align: center;
+  color: #667781;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.auth-app-shell__footer {
+  padding: 12px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  text-align: center;
+  font-size: 14px;
+  color: #667781;
+  background: #fff;
+  border-top: 1px solid #e9edef;
+}
+
+.auth-app-shell__footer a {
+  color: #128c7e;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.auth-app-shell .form-group {
+  margin-bottom: 14px;
+}
+
+.auth-app-shell .form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #075e54;
+  margin-bottom: 6px;
+}
+
+.auth-app-shell .form-group input,
+.auth-app-shell .form-group select,
+.auth-app-shell .form-group textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border: 1.5px solid #e9edef;
+  border-radius: 10px;
+  font-size: 15px;
+  background: #f0f2f5;
+}
+
+.auth-app-shell .form-group input:focus,
+.auth-app-shell .form-group select:focus {
+  outline: none;
+  border-color: #25d366;
+  background: #fff;
+}
+
+.auth-app-shell .btn-primary {
+  background: linear-gradient(135deg, #25d366, #128c7e);
+  border: none;
+  color: #fff;
+  font-weight: 700;
+  border-radius: 10px;
+  padding: 12px 16px;
+  width: 100%;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.auth-app-shell .btn-secondary {
+  background: #fff;
+  border: 1.5px solid #128c7e;
+  color: #128c7e;
+  font-weight: 600;
+  border-radius: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.auth-app-shell .role-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.auth-app-shell .role-card {
+  border: 2px solid #e9edef;
+  border-radius: 12px;
+  padding: 14px 10px;
+  text-align: center;
+  cursor: pointer;
+  background: #fff;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.auth-app-shell .role-card.active {
+  border-color: #25d366;
+  background: #e7ffdb;
+}
+
+.auth-app-shell .role-card strong {
+  display: block;
+  font-size: 14px;
+  color: #075e54;
+}
+
+.auth-app-shell .alert-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}

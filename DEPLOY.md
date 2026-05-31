@@ -28,3 +28,15 @@ Secrets: `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY`, optional `BACKEND_APP_DIR`, 
 curl -s "https://studentapi.umunsi.com/api/parent/invite-preview?token=test"
 # Should return 400/404 JSON — not HTML 404 page
 ```
+
+## Student UI at /app/ (immediate, no Vercel push)
+
+After `git pull` and `pm2 restart studentapi`, open:
+
+**https://studentapi.umunsi.com/app/**
+
+This serves the built React app from `student-web-dist/` (square class cards, Dean AI, signup shell).
+
+Rebuild locally: `bash scripts/build-student-web-dist.sh` (requires `frontend/` clone).
+
+`student.umunsi.com` on Vercel updates only after pushing `Teacher-s-App-frontent` **or** pointing Vercel to `student-web/` in this repo.

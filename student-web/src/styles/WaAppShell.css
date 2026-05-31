@@ -1,0 +1,78 @@
+/* Global WhatsApp-style shell */
+.app-wa-shell {
+  --wa-green: #25d366;
+  --wa-green-dark: #128c7e;
+  --wa-chat-bg: #e5ddd5;
+  --wa-text: #111b21;
+  --wa-muted: #667781;
+}
+
+.app-wa-shell .dashboard,
+.app-wa-shell .phub-page,
+.app-wa-shell .class-page {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+.app-wa-shell .staff-hub-page .dash-main,
+.app-wa-shell .student-wa-dashboard .dash-main {
+  background: var(--wa-chat-bg);
+}
+
+.app-wa-shell .phub-card,
+.app-wa-shell .empty-state,
+.app-wa-shell .discussion-msg,
+.app-wa-shell .item-card {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.app-wa-shell .tabs {
+  background: #f0f2f5;
+  padding: 6px;
+  border-radius: 12px;
+  gap: 4px;
+}
+
+.app-wa-shell .tab {
+  border-radius: 20px;
+  border: none;
+  background: transparent;
+  color: var(--wa-muted);
+}
+
+.app-wa-shell .tab.active {
+  background: #dcf8c6;
+  color: #075e54;
+  font-weight: 600;
+}
+
+.app-wa-shell .class-hero {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.app-wa-shell .discussion-list {
+  background: var(--wa-chat-bg);
+}
+
+.app-wa-shell .discussion-msg {
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.app-wa-shell .teacher-msg {
+  background: #dcf8c6;
+}
+
+.app-wa-shell .btn-primary {
+  background: var(--wa-green-dark);
+  border-color: var(--wa-green-dark);
+}
+
+.app-wa-shell .alert-error {
+  border-radius: 8px;
+}
