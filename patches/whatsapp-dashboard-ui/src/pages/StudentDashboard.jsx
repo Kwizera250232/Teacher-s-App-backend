@@ -1,0 +1,309 @@
+import { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
+import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
+import JoinClassModal from '../components/JoinClassModal';
+import VerifiedBadge from '../components/VerifiedBadge';
+import DonateButton from '../components/DonateButton';
+import ParentInviteModal from '../components/ParentInviteModal';
+import MobileStudentHeader from '../components/MobileStudentHeader';
+import MobileBottomBar from '../components/MobileBottomBar';
+import CompositionStatusPanel from '../components/CompositionStatusPanel';
+import DeanAiModal from '../components/DeanAiModal';
+import StudentClassmatesList from '../components/StudentClassmatesList';
+import './Dashboard.css';
+import './MobileDashboard.css';
+
+export default function StudentDashboard() {
+  const { user, token, logout, isImpersonating, stopImpersonation } = useAuth();
+  const [classes, setClasses] = useState([]);
+  const [showJoin, setShowJoin] = useState(false);
+  const [error, setError] = useState('');
+  const [announcements, setAnnouncements] = useState([]);
+  const [dismissed, setDismissed] = useState(() => JSON.parse(localStorage.getItem('dismissed_announcements') || '[]'));
+  const [quickNote, setQuickNote] = useState(null);
+  const [showParentInvite, setShowParentInvite] = useState(false);
+  const [showCompositionStatus, setShowCompositionStatus] = useState(false);
+  const [statusPickerOpen, setStatusPickerOpen] = useState(false);
+  const [showDean, setShowDean] = useState(false);
+  const classesRef = useRef(null);
+
+  const loadClasses = () => {
+    api.get('/classes/my', token).then(data => {
+      setClasses(data);
+      try { localStorage.setItem('cached_classes', JSON.stringify(data)); } catch {}
+    }).catch(e => {
+      if (!navigator.onLine) {
+        try { const c = JSON.parse(localStorage.getItem('cached_classes') || '[]'); setClasses(c); } catch {}
+      } else {
+        setError(e.message);
+      }
+    });
+  };
+
+  const dismissAnnouncement = (id) => {
+    const updated = [...dismissed, id];
+    setDismissed(updated);
+    localStorage.setItem('dismissed_announcements', JSON.stringify(updated));
+  };
+
+  useEffect(() => { loadClasses(); }, []);
+  useEffect(() => {
+    api.get('/admin/user-announcements', token).then(setAnnouncements).catch(() => {});
+  }, []);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('status') === '1') {
+      setShowCompositionStatus(true);
+      setStatusPickerOpen(true);
+      window.history.replaceState({}, '', '/student/dashboard');
+    }
+  }, []);
+
+  const saveQuickNote = async () => {
+    if (!quickNote?.text?.trim()) return;
+    setQuickNote(q => ({ ...q, saving: true }));
+    try {
+      await api.post('/student/notes', {
+        title: quickNote.text.trim().slice(0, 60) || 'Note',
+        content: quickNote.text.trim(),
+        color: '#fff9c4',
+      }, token);
+      setQuickNote(null);
+    } catch {
+      setQuickNote(q => ({ ...q, saving: false }));
+    }
+  };
+
+  const scrollTo = (ref) => {
+    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  return (
+    <div className="dashboard student-dashboard-classic">
+      <header className="dash-header dash-header--student">
+        <div className="dash-header-desktop-brand dash-brand">🎓 UClass</div>
+        <MobileStudentHeader
+          user={user}
+          onLogout={logout}
+          onParentInvite={() => setShowParentInvite(true)}
+          isImpersonating={isImpersonating}
+          stopImpersonation={stopImpersonation}
+        />
+        <div className="dash-header-desktop-actions dash-user">
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            👋 {user?.name}
+            <VerifiedBadge size={15} info={{ items: [
+              { icon: '👩‍🎓', label: 'Role', value: 'Student' },
+              { icon: '📧', label: 'Email', value: user?.email },
+            ] }} />
+          </span>
+          {isImpersonating && (
+            <button type="button" className="btn btn-secondary btn-sm" onClick={stopImpersonation}>↩ Return Admin</button>
+          )}
+          <Link to="/profile" className="btn btn-secondary btn-sm">👤 Profile</Link>
+          <Link to="/student/notes" className="btn btn-secondary btn-sm">📝 My Notes</Link>
+          <DonateButton />
+          <button type="button" className="btn btn-outline btn-sm" onClick={logout}>Logout</button>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setShowParentInvite(true)}
+            title="Invite parent"
+          >
+            👪 Invite parent
+          </button>
+        </div>
+      </header>
+
+      <div className="mobile-donate-fab">
+        <DonateButton compact fab />
+      </div>
+
+      <main className="dash-main">
+        <div className="dash-top dash-top-actions-desktop">
+          <div>
+            <h1>My classes</h1>
+            <p className="dash-sub">Open a class for homework, quizzes, and class chat</p>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-start' }}>
+            <button type="button" className="btn btn-primary" onClick={() => setShowJoin(true)}>
+              + Join class
+            </button>
+            <button type="button" className="btn btn-secondary" onClick={() => setShowParentInvite(true)}>
+              👪 Invite parent
+            </button>
+          </div>
+        </div>
+
+        <div className="wa-invite-banner student-parent-invite-banner">
+          <strong>👪 Invite your parent</strong>
+          <p>Share a link so they can see your quizzes, marks, and class work.</p>
+          <button type="button" onClick={() => setShowParentInvite(true)}>
+            Get parent invite link
+          </button>
+        </div>
+
+        {error && <div className="alert alert-error">{error}</div>}
+
+        {announcements.filter(a => !dismissed.includes(a.id)).map(a => (
+          <div
+            key={a.id}
+            style={{
+              background: 'linear-gradient(135deg, #eff6ff, #dbeafe)',
+              border: '1px solid #93c5fd',
+              borderRadius: 12,
+              padding: '1rem 1.25rem',
+              marginBottom: '0.75rem',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'flex-start',
+              gap: '1rem',
+            }}
+          >
+            <div>
+              <strong style={{ color: '#1e40af' }}>📢 {a.title}</strong>
+              <p style={{ margin: '4px 0 0', fontSize: 14, color: '#374151' }}>{a.message}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => dismissAnnouncement(a.id)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '1.2rem' }}
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+
+        <div ref={classesRef}>
+          {classes.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">🎒</div>
+              <h3>No classes yet</h3>
+              <p>Join a class with the code from your teacher</p>
+              <button type="button" className="btn btn-primary" onClick={() => setShowJoin(true)}>Join class</button>
+            </div>
+          ) : (
+            <div className="classes-grid">
+              {classes.map(cls => (
+                <div key={cls.id} className="class-card-wrap">
+                  <Link to={`/student/classes/${cls.id}`} className="class-card">
+                    <div className="class-card-header">
+                      <h3>{cls.name}</h3>
+                      {cls.subject && <span className="subject-tag">{cls.subject}</span>}
+                    </div>
+                    {cls.class_code && (
+                      <div className="class-code-display">
+                        <span className="code-label">Class code</span>
+                        <span className="code-value">{cls.class_code}</span>
+                      </div>
+                    )}
+                    <p className="class-teacher">👨‍🏫 {cls.teacher_name || 'Teacher'}</p>
+                    <div className="class-card-footer">
+                      <span>Open class</span>
+                      <span className="arrow">→</span>
+                    </div>
+                  </Link>
+                  <button
+                    type="button"
+                    className="class-card-note-btn"
+                    onClick={() => setQuickNote({ classId: cls.id, open: true, text: '', saving: false })}
+                  >
+                    📝 Quick summary note
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {classes.length > 0 && (
+          <section className="student-classmates-section">
+            <h2 className="student-section-title">Classmates</h2>
+            <StudentClassmatesList token={token} classes={classes} />
+          </section>
+        )}
+      </main>
+
+      {/* Dean — AI app support (floating) */}
+      <div className="dean-fab-wrap" aria-live="polite">
+        {!showDean && (
+          <span className="dean-fab-label">Ask Dean · AI support ✨</span>
+        )}
+        <button
+          type="button"
+          className="dean-fab-btn"
+          aria-label={showDean ? 'Close Dean AI' : 'Open Dean AI support'}
+          onClick={() => setShowDean(!showDean)}
+        >
+          {showDean ? '✕' : '🎓'}
+        </button>
+      </div>
+      {showDean && <DeanAiModal token={token} onClose={() => setShowDean(false)} />}
+
+      <MobileBottomBar
+        items={[
+          { id: 'classes', icon: '📚', label: 'Classes', onClick: () => scrollTo(classesRef), active: true },
+          { id: 'status', icon: '✍️', label: 'C. Status', onClick: () => { setStatusPickerOpen(false); setShowCompositionStatus(true); } },
+          { id: 'notes', icon: '📝', label: 'Notes', to: '/student/notes' },
+          { id: 'parent', icon: '👪', label: 'Parent', onClick: () => setShowParentInvite(true) },
+          { id: 'dean', icon: '🎓', label: 'Dean', onClick: () => setShowDean(true) },
+          { id: 'profile', icon: '👤', label: 'Profile', to: '/profile' },
+        ]}
+      />
+
+      {showJoin && (
+        <JoinClassModal
+          token={token}
+          onClose={() => setShowJoin(false)}
+          onJoined={() => { setShowJoin(false); loadClasses(); }}
+        />
+      )}
+
+      {showParentInvite && user?.name && (
+        <ParentInviteModal
+          token={token}
+          selfStudentId={user.id}
+          studentName={user.name}
+          onClose={() => setShowParentInvite(false)}
+        />
+      )}
+
+      {showCompositionStatus && (
+        <CompositionStatusPanel
+          token={token}
+          openPickerInitially={statusPickerOpen}
+          onClose={() => setShowCompositionStatus(false)}
+        />
+      )}
+
+      {quickNote?.open && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setQuickNote(null)}>
+          <div className="modal" style={{ maxWidth: 420 }}>
+            <h3 style={{ marginBottom: 4, fontSize: 18 }}>📝 Quick note</h3>
+            <textarea
+              autoFocus
+              rows={5}
+              style={{ width: '100%', padding: '10px 14px', border: '2px solid #e0e0e0', borderRadius: 10, fontSize: 14, resize: 'vertical', boxSizing: 'border-box' }}
+              placeholder="What did you learn today?"
+              value={quickNote.text}
+              onChange={e => setQuickNote(q => ({ ...q, text: e.target.value }))}
+            />
+            <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'flex-end' }}>
+              <button type="button" className="btn btn-outline" onClick={() => setQuickNote(null)}>Cancel</button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={quickNote.saving || !quickNote.text.trim()}
+                onClick={saveQuickNote}
+              >
+                {quickNote.saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
