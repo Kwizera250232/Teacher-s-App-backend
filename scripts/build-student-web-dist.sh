@@ -2,9 +2,12 @@
 # Build frontend and copy into student-web-dist/ for API server static hosting at /app/
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-FRONTEND="${FRONTEND_DIR:-$ROOT/frontend}"
+FRONTEND="${FRONTEND_DIR:-$ROOT/student-web}"
 if [ ! -f "$FRONTEND/package.json" ]; then
-  echo "Frontend not found at $FRONTEND"
+  FRONTEND="$ROOT/frontend"
+fi
+if [ ! -f "$FRONTEND/package.json" ]; then
+  echo "Frontend not found (tried student-web/ and frontend/)"
   exit 1
 fi
 cd "$FRONTEND"
