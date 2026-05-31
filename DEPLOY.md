@@ -41,16 +41,18 @@ Rebuild locally: `bash scripts/build-student-web-dist.sh` (requires `frontend/` 
 
 `student.umunsi.com` on Vercel updates only after pushing `Teacher-s-App-frontent` **or** pointing DNS to the VPS (see below).
 
-### Vercel still on old UI?
+### Vercel still on old UI? (e.g. forgot-password still shows 6-digit code)
 
-`student.umunsi.com` DNS points to **Vercel** (old `student-wa-dashboard` — classes often missing). The live UI is on the API host:
+`student.umunsi.com` DNS points to **Vercel** (`index-Dr5jq81L.js` — old bundle). The fixed UI is already on the server:
 
-**https://studentapi.umunsi.com/app/**
+**https://studentapi.umunsi.com/app/forgot-password** (no code field)
 
-1. **Fastest:** Use the link above (square class cards, Dean AI, visible **My classes**).
-2. **Auto-push to Vercel:** Add GitHub secret `FRONTEND_DEPLOY_TOKEN` (PAT with `repo` on `Teacher-s-App-frontent`), then run workflow **Push frontend (Vercel)** or:
+Pick **one** fix:
+
+1. **Fastest (no DNS change):** Use **https://studentapi.umunsi.com/app/** for login, register, forgot-password, messages.
+2. **Update Vercel:** In GitHub → **Teacher-s-App-backend** → Settings → Secrets, add `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, then run workflow **Deploy student UI to Vercel**. Or add `FRONTEND_DEPLOY_TOKEN` and run **Push frontend (Vercel)**.
+3. **Point DNS to VPS (recommended long-term):** In Namecheap/Hostinger DNS for `umunsi.com`, set **`student`** A record → **`93.127.186.217`** (remove Vercel CNAME). SSH to VPS and run:
    ```bash
-   FRONTEND_DEPLOY_TOKEN=ghp_xxx bash scripts/push-frontend-deploy.sh
+   bash scripts/setup-student-domain-vps.sh
    ```
-3. **Or point DNS:** `student.umunsi.com` A → `93.127.186.217` (nginx at `/home/umunsi/htdocs/student.umunsi.com/`).
-4. **Or Vercel project root:** Point the Vercel project at this repo; root `vercel.json` builds `student-web/`.
+   Then open **https://student.umunsi.com/forgot-password** (served from VPS with SSL via certbot).
