@@ -108,7 +108,7 @@ export default function StaffDashboard({ roleLabel, basePath }) {
           </Link>
           <DonateButton />
           <Link to="/profile" className="btn btn-secondary btn-sm">👤 Profile</Link>
-          <button className="btn btn-outline" onClick={logout}>Logout</button>
+          <button type="button" className="btn btn-sm btn-logout" onClick={logout}>Logout</button>
         </div>
       </header>
 

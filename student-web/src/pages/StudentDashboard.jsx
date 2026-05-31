@@ -123,7 +123,7 @@ export default function StudentDashboard() {
           <Link to="/profile" className="btn btn-secondary btn-sm">👤 Profile</Link>
           <Link to="/student/notes" className="btn btn-secondary btn-sm">📝 My Notes</Link>
           <DonateButton />
-          <button type="button" className="btn btn-outline btn-sm" onClick={logout}>Logout</button>
+          <button type="button" className="btn btn-sm btn-logout" onClick={logout}>Logout</button>
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowParentInvite(true)}>
             👪 Invite parent
           </button>

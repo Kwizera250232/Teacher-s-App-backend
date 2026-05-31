@@ -35,9 +35,11 @@ export default function Messages() {
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [showShareComposition, setShowShareComposition] = useState(false);
   const bottomRef = useRef();
+  const threadRef = useRef();
   const fileRef = useRef();
   const emojiRef = useRef();
   const inboxDataRef = useRef({});
+  const shouldScrollOnSendRef = useRef(false);
 
   useEffect(() => {
     Promise.all([
@@ -69,6 +71,8 @@ export default function Messages() {
   }, [activeId, token]);
 
   useEffect(() => {
+    if (!shouldScrollOnSendRef.current) return;
+    shouldScrollOnSendRef.current = false;
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [thread]);
 
@@ -115,6 +119,7 @@ export default function Messages() {
       }
       setText('');
       clearImg();
+      shouldScrollOnSendRef.current = true;
     } catch {/* ignore */}
     setSending(false);
   };
@@ -128,11 +133,11 @@ export default function Messages() {
 
   return (
     <>
-    <div className="msg-page wa-chat-shell">
+    <div className="msg-page wa-chat-shell msg-page--fullscreen">
       <div className={`msg-sidebar ${mobilePanel === 'chat' ? 'msg-sidebar-hidden' : ''}`}>
         <div className="msg-sidebar-header">
-          <button className="btn btn-outline btn-sm" onClick={() => navigate(-1)}>←</button>
-          <span>💬 Messages</span>
+          <button type="button" className="msg-wa-back" onClick={() => navigate(-1)} aria-label="Back">←</button>
+          <span className="msg-sidebar-title">Chats</span>
         </div>
         {contacts.length === 0 && <div className="msg-empty">No contacts yet. Join a class first.</div>}
 
@@ -225,8 +230,8 @@ export default function Messages() {
               </div>
             </div>
 
-            <div className="msg-thread">
-              {thread.length === 0 && <div className="msg-empty" style={{ textAlign: 'center', marginTop: 40 }}>Start the conversation!</div>}
+            <div className="msg-thread" ref={threadRef}>
+              {thread.length === 0 && <div className="msg-empty msg-thread-empty">Start the conversation!</div>}
               {thread.map(m => (
                 <div key={m.id} className={`msg-bubble-wrap ${m.sender_id === user?.id ? 'mine' : 'theirs'}`}>
                   <div className={`msg-bubble ${m.message_type && m.message_type !== 'chat' ? 'msg-bubble-announce' : ''}`}>
@@ -317,6 +322,7 @@ export default function Messages() {
         receiverName={activeContact?.name}
         onClose={() => setShowShareComposition(false)}
         onSent={() => {
+          shouldScrollOnSendRef.current = true;
           api.get(`/messages/thread/${activeId}`, token).then(setThread).catch(() => {});
         }}
       />

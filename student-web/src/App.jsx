@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
@@ -44,15 +44,15 @@ function HomeRedirect() {
   return <Navigate to={dashboardPath(user.role)} replace />;
 }
 
-export default function App() {
+function AppShell() {
+  const location = useLocation();
+  const hideFooter = location.pathname === '/messages' || location.pathname.endsWith('/messages');
+
   return (
-    <AuthProvider>
-      <InstallProvider>
-        <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '') || undefined}>
-          <div className="app-wa-shell" style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-            <OfflineBanner />
-            <div style={{ flex: 1 }}>
-              <Routes>
+    <div className={`app-wa-shell${hideFooter ? ' app-wa-shell--chat-fullscreen' : ''}`} style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      <OfflineBanner />
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <Routes>
                 <Route path="/" element={<HomeRedirect />} />
                 <Route path="/welcome" element={<Landing />} />
                 <Route path="/join" element={<JoinClass />} />
@@ -119,10 +119,19 @@ export default function App() {
                 <Route path="/messages" element={
                   <ProtectedRoute><Messages /></ProtectedRoute>
                 } />
-              </Routes>
-            </div>
-            <Footer />
-          </div>
+        </Routes>
+      </div>
+      {!hideFooter && <Footer />}
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <InstallProvider>
+        <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '') || undefined}>
+          <AppShell />
         </BrowserRouter>
       </InstallProvider>
     </AuthProvider>

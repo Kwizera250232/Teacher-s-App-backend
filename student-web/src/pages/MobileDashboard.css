@@ -529,6 +529,17 @@
   border: none;
 }
 
+.staff-hub-page .phub-header .btn-logout {
+  background: rgba(255, 255, 255, 0.22) !important;
+  color: #fff !important;
+  border: 1px solid rgba(255, 255, 255, 0.85) !important;
+}
+
+.staff-hub-page .mobile-staff-header .mobile-nav-text-btn--muted,
+.staff-hub-page .mobile-student-header .mobile-nav-text-btn--muted {
+  color: rgba(255, 255, 255, 0.95);
+}
+
 .staff-hub-page .staff-hub-nav {
   background: #fff;
 }
@@ -753,7 +764,24 @@
 
 .student-dashboard-classic .dash-main {
   padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
-  max-width: 1200px;
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding-left: 16px;
+  padding-right: 16px;
+  box-sizing: border-box;
+}
+
+@media (min-width: 769px) {
+  .student-dashboard-classic .dash-main {
+    padding-left: 24px;
+    padding-right: 24px;
+    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .student-dashboard-classic .dash-top-actions-desktop {
+    display: flex !important;
+  }
 }
 
 .student-dash-actions {
@@ -764,7 +792,7 @@
 }
 
 .student-desktop-quick-nav {
-  display: none;
+  display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 1.25rem;
@@ -840,10 +868,6 @@
 }
 
 @media (min-width: 769px) {
-  .student-dashboard-classic .student-desktop-quick-nav {
-    display: flex;
-  }
-
   .student-dashboard-classic .dean-fab-wrap {
     bottom: 96px;
   }

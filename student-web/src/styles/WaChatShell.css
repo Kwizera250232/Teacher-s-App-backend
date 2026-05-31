@@ -2,8 +2,20 @@
 .wa-chat-shell.msg-page,
 .msg-page.wa-chat-shell {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-wa-shell--chat-fullscreen {
+  min-height: 100dvh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.app-wa-shell--chat-fullscreen > div:first-of-type + div {
+  flex: 1;
   min-height: 0;
   overflow: hidden;
 }

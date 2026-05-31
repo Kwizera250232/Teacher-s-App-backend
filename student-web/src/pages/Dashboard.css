@@ -30,6 +30,29 @@ body {
 .btn-danger:hover { background: #e84393; }
 .btn-outline { background: transparent; color: #667eea; border: 2px solid #667eea; }
 .btn-outline:hover { background: #667eea; color: white; }
+
+/* Logout — visible on light and green headers */
+.btn-logout {
+  background: rgba(255, 255, 255, 0.2) !important;
+  color: #fff !important;
+  border: 1px solid rgba(255, 255, 255, 0.75) !important;
+  font-weight: 600;
+}
+.btn-logout:hover {
+  background: rgba(255, 255, 255, 0.35) !important;
+  color: #fff !important;
+}
+
+.dash-header--student .btn-logout,
+.student-dashboard-classic .dash-header--student .btn-logout {
+  background: #fff !important;
+  color: #128c7e !important;
+  border: 1px solid #128c7e !important;
+}
+.dash-header--student .btn-logout:hover {
+  background: #e7fce8 !important;
+  color: #075e54 !important;
+}
 .btn-secondary { background: #f0f2ff; color: #667eea; }
 .btn-secondary:hover { background: #e0e4ff; }
 .btn-full { width: 100%; justify-content: center; padding: 12px; font-size: 15px; }
