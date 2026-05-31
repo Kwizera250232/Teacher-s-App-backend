@@ -27,7 +27,7 @@ ALTER TABLE schools ADD COLUMN IF NOT EXISTS welcome_message TEXT;
 
 - Teachers/HT: `POST /api/parent/students/:studentId/parent-link` (requires manage access to a class the student is in).
 - `GET /api/parent/invitable-students` — student list for dashboard picker.
-- Students: `POST /api/parent/my/parent-invite`.
+- Students: `POST /api/parent/my/parent-invite`, `POST /api/student/parent-invite`, or `POST /api/auth/parent-invite` (stable path when parent routes are not deployed yet).
 - Invite URLs use request `Origin` when allowed, else `FRONTEND_URL` (default `https://student.umunsi.com`).
 - Signup: `/invite?parent_token=...` → `POST /auth/register` with `parent_token`; parents use Gmail/Yahoo/Outlook-style emails.
 
