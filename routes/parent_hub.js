@@ -10,6 +10,8 @@ const {
   resolveParentRecipients,
 } = require('../lib/parentHub');
 const { runParentDailyReminders } = require('../lib/parentReminders');
+const { periodClause } = require('../lib/periodFilters');
+const { maybeEmailParent } = require('../lib/parentNotifyEmail');
 
 const router = express.Router();
 
@@ -64,7 +66,7 @@ router.get('/hub', authenticateToken, requireRole('parent'), async (req, res) =>
          SELECT DISTINCT st.school_id FROM parent_children pc
          JOIN users st ON st.id = pc.student_id WHERE pc.parent_id = $1 AND st.school_id IS NOT NULL
        )
-       ORDER BY sa.created_at DESC LIMIT 30`,
+       ORDER BY sa.is_pinned DESC, sa.created_at DESC LIMIT 30`,
       [req.user.id]
     );
 
@@ -137,9 +139,10 @@ router.get('/children/:studentId/summary', authenticateToken, requireRole('paren
   if (!(await parentOwnsStudent(req.user.id, studentId))) {
     return res.status(403).json({ error: 'Forbidden.' });
   }
+  const period = String(req.query.period || 'all').toLowerCase();
   try {
     const student = await pool.query(
-      `SELECT u.id, u.name, s.name AS school_name, s.district, s.sector, s.location
+      `SELECT u.id, u.name, s.name AS school_name, s.district, s.sector, s.location, s.welcome_message
        FROM users u LEFT JOIN schools s ON s.id = u.school_id WHERE u.id = $1`,
       [studentId]
     );
@@ -151,34 +154,38 @@ router.get('/children/:studentId/summary', authenticateToken, requireRole('paren
       [studentId]
     );
 
+    const quizPeriod = periodClause(period, 'qa.attempted_at');
     const quizzes = await pool.query(
       `SELECT q.title, q.created_at, qa.score, qa.attempted_at, c.name AS class_name
        FROM quiz_attempts qa
        JOIN quizzes q ON q.id = qa.quiz_id
        JOIN classes c ON c.id = q.class_id
        JOIN class_members cm ON cm.class_id = c.id AND cm.student_id = $1
-       WHERE qa.student_id = $1
-       ORDER BY qa.attempted_at DESC LIMIT 20`,
+       WHERE qa.student_id = $1 ${quizPeriod.sql}
+       ORDER BY qa.attempted_at DESC LIMIT 30`,
       [studentId]
     );
 
+    const hwPeriod = periodClause(period, 'COALESCE(hs.submitted_at, h.created_at)');
     const homework = await pool.query(
       `SELECT h.title, h.due_date, hs.submitted_at, hs.grade, c.name AS class_name
        FROM homework h
        JOIN classes c ON c.id = h.class_id
        JOIN class_members cm ON cm.class_id = c.id AND cm.student_id = $1
        LEFT JOIN homework_submissions hs ON hs.homework_id = h.id AND hs.student_id = $1
-       ORDER BY COALESCE(hs.submitted_at, h.created_at) DESC LIMIT 20`,
+       WHERE cm.student_id = $1 ${hwPeriod.sql}
+       ORDER BY COALESCE(hs.submitted_at, h.created_at) DESC LIMIT 30`,
       [studentId]
     );
 
+    const marksPeriod = periodClause(period, 'cm.test_date');
     const marks = await pool.query(
       `SELECT cm.test_number, cm.marks_obtained, cm.total_marks, cm.test_date, c.name AS class_name
        FROM cat_marks cm
        JOIN classes c ON c.id = cm.class_id
        JOIN class_members mem ON mem.class_id = c.id AND mem.student_id = $1
-       WHERE cm.student_id = $1
-       ORDER BY cm.test_date DESC NULLS LAST LIMIT 30`,
+       WHERE cm.student_id = $1 ${marksPeriod.sql}
+       ORDER BY cm.test_date DESC NULLS LAST LIMIT 40`,
       [studentId]
     ).catch(() => ({ rows: [] }));
 
@@ -195,6 +202,7 @@ router.get('/children/:studentId/summary', authenticateToken, requireRole('paren
     ).catch(() => ({ rows: [] }));
 
     res.json({
+      period,
       student: student.rows[0],
       classes: classes.rows,
       quizzes: quizzes.rows,
@@ -252,6 +260,7 @@ router.post('/notify', authenticateToken, requireRole('teacher', 'head_teacher')
     class_id,
     parent_ids,
     audience,
+    also_email: alsoEmail,
   } = req.body;
   const messageTitle = (title || '').trim();
   const messageBody = (body || '').trim();
@@ -303,10 +312,21 @@ router.post('/notify', authenticateToken, requireRole('teacher', 'head_teacher')
     };
 
     let sent = 0;
+    let emailed = 0;
     for (const parent of recipients) {
       const studentForParent = student_id
         ? parseInt(student_id, 10)
         : parent.student_id || null;
+      let studentName = parent.student_name || null;
+      if (!studentName && studentForParent) {
+        const sn = await pool.query('SELECT name FROM users WHERE id = $1', [studentForParent]);
+        studentName = sn.rows[0]?.name || null;
+      }
+      const richContext = {
+        ...contextJson,
+        student_name: studentName,
+        student_id: studentForParent,
+      };
 
       await insertParentNotification({
         parentId: parent.id,
@@ -315,7 +335,7 @@ router.post('/notify', authenticateToken, requireRole('teacher', 'head_teacher')
         type: type || 'announcement',
         title: messageTitle,
         body: messageBody,
-        payload: contextJson,
+        payload: richContext,
       });
 
       const chatLine = `📢 ${messageTitle}\n\n${messageBody}`;
@@ -324,12 +344,24 @@ router.post('/notify', authenticateToken, requireRole('teacher', 'head_teacher')
         parentId: parent.id,
         content: chatLine,
         messageType: type || 'announcement',
-        contextJson,
+        contextJson: richContext,
       });
+      const mailResult = await maybeEmailParent({
+        parentEmail: parent.email,
+        subject: `[UClass] ${messageTitle}`,
+        text: `${messageTitle}\n\n${messageBody}\n\n— ${schoolMeta.name || 'School'}`,
+        alsoEmail: Boolean(alsoEmail),
+      });
+      if (mailResult.sent) emailed += 1;
       sent += 1;
     }
 
-    res.json({ message: `Sent to ${sent} parent(s) in the app.`, count: sent });
+    const emailNote = alsoEmail
+      ? emailed > 0
+        ? ` Email sent to ${emailed} parent(s).`
+        : ' (Email not sent — configure SMTP or check parent emails.)'
+      : '';
+    res.json({ message: `Sent to ${sent} parent(s) in the app.${emailNote}`, count: sent, emailed });
   } catch (err) {
     console.error('[parent notify]', err);
     res.status(500).json({ error: 'Internal server error.' });
@@ -360,7 +392,8 @@ router.get('/school/announcements', authenticateToken, async (req, res) => {
     const ann = await pool.query(
       `SELECT sa.*, u.name AS author_name FROM school_announcements sa
        JOIN users u ON u.id = sa.created_by
-       WHERE sa.school_id = $1 ORDER BY sa.created_at DESC LIMIT 50`,
+       WHERE sa.school_id = $1
+       ORDER BY sa.is_pinned DESC, sa.created_at DESC LIMIT 50`,
       [schoolId]
     );
     res.json(ann.rows);
@@ -373,37 +406,66 @@ router.post('/school/announcements', authenticateToken, requireRole('head_teache
   const title = (req.body.title || '').trim();
   const body = (req.body.body || '').trim();
   const notifyParents = req.body.notify_parents !== false;
+  const alsoEmail = Boolean(req.body.also_email);
+  const isPinned = Boolean(req.body.is_pinned);
   if (!title || !body) return res.status(400).json({ error: 'Title and body required.' });
 
   try {
     const schoolId = await getSenderSchoolId(req.user);
     if (!schoolId) return res.status(400).json({ error: 'No school assigned.' });
 
+    const schoolRow = await pool.query(
+      'SELECT name, district, sector, welcome_message FROM schools WHERE id = $1',
+      [schoolId]
+    );
+    const schoolMeta = schoolRow.rows[0] || {};
+
     const ins = await pool.query(
-      `INSERT INTO school_announcements (school_id, created_by, title, body)
-       VALUES ($1,$2,$3,$4) RETURNING *`,
-      [schoolId, req.user.id, title, body]
+      `INSERT INTO school_announcements (school_id, created_by, title, body, is_pinned)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [schoolId, req.user.id, title, body, isPinned]
     );
 
     if (notifyParents) {
-      await resolveParentRecipients({ senderId: req.user.id, senderRole: req.user.role, schoolId })
-        .then(async (recipients) => {
-          for (const p of recipients) {
-            await insertParentNotification({
-              parentId: p.id,
-              senderId: req.user.id,
-              type: 'school_announcement',
-              title,
-              body,
-            });
-            await sendParentInAppMessage({
-              senderId: req.user.id,
-              parentId: p.id,
-              content: `📢 ${title}\n\n${body}`,
-              messageType: 'school_announcement',
-            });
-          }
+      const recipients = await resolveParentRecipients({
+        senderId: req.user.id,
+        senderRole: req.user.role,
+        schoolId,
+      });
+      const contextJson = {
+        school_name: schoolMeta.name,
+        district: schoolMeta.district,
+        sector: schoolMeta.sector,
+        welcome_message: schoolMeta.welcome_message,
+      };
+      let emailed = 0;
+      for (const p of recipients) {
+        await insertParentNotification({
+          parentId: p.id,
+          studentId: p.student_id || null,
+          senderId: req.user.id,
+          type: 'school_announcement',
+          title,
+          body,
+          payload: { ...contextJson, student_name: p.student_name },
         });
+        await sendParentInAppMessage({
+          senderId: req.user.id,
+          parentId: p.id,
+          content: `📢 ${title}\n\n${body}`,
+          messageType: 'school_announcement',
+          contextJson: { ...contextJson, student_name: p.student_name },
+        });
+        const mailResult = await maybeEmailParent({
+          parentEmail: p.email,
+          subject: `[UClass] ${title}`,
+          text: `${title}\n\n${body}`,
+          alsoEmail,
+        });
+        if (mailResult.sent) emailed += 1;
+      }
+      ins.rows[0].parents_notified = recipients.length;
+      ins.rows[0].emails_sent = emailed;
     }
 
     res.status(201).json(ins.rows[0]);

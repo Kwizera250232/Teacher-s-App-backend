@@ -26,9 +26,16 @@ ALTER TABLE schools ADD COLUMN IF NOT EXISTS welcome_message TEXT;
 ### Parent invites
 
 - Teachers/HT: `POST /api/parent/students/:studentId/parent-link` (requires manage access to a class the student is in).
+- `GET /api/parent/invitable-students` — student list for dashboard picker.
 - Students: `POST /api/parent/my/parent-invite`.
 - Invite URLs use request `Origin` when allowed, else `FRONTEND_URL` (default `https://student.umunsi.com`).
 - Signup: `/invite?parent_token=...` → `POST /auth/register` with `parent_token`; parents use Gmail/Yahoo/Outlook-style emails.
+
+### School join & parent comms
+
+- Teachers only: `POST /api/admin/request-school` → HT `PUT /api/admin/school-requests/:id/approve`.
+- `POST /api/parent/notify` and school announcements: in-app notify + chat (`context_json` with school/child); optional `also_email`.
+- Child summary: `GET /api/parent/children/:id/summary?period=today|week|term|all`.
 
 ### No test suite
 
