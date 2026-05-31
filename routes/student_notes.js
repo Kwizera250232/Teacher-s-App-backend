@@ -3,7 +3,7 @@ const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
-const { handleStudentParentInvite } = require('../lib/studentParentInvite');
+const { buildParentInviteResponse } = require('../lib/parentInvite');
 
 // Ensure student_personal_notes table exists
 pool.query(`
@@ -59,23 +59,8 @@ router.put('/notes/:id', authenticateToken, requireRole('student'), async (req, 
   } catch (err) { console.error(err); res.status(500).json({ error: 'Internal server error.' }); }
 });
 
-async function studentParentInviteRoute(req, res) {
-  try {
-    const student = await pool.query(
-      `SELECT id, name FROM users WHERE id=$1 AND role='student'`,
-      [req.user.id]
-    );
-    if (!student.rows.length) return res.status(404).json({ error: 'Student not found.' });
-    const payload = await buildParentInviteResponse(req, student.rows[0].id, student.rows[0].name);
-    res.json(payload);
-  } catch (err) {
-    console.error('[student/parent-invite]', err);
-    res.status(500).json({ error: 'Internal server error.' });
-  }
-}
-
-router.get('/parent-invite', authenticateToken, requireRole('student'), studentParentInviteRoute);
-router.post('/parent-invite', authenticateToken, requireRole('student'), studentParentInviteRoute);
+router.get('/parent-invite', authenticateToken, handleStudentParentInvite);
+router.post('/parent-invite', authenticateToken, handleStudentParentInvite);
 
 // DELETE note
 router.delete('/notes/:id', authenticateToken, requireRole('student'), async (req, res) => {
