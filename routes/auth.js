@@ -724,13 +724,7 @@ router.post('/check-email', forgotLimiter, async (req, res) => {
   }
 });
 
-// POST /api/auth/reset-password-direct — legacy; disabled in production (use reset-password + OTP)
-router.post('/reset-password-direct', forgotLimiter, async (req, res) => {
-  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_INSECURE_PASSWORD_RESET !== 'true') {
-    return res.status(403).json({
-      error: 'Use the reset code from forgot-password. Direct reset is disabled in production.',
-    });
-  }
+async function resetPasswordByEmail(req, res) {
   const email = (req.body.email || '').trim().toLowerCase();
   const newPassword = req.body.newPassword || req.body.new_password || '';
 
@@ -745,58 +739,23 @@ router.post('/reset-password-direct', forgotLimiter, async (req, res) => {
   try {
     const userResult = await pool.query('SELECT id FROM users WHERE email=$1', [email]);
     if (userResult.rows.length === 0) {
-      return res.status(400).json({ error: 'Nta konti iboneka kuri iyi imeyili.' });
+      return res.status(400).json({ error: 'Nta konti iboneka kuri iyi imeyili. Reba neza cyangwa uvugishe umuyobozi.' });
     }
-    const hashed = await bcrypt.hash(newPassword, 12);
-    await pool.query('UPDATE users SET password=$1 WHERE id=$2', [hashed, userResult.rows[0].id]);
-    audit('password_reset_direct', { email });
-    res.json({ message: 'Password reset successfully.' });
-  } catch (err) {
-    console.error('[reset-password-direct]', err);
-    res.status(500).json({ error: 'Internal server error.' });
-  }
-});
-
-// POST /api/auth/reset-password — validate code and set new password
-router.post('/reset-password', forgotLimiter, async (req, res) => {
-  const email = (req.body.email || '').trim().toLowerCase();
-  const { token, newPassword } = req.body;
-
-  if (!email || !token || !newPassword) {
-    return res.status(400).json({ error: 'Email, token, and new password are required.' });
-  }
-  if (!isValidEmail(email)) return res.status(400).json({ error: 'Invalid email address.' });
-  if (!isStrongPassword(newPassword)) {
-    return res.status(400).json({ error: 'Password must be at least 8 characters and include letters and numbers.' });
-  }
-  // Validate token is exactly 6 digits
-  if (!/^\d{6}$/.test(String(token))) {
-    return res.status(400).json({ error: 'Invalid or expired reset code.' });
-  }
-
-  try {
-    const userResult = await pool.query('SELECT id FROM users WHERE email=$1', [email]);
-    if (userResult.rows.length === 0) return res.status(400).json({ error: 'Invalid request.' });
     const userId = userResult.rows[0].id;
-
-    const tokenResult = await pool.query(
-      `SELECT * FROM password_reset_tokens
-       WHERE user_id=$1 AND token=$2 AND used=FALSE AND expires_at > NOW()`,
-      [userId, token]
-    );
-    if (tokenResult.rows.length === 0) {
-      return res.status(400).json({ error: 'Invalid or expired reset code.' });
-    }
     const hashed = await bcrypt.hash(newPassword, 12);
     await pool.query('UPDATE users SET password=$1 WHERE id=$2', [hashed, userId]);
-    await pool.query('UPDATE password_reset_tokens SET used=TRUE WHERE id=$1', [tokenResult.rows[0].id]);
+    await pool.query('DELETE FROM password_reset_tokens WHERE user_id=$1', [userId]);
     audit('password_reset_done', { email });
     res.json({ message: 'Password reset successfully.' });
   } catch (err) {
     console.error('[reset-password]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
-});
+}
+
+// POST /api/auth/reset-password — set new password by email (no OTP code)
+router.post('/reset-password', forgotLimiter, resetPasswordByEmail);
+router.post('/reset-password-direct', forgotLimiter, resetPasswordByEmail);
 
 const { handleStudentParentInvite } = require('../lib/studentParentInvite');
 

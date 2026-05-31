@@ -1,23 +1,13 @@
 import { useEffect } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import ForgotPassword from './ForgotPassword';
+import { Link, useNavigate } from 'react-router-dom';
 
-/** Legacy route: deep-link with ?email=&code= opens OTP reset; otherwise redirect to forgot flow. */
+/** Legacy route — password reset is a single form at /forgot-password (no code). */
 export default function ResetPassword() {
-  const [params] = useSearchParams();
   const navigate = useNavigate();
-  const email = params.get('email');
-  const code = params.get('code');
 
   useEffect(() => {
-    if (!email && !code) {
-      navigate('/forgot-password', { replace: true });
-    }
-  }, [email, code, navigate]);
-
-  if (email || code) {
-    return <ForgotPassword initialEmail={email || ''} initialCode={code || ''} startStep={2} />;
-  }
+    navigate('/forgot-password', { replace: true });
+  }, [navigate]);
 
   return (
     <div className="auth-page">
