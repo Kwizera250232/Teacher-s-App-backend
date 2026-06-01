@@ -9,6 +9,7 @@ import ParentInviteModal from '../components/ParentInviteModal';
 import MobileStudentHeader from '../components/MobileStudentHeader';
 import MobileBottomBar from '../components/MobileBottomBar';
 import CompositionStatusPanel from '../components/CompositionStatusPanel';
+import CompositionStatusFeed from '../components/CompositionStatusFeed';
 import DeanAiModal from '../components/DeanAiModal';
 import './Dashboard.css';
 import './MobileDashboard.css';
@@ -169,6 +170,8 @@ export default function StudentDashboard() {
           <p>Share a link so they can see your quizzes, marks, and class work.</p>
           <button type="button" onClick={() => setShowParentInvite(true)}>Get parent invite link</button>
         </div>
+
+        <CompositionStatusFeed token={token} />
 
         {error && <div className="alert alert-error">{error}</div>}
 

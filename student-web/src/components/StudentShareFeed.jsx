@@ -117,7 +117,8 @@ export default function StudentShareFeed({ token }) {
   };
 
   const handlePin = async (share) => {
-    if (share.type !== 'composition' || share.status !== 'approved') return;
+    const pinTypes = ['composition', 'dream', 'lesson', 'motivation'];
+    if (!pinTypes.includes(share.type) || share.status !== 'approved') return;
     try {
       await api.patch(`/student-shares/${share.id}/pin`, { pinned: !share.pinned }, token);
       setShares((prev) =>
@@ -304,7 +305,7 @@ export default function StudentShareFeed({ token }) {
                 </div>
               )}
               <div className="sf-post-foot">
-                {isOwn && s.type === 'composition' && s.status === 'approved' && (
+                {isOwn && ['composition', 'dream', 'lesson', 'motivation'].includes(s.type) && s.status === 'approved' && (
                   <button type="button" className="sf-like-btn" onClick={() => handlePin(s)}>
                     {s.pinned ? '📌 Pinned' : '📍 Pin'}
                   </button>

@@ -36,4 +36,80 @@
 }
 .csp-pick-item strong { display: block; color: #111b21; margin-bottom: 4px; }
 .csp-pick-item span { font-size: 12px; color: #667781; }
+.csp-pick-type { display: block; text-transform: capitalize; }
+.csp-empty-icon { font-size: 36px; margin-bottom: 8px; }
 
+.csp-feed-section {
+  margin: 20px 0 28px;
+  padding: 18px 16px;
+  border-radius: 16px;
+  background: linear-gradient(145deg, #f0fdf4 0%, #fff 55%, #ecfeff 100%);
+  border: 1px solid #bbf7d0;
+  box-shadow: 0 8px 24px rgba(7, 94, 84, 0.08);
+}
+.csp-feed-header h2 { margin: 0 0 6px; font-size: 18px; color: #075e54; }
+.csp-feed-header p { margin: 0 0 14px; font-size: 13px; color: #54656f; line-height: 1.45; }
+.csp-feed-list { display: flex; flex-direction: column; gap: 10px; }
+.csp-feed-card {
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #e8eaed;
+  overflow: hidden;
+}
+.csp-feed-card--locked { border-color: #fde68a; background: linear-gradient(180deg, #fffbeb, #fff); }
+.csp-feed-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+.csp-feed-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #25d366, #128c7e);
+  color: #fff;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.csp-feed-meta { flex: 1; min-width: 0; }
+.csp-feed-meta strong { display: block; color: #111b21; font-size: 15px; }
+.csp-feed-meta small { color: #667781; font-size: 12px; }
+.csp-feed-chevron { color: #128c7e; font-size: 14px; }
+.csp-feed-body { padding: 0 14px 14px; border-top: 1px solid #f0f2f5; }
+.csp-feed-empty { text-align: center; padding: 24px 12px; color: #54656f; font-size: 14px; }
+.csp-feed-empty-icon { font-size: 32px; display: block; margin-bottom: 8px; }
+
+.csp-lock-panel {
+  text-align: center;
+  padding: 12px 8px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fff7ed, #fff);
+  border: 1px dashed #fbbf24;
+}
+.csp-lock-icon { font-size: 28px; margin-bottom: 6px; }
+.csp-lock-teaser { font-size: 13px; color: #78716c; font-style: italic; margin: 8px 0 12px; }
+.csp-subscribe-btn {
+  width: 100%;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 4px 14px rgba(217, 119, 6, 0.35);
+}
+.csp-subscribe-btn:disabled { opacity: 0.7; cursor: not-allowed; }
+.csp-teacher-card--locked { border-color: #fde68a; }

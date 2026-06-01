@@ -102,7 +102,9 @@ router.patch('/:id/pin', authenticateToken, requireRole('student'), async (req, 
   try {
     const upd = await pool.query(
       `UPDATE student_shares SET pinned = $1
-       WHERE id = $2 AND student_id = $3 AND type = 'composition'
+       WHERE id = $2 AND student_id = $3
+         AND type IN ('composition','dream','lesson','motivation')
+         AND status = 'approved'
        RETURNING id, pinned`,
       [Boolean(pinned), shareId, req.user.id]
     );
