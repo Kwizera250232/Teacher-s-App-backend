@@ -8,6 +8,7 @@ import { buildShareItem } from '../utils/shareLinks';
 import ClassLeaderboard from '../components/ClassLeaderboard';
 import ClassmateProfileModal from '../components/ClassmateProfileModal';
 import ClassroomFeed from '../components/ClassroomFeed';
+import ClassDeanHelp from '../components/ClassDeanHelp';
 import VerifiedBadge from '../components/VerifiedBadge';
 import '../pages/Dashboard.css';
 
@@ -179,6 +180,9 @@ export default function StudentClassPage() {
             <div>
               <h1>{cls.name}</h1>
               {cls.subject && <div className="subject">📖 {cls.subject}</div>}
+              <div className="class-dean-help-wrap">
+                <ClassDeanHelp token={token} classId={id} className={cls.name} />
+              </div>
             </div>
           </div>
         )}

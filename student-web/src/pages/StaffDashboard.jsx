@@ -7,8 +7,6 @@ import AddStudentsModal from '../components/AddStudentsModal';
 import SchoolRequestBanner from '../components/SchoolRequestBanner';
 import SchoolRequestsPanel from '../components/SchoolRequestsPanel';
 import VerifiedBadge from '../components/VerifiedBadge';
-import UmunsiAiModal from '../components/UmunsiAiModal';
-import DeanSupportFab from '../components/DeanSupportFab';
 import StaffQuickActions from '../components/StaffQuickActions';
 import SchoolHubPanel from '../components/staff/SchoolHubPanel';
 import AddTeacherModal from '../components/staff/AddTeacherModal';
@@ -31,7 +29,6 @@ export default function StaffDashboard({ roleLabel, basePath }) {
   const [error, setError] = useState('');
   const [announcements, setAnnouncements] = useState([]);
   const [dismissed, setDismissed] = useState(() => JSON.parse(localStorage.getItem('dismissed_announcements') || '[]'));
-  const [aiModal, setAiModal] = useState(null);
   const [unread, setUnread] = useState(0);
   const [showAddTeacher, setShowAddTeacher] = useState(false);
   const [showNotifyParents, setShowNotifyParents] = useState(false);
@@ -254,22 +251,13 @@ export default function StaffDashboard({ roleLabel, basePath }) {
                 </Link>
               ))}
             </div>
-            <div className="wa-staff-class-actions">
-              {classes[0] && (
-                <>
-                  <button
-                    type="button"
-                    className="wa-pill-btn"
-                    onClick={() => setAiModal({ classId: classes[0].id, className: classes[0].name })}
-                  >
-                    🎓 Dean (Our AI Support)
-                  </button>
-                  <Link to={`${basePath}/classes/${classes[0].id}/record-marks`} className="wa-pill-btn wa-pill-btn--outline">
-                    📊 CAT Marks
-                  </Link>
-                </>
-              )}
-            </div>
+            {classes[0] && (
+              <div className="wa-staff-class-actions">
+                <Link to={`${basePath}/classes/${classes[0].id}/record-marks`} className="wa-pill-btn wa-pill-btn--outline">
+                  📊 CAT Marks
+                </Link>
+              </div>
+            )}
           </>
         )}
           </>
@@ -307,24 +295,6 @@ export default function StaffDashboard({ roleLabel, basePath }) {
               document.getElementById('school-join-banner')?.scrollIntoView({ behavior: 'smooth' });
             }, 100);
           }}
-        />
-      )}
-
-      <DeanSupportFab
-        token={token}
-        classId={classes[0]?.id}
-        className={classes[0]?.name}
-        isTeacher
-        showClassAi={Boolean(classes[0]?.id)}
-        hideFab={Boolean(aiModal)}
-      />
-      {aiModal && (
-        <UmunsiAiModal
-          classId={aiModal.classId}
-          className={aiModal.className}
-          token={token}
-          isTeacher={true}
-          onClose={() => setAiModal(null)}
         />
       )}
 

@@ -14,6 +14,7 @@ import NotifyParentsModal from '../components/staff/NotifyParentsModal';
 import WeeklyDigestModal from '../components/staff/WeeklyDigestModal';
 import ParentInviteModal from '../components/ParentInviteModal';
 import CompositionStatusList from '../components/CompositionStatusList';
+import ClassDeanHelp from '../components/ClassDeanHelp';
 import '../pages/Dashboard.css';
 import '../pages/MobileDashboard.css';
 
@@ -232,6 +233,9 @@ export default function TeacherClassPage() {
             <div>
               <h1>{cls.name}</h1>
               {cls.subject && <div className="subject">📖 {cls.subject}</div>}
+              <div className="class-dean-help-wrap">
+                <ClassDeanHelp token={token} classId={id} className={cls.name} isTeacher />
+              </div>
             </div>
             <div className="class-hero-code">
               <span className="code-label">Class Code</span>

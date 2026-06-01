@@ -1,0 +1,35 @@
+.class-dean-help-btn {
+  border: 1px solid #c7d2fe;
+  background: linear-gradient(135deg, #eef2ff, #faf5ff);
+  color: #4338ca;
+  border-radius: 20px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.12);
+}
+
+.class-dean-help-btn:hover {
+  background: #e0e7ff;
+}
+
+.class-hero .class-dean-help-wrap {
+  margin-top: 10px;
+  width: 100%;
+}
+
+@media (min-width: 769px) {
+  .class-hero {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .class-hero .class-dean-help-wrap {
+    margin-top: 0;
+    margin-left: auto;
+    width: auto;
+  }
+}

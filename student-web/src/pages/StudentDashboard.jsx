@@ -10,7 +10,6 @@ import MobileStudentHeader from '../components/MobileStudentHeader';
 import MobileBottomBar from '../components/MobileBottomBar';
 import CompositionStatusPanel from '../components/CompositionStatusPanel';
 import CompositionStatusFeed from '../components/CompositionStatusFeed';
-import DeanAiModal from '../components/DeanAiModal';
 import './Dashboard.css';
 import './MobileDashboard.css';
 
@@ -19,7 +18,6 @@ const QUICK_NAV = (handlers) => [
   { id: 'status', icon: '✍️', label: 'C. Status', onClick: handlers.openStatus },
   { id: 'notes', icon: '📝', label: 'Notes', to: '/student/notes' },
   { id: 'parent', icon: '👪', label: 'Parent', onClick: handlers.openParent },
-  { id: 'dean', icon: '🎓', label: 'Dean AI', onClick: handlers.openDean },
   { id: 'profile', icon: '👤', label: 'Profile', to: '/profile' },
 ];
 
@@ -34,7 +32,6 @@ export default function StudentDashboard() {
   const [showParentInvite, setShowParentInvite] = useState(false);
   const [showCompositionStatus, setShowCompositionStatus] = useState(false);
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
-  const [showDean, setShowDean] = useState(false);
   const classesRef = useRef(null);
 
   const openStatus = () => {
@@ -46,7 +43,6 @@ export default function StudentDashboard() {
     scrollClasses: () => classesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
     openStatus,
     openParent: () => setShowParentInvite(true),
-    openDean: () => setShowDean(true),
   };
 
   const loadClasses = () => {
@@ -229,8 +225,6 @@ export default function StudentDashboard() {
         </section>
 
       </main>
-
-      {showDean && <DeanAiModal token={token} onClose={() => setShowDean(false)} />}
 
       <MobileBottomBar items={quickNavItems} className="student-bottom-nav" />
 

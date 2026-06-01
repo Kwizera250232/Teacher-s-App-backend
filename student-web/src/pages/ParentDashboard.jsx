@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import DonateButton from '../components/DonateButton';
-import DeanSupportFab from '../components/DeanSupportFab';
 import './Dashboard.css';
 
 export default function ParentDashboard() {
@@ -57,7 +56,6 @@ export default function ParentDashboard() {
           </>
         )}
       </main>
-      <DeanSupportFab token={token} />
     </div>
   );
 }
