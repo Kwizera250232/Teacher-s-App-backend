@@ -7,7 +7,7 @@ git fetch origin main
 git checkout main
 git pull origin main
 npm ci --omit=dev
-pm2 restart studentapi || pm2 start index.js --name studentapi
+bash "$(dirname "$0")/restart-production-api.sh" "$APP_DIR"
 pm2 save
 sleep 2
 curl -fsS https://studentapi.umunsi.com/api/health

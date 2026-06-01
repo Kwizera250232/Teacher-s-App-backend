@@ -544,7 +544,7 @@ router.get('/student-shares', ...adminOnly, async (req, res) => {
   }
   try {
     const statusFilter =
-      status === 'all' ? '' : 'WHERE s.status = $1';
+      status === 'all' ? '' : 'WHERE s.status = $1::varchar';
     const params = status === 'all' ? [] : [status];
     const result = await pool.query(
       `SELECT s.id, s.type, s.content, s.status, s.school, s.class_name, s.teacher_name,
@@ -588,8 +588,8 @@ router.put('/student-shares/:id/moderate', ...adminOnly, async (req, res) => {
     const noteToSave = decision === 'declined' ? reviewNote : null;
     const result = await pool.query(
       `UPDATE student_shares
-       SET status = $1, reviewed_by = $2, reviewed_at = NOW(), review_note = $3
-       WHERE id = $4
+       SET status = $1::varchar, reviewed_by = $2::integer, reviewed_at = NOW(), review_note = $3::text
+       WHERE id = $4::integer
        RETURNING id, status, review_note, reviewed_at`,
       [decision, reviewerId, noteToSave, shareId]
     );
