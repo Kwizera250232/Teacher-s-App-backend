@@ -8,18 +8,18 @@ npm ci --omit=dev
 
 PORT="${PORT:-3005}"
 pm2 delete studentapi 2>/dev/null || true
+pm2 delete studentapi-main 2>/dev/null || true
 
-# Always free the API port — orphan node processes survive pm2 restart and serve stale code
+# Orphans on :3005 survive "pm2 restart" and keep serving old code — stop them all first
+pkill -f "${APP_DIR}/index.js" 2>/dev/null || true
 while read -r pid; do
   [ -n "$pid" ] || continue
   echo "Stopping process $pid on port $PORT"
   kill -9 "$pid" 2>/dev/null || true
 done < <(ss -tlnp 2>/dev/null | grep ":${PORT} " | grep -oP 'pid=\K[0-9]+' || true)
-sleep 1
+sleep 2
 
-if pm2 describe studentapi-main >/dev/null 2>&1; then
-  pm2 delete studentapi-main 2>/dev/null || true
-fi
+git rev-parse HEAD > VERSION 2>/dev/null || true
 pm2 start index.js --name studentapi-main --cwd "$APP_DIR" --update-env
 pm2 restart school-api 2>/dev/null || true
 pm2 save
