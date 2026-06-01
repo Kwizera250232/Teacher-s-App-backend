@@ -260,6 +260,18 @@
     background: #f0f2f5;
   }
 
+  .staff-hub-page .phub-header .mobile-staff-header .mobile-student-greet {
+    color: #1e293b;
+  }
+
+  .staff-hub-page .phub-header .mobile-staff-header .mobile-nav-text-btn {
+    color: #128c7e;
+  }
+
+  .staff-hub-page .phub-header .mobile-staff-header .mobile-nav-text-btn--muted {
+    color: #54656f;
+  }
+
   .mobile-staff-quick-bar {
     display: flex;
   }
@@ -533,11 +545,6 @@
   background: rgba(255, 255, 255, 0.22) !important;
   color: #fff !important;
   border: 1px solid rgba(255, 255, 255, 0.85) !important;
-}
-
-.staff-hub-page .mobile-staff-header .mobile-nav-text-btn--muted,
-.staff-hub-page .mobile-student-header .mobile-nav-text-btn--muted {
-  color: rgba(255, 255, 255, 0.95);
 }
 
 .staff-hub-page .staff-hub-nav {

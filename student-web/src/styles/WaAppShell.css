@@ -49,10 +49,33 @@
 
 .app-wa-shell .class-hero {
   background: #fff;
+  color: var(--wa-text, #111b21);
   border-radius: 12px;
   padding: 16px;
   margin-bottom: 12px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.app-wa-shell .class-hero h1 {
+  color: #111b21;
+}
+
+.app-wa-shell .class-hero .subject {
+  color: #667781;
+  opacity: 1;
+}
+
+.app-wa-shell .class-hero-code {
+  background: #f0f2f5;
+}
+
+.app-wa-shell .class-hero-code .code-label {
+  color: #667781;
+  opacity: 1;
+}
+
+.app-wa-shell .class-hero-code .code-big {
+  color: #075e54;
 }
 
 .app-wa-shell .discussion-list {
