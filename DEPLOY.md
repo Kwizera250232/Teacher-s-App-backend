@@ -46,7 +46,9 @@ Optional: `SMTP_*` for parent email; `STRICT_EMAIL_VALIDATE=false`
 
 Workflow: `.github/workflows/deploy-server.yml`
 
-Secrets: `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY`, optional `BACKEND_APP_DIR`, `SSH_PORT`
+Secrets: `SSH_HOST` (use `93.127.186.217` for root password SSH), `SSH_USER` (`root`), `SSH_PRIVATE_KEY`, optional `BACKEND_APP_DIR`, `SSH_PORT`
+
+PM2 process on VPS is usually **`school-api`** (not `studentapi`): `pm2 restart school-api`
 
 ## Verify parent features
 
