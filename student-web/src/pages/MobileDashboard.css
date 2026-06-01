@@ -83,7 +83,7 @@
 .mobile-donate-fab {
   display: none;
   position: fixed;
-  z-index: 110;
+  z-index: 9200;
   bottom: calc(64px + env(safe-area-inset-bottom, 0px));
   right: 14px;
 }
@@ -880,13 +880,15 @@
   color: #475569;
 }
 
-@media (min-width: 769px) {
-  .student-dashboard-classic .dean-fab-wrap {
-    bottom: 96px;
-  }
+/* No floating Dean popup on student dashboard — it covered Donate */
+.student-dashboard-classic .dean-fab-wrap,
+.student-dashboard-classic .dean-fab-wrap--global {
+  display: none !important;
+}
 
+@media (min-width: 769px) {
   .student-dashboard-classic .mobile-donate-fab {
-    bottom: 100px;
+    bottom: 24px;
   }
 }
 

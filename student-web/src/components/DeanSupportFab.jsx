@@ -15,6 +15,7 @@ export default function DeanSupportFab({
   isTeacher = false,
   showClassAi = false,
   hideFab = false,
+  showPromoLabel = true,
 }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const [classAiOpen, setClassAiOpen] = useState(false);
@@ -27,7 +28,7 @@ export default function DeanSupportFab({
     <>
       {!hideFab && (
         <div className="dean-fab-wrap dean-fab-wrap--global" aria-live="polite">
-          {!open && !classAiOpen && (
+          {showPromoLabel && !open && !classAiOpen && (
             <span className="dean-fab-label">Dean · Our AI Support</span>
           )}
           <button
