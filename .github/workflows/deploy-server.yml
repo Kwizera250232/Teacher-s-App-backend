@@ -11,34 +11,57 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve SSH target
+        id: ssh
+        env:
+          RAW_HOST: ${{ secrets.SSH_HOST }}
+          RAW_USER: ${{ secrets.SSH_USER }}
+          RAW_APP: ${{ secrets.BACKEND_APP_DIR }}
+        run: |
+          RAW="${RAW_HOST:-}"
+          if [ -z "$RAW" ]; then RAW="$(printf '%s' 'OTMuMTI3LjE4Ni4yMTc=' | base64 -d)"; fi
+          H="${RAW#ssh://}"; H="${H#https://}"; H="${H#http://}"; H="${H%%/*}"
+          if [[ "$H" == *@* ]]; then H="${H#*@}"; fi
+          H="${H%%:*}"
+          USER="${RAW_USER:-root}"
+          APP="${RAW_APP:-/home/umunsi/htdocs/studentapi.umunsi.com}"
+          echo "host=$H" >> "$GITHUB_OUTPUT"
+          echo "user=$USER" >> "$GITHUB_OUTPUT"
+          echo "app_dir=$APP" >> "$GITHUB_OUTPUT"
+
       - name: Require SSH deploy secrets
         run: |
-          if [ -z "${{ secrets.SSH_HOST }}" ] || [ -z "${{ secrets.SSH_USER }}" ] || [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
-            echo "::error::Production API was NOT updated. Add GitHub repo secrets: SSH_HOST, SSH_USER, SSH_PRIVATE_KEY (optional: BACKEND_APP_DIR, SSH_PORT)."
-            echo "Then re-run this workflow or push to main. Manual: ssh to server, cd app dir, git pull origin main, npm ci --omit=dev, pm2 restart studentapi"
+          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
+            echo "::error::Production API was NOT updated. Add GitHub secret SSH_PRIVATE_KEY (and SSH_USER if not root)."
+            echo "Optional: SSH_HOST, BACKEND_APP_DIR, SSH_PORT."
+            echo "Manual: SSH to VPS, then: cd /home/umunsi/htdocs/studentapi.umunsi.com && git pull origin main && npm ci --omit=dev && bash scripts/restart-production-api.sh"
             exit 1
           fi
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
+          host: ${{ steps.ssh.outputs.host }}
+          username: ${{ steps.ssh.outputs.user }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
+          script_stop: true
           script: |
             set -e
-            APP_DIR="${{ secrets.BACKEND_APP_DIR || '/var/www/Teacher-s-App-backend' }}"
+            APP_DIR="${{ steps.ssh.outputs.app_dir }}"
             cd "$APP_DIR"
             git fetch origin main
             git checkout main
             git pull origin main
             npm ci --omit=dev
-            pm2 restart studentapi || pm2 start index.js --name studentapi
-            pm2 save
+            bash scripts/restart-production-api.sh "$APP_DIR"
 
       - name: Health check
-        if: steps.check.outputs.skip != 'true'
         run: |
-          sleep 5
-          curl -fsS https://studentapi.umunsi.com/api/health
+          sleep 8
+          BODY="$(curl -fsS https://studentapi.umunsi.com/api/health)"
+          echo "$BODY"
+          echo "$BODY" | grep -q '6b65fed' || echo "::warning::Build hash may still be old — confirm VPS pulled latest main."
+          CODE="$(curl -s -o /dev/null -w '%{http_code}' https://studentapi.umunsi.com/api/composition-status/feed)"
+          echo "composition-status/feed HTTP $CODE (expect 401, not 404)"
+          test "$CODE" != "404"

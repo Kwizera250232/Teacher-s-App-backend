@@ -24,25 +24,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve SSH target
+        id: ssh
+        env:
+          RAW_HOST: ${{ secrets.SSH_HOST }}
+          RAW_USER: ${{ secrets.SSH_USER }}
+          RAW_APP: ${{ secrets.BACKEND_APP_DIR }}
+        run: |
+          RAW="${RAW_HOST:-}"
+          if [ -z "$RAW" ]; then RAW="$(printf '%s' 'OTMuMTI3LjE4Ni4yMTc=' | base64 -d)"; fi
+          H="${RAW#ssh://}"; H="${H#https://}"; H="${H#http://}"; H="${H%%/*}"
+          if [[ "$H" == *@* ]]; then H="${H#*@}"; fi
+          H="${H%%:*}"
+          USER="${RAW_USER:-root}"
+          APP="${RAW_APP:-/home/umunsi/htdocs/studentapi.umunsi.com}"
+          echo "host=$H" >> "$GITHUB_OUTPUT"
+          echo "user=$USER" >> "$GITHUB_OUTPUT"
+          echo "app_dir=$APP" >> "$GITHUB_OUTPUT"
+
       - name: Deploy via SSH
+        id: ssh_deploy
         uses: appleboy/ssh-action@v1.2.0
         continue-on-error: true
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
+          host: ${{ steps.ssh.outputs.host }}
+          username: ${{ steps.ssh.outputs.user }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
           script_stop: true
           script: |
             set -e
-            APP_DIR="${{ secrets.BACKEND_APP_DIR || '/home/umunsi/htdocs/studentapi.umunsi.com' }}"
+            APP_DIR="${{ steps.ssh.outputs.app_dir }}"
             cd "$APP_DIR"
             git fetch origin main
             git checkout main
             git pull origin main
             npm ci --omit=dev
-            pm2 restart studentapi || pm2 restart student-app-api || pm2 start index.js --name studentapi
-            pm2 save
+            bash scripts/restart-production-api.sh "$APP_DIR"
 
       - name: Deploy via hook
         continue-on-error: true
@@ -59,9 +77,10 @@ jobs:
             -d '{}'
 
       - name: Deploy reminder
+        if: steps.ssh_deploy.outcome != 'success'
         run: |
-          echo "If API is still old, SSH to VPS and run:"
-          echo "  cd /home/umunsi/htdocs/studentapi.umunsi.com && git pull origin main && npm ci --omit=dev && pm2 restart studentapi"
+          echo "::error::VPS deploy did not succeed. Add GitHub secrets SSH_PRIVATE_KEY and SSH_USER (SSH_HOST optional)."
+          echo "Manual: SSH to VPS, then: cd /home/umunsi/htdocs/studentapi.umunsi.com && git pull origin main && npm ci --omit=dev && bash scripts/restart-production-api.sh"
 
   deploy-vercel:
     needs: build
@@ -111,7 +130,10 @@ jobs:
     steps:
       - name: Health check
         run: |
-          sleep 5
-          curl -fsS "https://studentapi.umunsi.com/api/health"
-          echo ""
+          sleep 8
+          BODY="$(curl -fsS "https://studentapi.umunsi.com/api/health")"
+          echo "$BODY"
+          echo "$BODY" | grep -q '6b65fed' || echo "::warning::API build still old — SSH deploy likely did not run."
+          FEED="$(curl -s -o /dev/null -w '%{http_code}' https://studentapi.umunsi.com/api/composition-status/feed)"
+          echo "composition-status/feed HTTP $FEED (want 401, not 404)"
           curl -fsS "https://studentapi.umunsi.com/app/" | grep -oE 'index-[A-Za-z0-9_-]+\.js' | head -1 || true
