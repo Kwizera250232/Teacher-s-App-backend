@@ -118,26 +118,98 @@ function MyRepostsSection({ userId }) {
 }
 
 function TeacherUserCreation({ token }) {
+  const { user, updateUser } = useAuth();
   const [schools, setSchools] = useState([]);
+  const [linkedSchoolId, setLinkedSchoolId] = useState(user?.school_id != null ? String(user.school_id) : '');
+  const [linkedSchoolName, setLinkedSchoolName] = useState('');
+  const [schoolReady, setSchoolReady] = useState(false);
+  const [schoolError, setSchoolError] = useState('');
+  const [showNewSchool, setShowNewSchool] = useState(false);
+  const [newSchoolName, setNewSchoolName] = useState('');
   const [newUser, setNewUser] = useState({ name: '', email: '', role: 'student', school_id: '' });
   const [createdUser, setCreatedUser] = useState(null);
   const [bulkNames, setBulkNames] = useState('');
+  const [password, setPassword] = useState('');
+  const [bulkPassword, setBulkPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const teacherNeedsSchool = user?.role === 'teacher' && schoolReady && !linkedSchoolId;
+  const canPickSchool = !linkedSchoolId || user?.role === 'admin' || user?.role === 'head_teacher';
+  const effectiveSchoolId = newUser.school_id || linkedSchoolId;
+
   useEffect(() => {
-    api.get('/admin/schools', token).then(data => setSchools(data)).catch(() => {});
+    let cancelled = false;
+    (async () => {
+      let activeSchoolId = user?.school_id != null ? String(user.school_id) : '';
+      try {
+        const me = await api.get('/auth/me', token);
+        const sid = me?.user?.school_id;
+        if (!cancelled && sid != null) {
+          activeSchoolId = String(sid);
+          setLinkedSchoolId(activeSchoolId);
+          setNewUser((u) => ({ ...u, school_id: activeSchoolId }));
+          if (user && String(user.school_id || '') !== activeSchoolId) {
+            updateUser({ ...user, school_id: sid });
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+      try {
+        const data = await api.get('/auth/schools', token);
+        if (cancelled) return;
+        const list = Array.isArray(data) ? data : [];
+        setSchools(list);
+        if (activeSchoolId) {
+          const mySchool = list.find((s) => String(s.id) === activeSchoolId);
+          if (mySchool) setLinkedSchoolName(mySchool.name);
+        } else if (!list.length) {
+          setSchoolError('No schools found. Add a new school below.');
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setSchools([]);
+          setSchoolError(e.message || 'Could not load schools.');
+        }
+      } finally {
+        if (!cancelled) setSchoolReady(true);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [token]);
 
+  const handleCreateSchool = async () => {
+    if (!newSchoolName.trim()) return;
+    setLoading(true);
+    setSchoolError('');
+    try {
+      const created = await api.post('/auth/schools', { name: newSchoolName.trim() }, token);
+      setSchools((prev) => [...prev, created]);
+      const newId = String(created.id);
+      setNewUser((u) => ({ ...u, school_id: newId }));
+      if (!linkedSchoolId) setLinkedSchoolName(created.name || newSchoolName.trim());
+      setShowNewSchool(false);
+      setNewSchoolName('');
+    } catch (e) {
+      setSchoolError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const createUser = async () => {
-    if (!newUser.name || !newUser.role || !newUser.school_id) {
+    if (!newUser.name || !newUser.role || !effectiveSchoolId) {
       alert('Name, role, and school are required.');
       return;
     }
     setLoading(true);
     try {
-      const res = await api.post('/admin/add-pupil', newUser, token);
+      const body = { ...newUser, school_id: effectiveSchoolId };
+      if (password.trim()) body.password = password.trim();
+      const res = await api.post('/admin/add-pupil', body, token);
       setCreatedUser(res);
-      setNewUser({ name: '', email: '', role: 'student', school_id: '' });
+      setNewUser({ name: '', email: '', role: 'student', school_id: linkedSchoolId || effectiveSchoolId });
+      setPassword('');
       alert('User created! Temporary password: ' + res.temp_password);
     } catch (e) {
       alert(e.message);
@@ -148,6 +220,12 @@ function TeacherUserCreation({ token }) {
 
   return (
     <div style={{ background: 'white', padding: '20px', borderRadius: 12, boxShadow: '0 2px 10px rgba(0,0,0,0.08)' }}>
+      {teacherNeedsSchool && (
+        <div className="alert alert-error" style={{ marginBottom: 16 }}>
+          Your account is not linked to a school yet. Join a school from your dashboard, or add a new school below (head teacher / admin).
+        </div>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '16px' }}>
         <div className="form-group">
           <label style={{ fontSize: '14px', fontWeight: 600 }}>Full Name *</label>
@@ -179,22 +257,67 @@ function TeacherUserCreation({ token }) {
           </select>
         </div>
         <div className="form-group">
-          <label style={{ fontSize: '14px', fontWeight: 600 }}>School *</label>
-          <select
+          <label style={{ fontSize: '14px', fontWeight: 600 }}>
+            School *
+            {linkedSchoolName && (
+              <span style={{ fontWeight: 400, color: '#16a34a', marginLeft: 8, fontSize: 12 }}>
+                (Your school: {linkedSchoolName})
+              </span>
+            )}
+          </label>
+          {linkedSchoolId && !canPickSchool ? (
+            <input className="profile-input" readOnly value={linkedSchoolName || 'Your school'} style={{ background: '#f8fafc' }} />
+          ) : !showNewSchool ? (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <select
+                className="profile-input"
+                style={{ flex: 1, minWidth: 160 }}
+                value={effectiveSchoolId}
+                onChange={e => setNewUser(u => ({ ...u, school_id: e.target.value }))}
+              >
+                <option value="">Select School</option>
+                {schools.map(s => (
+                  <option key={s.id} value={String(s.id)}>{s.name}</option>
+                ))}
+              </select>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowNewSchool(true)}>
+                + New school
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <input
+                className="profile-input"
+                style={{ flex: 1, minWidth: 160 }}
+                placeholder="New school name"
+                value={newSchoolName}
+                onChange={e => setNewSchoolName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleCreateSchool()}
+              />
+              <button type="button" className="btn btn-primary btn-sm" onClick={handleCreateSchool} disabled={loading}>
+                Add
+              </button>
+              <button type="button" className="btn btn-outline btn-sm" onClick={() => { setShowNewSchool(false); setNewSchoolName(''); }}>
+                Cancel
+              </button>
+            </div>
+          )}
+          {schoolError && <small style={{ color: '#dc2626', display: 'block', marginTop: 6 }}>{schoolError}</small>}
+        </div>
+        <div className="form-group">
+          <label style={{ fontSize: '14px', fontWeight: 600 }}>Password (optional)</label>
+          <input
             className="profile-input"
-            value={newUser.school_id}
-            onChange={e => setNewUser(u => ({ ...u, school_id: e.target.value }))}
-          >
-            <option value="">Select School</option>
-            {schools.map(s => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
+            type="password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            placeholder="Same password for this account (min 4 chars)"
+          />
         </div>
       </div>
 
-      <button className="btn btn-primary" onClick={createUser} disabled={loading}>
-        {loading ? 'Creating...' : '➕ Create User'}
+      <button className="btn btn-primary" onClick={createUser} disabled={loading || teacherNeedsSchool}>
+        {loading ? 'Creating...' : '+ Create User'}
       </button>
 
       <section style={{ marginTop: 20 }}>
@@ -206,17 +329,28 @@ function TeacherUserCreation({ token }) {
           value={bulkNames}
           onChange={(e) => setBulkNames(e.target.value)}
         />
+        <input
+          className="profile-input"
+          type="password"
+          style={{ marginTop: 8 }}
+          placeholder="Same password for all students (optional)"
+          value={bulkPassword}
+          onChange={(e) => setBulkPassword(e.target.value)}
+        />
         <button
           type="button"
           className="btn btn-secondary"
           style={{ marginTop: 8 }}
-          disabled={loading}
+          disabled={loading || teacherNeedsSchool}
           onClick={async () => {
-            if (!bulkNames.trim() || !newUser.school_id) return alert('Enter names and select a school.');
+            if (!bulkNames.trim() || !effectiveSchoolId) return alert('Enter names and select a school.');
             setLoading(true);
             try {
-              const res = await api.post('/admin/add-pupils', { names: bulkNames, role: 'student', school_id: newUser.school_id }, token);
+              const body = { names: bulkNames, role: 'student', school_id: effectiveSchoolId };
+              if (bulkPassword.trim()) body.password = bulkPassword.trim();
+              const res = await api.post('/admin/add-pupils', body, token);
               setBulkNames('');
+              setBulkPassword('');
               alert(`Created ${res.created.length} student(s).`);
             } catch (e) {
               alert(e.message);
@@ -231,7 +365,7 @@ function TeacherUserCreation({ token }) {
 
       {createdUser && (
         <div style={{ marginTop: '16px', padding: '12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8 }}>
-          <strong>✅ User Created!</strong><br />
+          <strong>User created</strong><br />
           Name: {createdUser.user.name}<br />
           Email: {createdUser.user.email}<br />
           Temp Password: <code>{createdUser.temp_password}</code><br />

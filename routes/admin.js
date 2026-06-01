@@ -12,6 +12,7 @@ function schoolDomainFromName(name) {
 
 const router = express.Router();
 const adminOnly = [authenticateToken, requireRole('admin')];
+const teacherOrAbove = [authenticateToken, requireRole('admin', 'head_teacher', 'teacher')];
 
 pool.query(`
   CREATE TABLE IF NOT EXISTS invite_tokens (
@@ -259,6 +260,15 @@ router.get('/activity', ...adminOnly, async (req, res) => {
 });
 
 // ─── SCHOOLS ──────────────────────────────────────────────────────────────────
+router.get('/schools/list', ...teacherOrAbove, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT id, name FROM schools ORDER BY name');
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 router.get('/schools', ...adminOnly, async (req, res) => {
   try {
     const result = await pool.query(`
@@ -698,8 +708,6 @@ router.get('/user-announcements', authenticateToken, async (req, res) => {
 });
 
 // ─── USER CREATION (Admin, Head Teacher, Teacher) ───────────────────────────
-const teacherOrAbove = [authenticateToken, requireRole('admin', 'head_teacher', 'teacher')];
-
 async function resolveSchoolForAccount(req, school_id) {
   if (req.user.role === 'teacher' || req.user.role === 'head_teacher') {
     let userSchoolId = req.user.school_id;
