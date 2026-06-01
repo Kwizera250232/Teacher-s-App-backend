@@ -543,6 +543,9 @@ router.get('/student-shares', ...adminOnly, async (req, res) => {
     return res.status(400).json({ error: 'Invalid status.' });
   }
   try {
+    const statusFilter =
+      status === 'all' ? '' : 'WHERE s.status = $1';
+    const params = status === 'all' ? [] : [status];
     const result = await pool.query(
       `SELECT s.id, s.type, s.content, s.status, s.school, s.class_name, s.teacher_name,
               s.created_at, s.review_note, s.reviewed_at,
@@ -551,11 +554,11 @@ router.get('/student-shares', ...adminOnly, async (req, res) => {
        FROM student_shares s
        JOIN users u ON u.id = s.student_id
        LEFT JOIN users r ON r.id = s.reviewed_by
-       WHERE ($1 = 'all' OR s.status = $1)
+       ${statusFilter}
        ORDER BY CASE s.status WHEN 'pending' THEN 0 WHEN 'declined' THEN 1 ELSE 2 END,
                 s.created_at DESC
        LIMIT 300`,
-      [status]
+      params
     );
     res.json(result.rows);
   } catch (err) {
