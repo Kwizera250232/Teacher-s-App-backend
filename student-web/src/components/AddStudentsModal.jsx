@@ -3,12 +3,19 @@ import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 
 export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
-  const { user } = useAuth();
-  const teacherNeedsSchool = user?.role === 'teacher' && !user?.school_id;
+  const { user, updateUser } = useAuth();
+  const [linkedSchoolId, setLinkedSchoolId] = useState(
+    user?.school_id != null ? String(user.school_id) : ''
+  );
+  const [schoolProfileLoaded, setSchoolProfileLoaded] = useState(false);
+  const teacherNeedsSchool = user?.role === 'teacher' && schoolProfileLoaded && !linkedSchoolId;
+  const canPickSchool = !linkedSchoolId || user?.role === 'admin';
   const [mode, setMode] = useState('single');
   const [schools, setSchools] = useState([]);
-  const [schoolId, setSchoolId] = useState('');
-  const [teacherSchool, setTeacherSchool] = useState(null);
+  const [schoolId, setSchoolId] = useState(
+    user?.school_id != null ? String(user.school_id) : ''
+  );
+  const [linkedSchoolName, setLinkedSchoolName] = useState('');
   const [newSchoolName, setNewSchoolName] = useState('');
   const [showNewSchool, setShowNewSchool] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -24,21 +31,39 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (user?.school_id) {
-      setSchoolId(String(user.school_id));
-      api.get('/auth/schools', token).then((data) => {
-        const mySchool = data.find((s) => String(s.id) === String(user.school_id));
-        if (mySchool) setTeacherSchool({ school_id: mySchool.id, school_name: mySchool.name });
-        setSchools(data);
-      }).catch(() => {});
-      return;
-    }
-    if (user?.role === 'teacher') {
-      setSchools([]);
-      return;
-    }
-    api.get('/auth/schools', token).then(setSchools).catch(() => {});
-  }, [token, user]);
+    let cancelled = false;
+    (async () => {
+      let activeSchoolId = user?.school_id != null ? String(user.school_id) : '';
+      try {
+        const me = await api.get('/auth/me', token);
+        const sid = me?.user?.school_id;
+        if (!cancelled && sid != null) {
+          activeSchoolId = String(sid);
+          setLinkedSchoolId(activeSchoolId);
+          setSchoolId(activeSchoolId);
+          if (user && String(user.school_id || '') !== activeSchoolId) {
+            updateUser({ ...user, school_id: sid });
+          }
+        }
+      } catch {
+        /* keep local user school_id if /me fails */
+      } finally {
+        if (!cancelled) setSchoolProfileLoaded(true);
+      }
+      try {
+        const data = await api.get('/auth/schools', token);
+        if (cancelled) return;
+        setSchools(Array.isArray(data) ? data : []);
+        if (activeSchoolId) {
+          const mySchool = data.find((s) => String(s.id) === activeSchoolId);
+          if (mySchool) setLinkedSchoolName(mySchool.name);
+        }
+      } catch {
+        if (!cancelled) setSchools([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [token]);
 
   const handleCreateSchool = async () => {
     if (!newSchoolName.trim()) return;
@@ -47,7 +72,9 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
     try {
       const created = await api.post('/auth/schools', { name: newSchoolName.trim() }, token);
       setSchools(prev => [...prev, created]);
-      setSchoolId(String(created.id));
+      const newId = String(created.id);
+      setSchoolId(newId);
+      if (!linkedSchoolId) setLinkedSchoolName(created.name || newSchoolName.trim());
       setShowNewSchool(false);
       setNewSchoolName('');
     } catch (e) {
@@ -145,16 +172,16 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
         <div className="form-group">
           <label style={{ fontSize: 14, fontWeight: 600 }}>
             School *
-            {teacherSchool && (
+            {linkedSchoolId && linkedSchoolName && (
               <span style={{ fontWeight: 400, color: '#16a34a', marginLeft: 8, fontSize: 12 }}>
-                (Your school: {teacherSchool.school_name})
+                (Your school: {linkedSchoolName})
               </span>
             )}
           </label>
-          {user?.school_id && teacherSchool ? (
+          {linkedSchoolId && !canPickSchool ? (
             <input
               readOnly
-              value={teacherSchool.school_name}
+              value={linkedSchoolName || 'Your school'}
               style={{ width: '100%', padding: '10px 14px', border: '2px solid #e8e8e8', borderRadius: 8, fontSize: 14, background: '#f8fafc' }}
             />
           ) : !showNewSchool ? (
@@ -166,7 +193,7 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
               >
                 <option value="">Select School</option>
                 {schools.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
+                  <option key={s.id} value={String(s.id)}>{s.name}</option>
                 ))}
               </select>
               <button

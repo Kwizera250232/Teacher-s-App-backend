@@ -1,8 +1,6 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../api';
 
-const BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-
 export default function AdminStudentArticles({ token }) {
   const [status, setStatus] = useState('pending');
   const [rows, setRows] = useState([]);
@@ -36,13 +34,7 @@ export default function AdminStudentArticles({ token }) {
     setError('');
     try {
       const note = (reviewText[id] || '').trim();
-      const res = await fetch(`${BASE}/admin/student-shares/${id}/moderate`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ decision, review_note: note }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Moderation failed.');
+      await api.put(`/admin/student-shares/${id}/moderate`, { decision, review_note: note }, token);
       setRows(prev => prev.filter(r => r.id !== id));
       setReviewText(prev => ({ ...prev, [id]: '' }));
     } catch (e) {

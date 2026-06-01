@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../api';
 
-const BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-
 export default function AdminSettings({ token }) {
   const [settings, setSettings] = useState({ platform_name: '', logo_url: '' });
   const [saved, setSaved] = useState(false);
@@ -10,6 +8,8 @@ export default function AdminSettings({ token }) {
   const [newUser, setNewUser] = useState({ name: '', email: '', role: 'student', school_id: '' });
   const [createdUser, setCreatedUser] = useState(null);
   const [bulkNames, setBulkNames] = useState('');
+  const [bulkPassword, setBulkPassword] = useState('');
+  const [singlePassword, setSinglePassword] = useState('');
   const [bulkResult, setBulkResult] = useState(null);
 
   useEffect(() => {
@@ -18,11 +18,7 @@ export default function AdminSettings({ token }) {
   }, [token]);
 
   const save = async () => {
-    await fetch(`${BASE}/admin/settings`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(settings),
-    });
+    await api.put('/admin/settings', settings, token);
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   };
@@ -30,7 +26,9 @@ export default function AdminSettings({ token }) {
   const createUser = async () => {
     if (!newUser.name || !newUser.role || !newUser.school_id) return alert('Name, role, and school are required.');
     try {
-      const res = await api.post('/admin/add-pupil', newUser, token);
+      const body = { ...newUser };
+      if (singlePassword.trim()) body.password = singlePassword.trim();
+      const res = await api.post('/admin/add-pupil', body, token);
       setCreatedUser(res);
       setNewUser({ name: '', email: '', role: 'student', school_id: '' });
       alert('User created! Temporary password: ' + res.temp_password);
@@ -42,11 +40,13 @@ export default function AdminSettings({ token }) {
   const createBulkUsers = async () => {
     if (!bulkNames.trim() || !newUser.school_id) return alert('Enter student names and select a school.');
     try {
-      const res = await api.post('/admin/add-pupils', {
+      const body = {
         names: bulkNames,
         role: 'student',
         school_id: newUser.school_id,
-      }, token);
+      };
+      if (bulkPassword.trim()) body.password = bulkPassword.trim();
+      const res = await api.post('/admin/add-pupils', body, token);
       setBulkResult(res);
       setBulkNames('');
       alert(`Created ${res.created.length} student account(s).`);
@@ -81,13 +81,27 @@ export default function AdminSettings({ token }) {
           </select>
           <select className="admin-input" value={newUser.school_id} onChange={(e) => setNewUser((u) => ({ ...u, school_id: e.target.value }))}>
             <option value="">Select school *</option>
-            {schools.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            {schools.map((s) => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
           </select>
+          <input
+            className="admin-input"
+            type="password"
+            placeholder="Password (optional — same for this student)"
+            value={singlePassword}
+            onChange={(e) => setSinglePassword(e.target.value)}
+          />
           <button type="button" className="btn-sm btn-primary" onClick={createUser}>Create user</button>
 
           <section style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid #e2e8f0' }}>
             <h3>Bulk create students</h3>
             <textarea className="admin-input" style={{ width: '100%', minHeight: 120 }} value={bulkNames} onChange={(e) => setBulkNames(e.target.value)} />
+            <input
+              className="admin-input"
+              type="password"
+              placeholder="Same password for all students (optional)"
+              value={bulkPassword}
+              onChange={(e) => setBulkPassword(e.target.value)}
+            />
             <button type="button" className="btn-sm btn-primary" onClick={createBulkUsers}>Create many students</button>
             {bulkResult?.created?.map((row) => (
               <p key={row.user.id}>{row.user.name} — {row.user.email} (pass: {row.temp_password})</p>
