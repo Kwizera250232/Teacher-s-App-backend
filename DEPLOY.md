@@ -5,11 +5,37 @@ Production: **https://studentapi.umunsi.com**
 ## On your server (PM2)
 
 ```bash
-cd /var/www/Teacher-s-App-backend   # adjust path
+cd /home/umunsi/htdocs/studentapi.umunsi.com   # or /var/www/Teacher-s-App-backend
 git pull origin main
 npm ci --omit=dev
-pm2 restart studentapi
+pm2 restart studentapi || pm2 restart student-app-api
 curl -s https://studentapi.umunsi.com/api/health
+```
+
+Expect `"build":"414b474..."` (or newer) in health JSON after deploy.
+
+### One-time: enable GitHub auto-deploy
+
+In **Teacher-s-App-backend** → Settings → Secrets, add **one** of:
+
+| Secret | Purpose |
+|--------|---------|
+| `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY` | Workflow SSH pull + pm2 restart |
+| `DEPLOY_HOOK_SECRET` | Same value in server `.env` — workflow calls `POST /api/hooks/redeploy` |
+| `FRONTEND_DEPLOY_TOKEN` | Push `student-web` → **Teacher-s-App-frontent** (Vercel) |
+| `VERCEL_TOKEN` + org/project ids | Direct Vercel deploy |
+
+Then run workflow **Finish deploy (API + Vercel)** on `main`.
+
+### Update student.umunsi.com (Vercel) without PAT
+
+On any machine with push access to **Teacher-s-App-frontent**:
+
+```bash
+git clone https://github.com/Kwizera250232/Teacher-s-App-frontent.git
+cd Teacher-s-App-frontent
+git pull /path/to/Teacher-s-App-backend/frontend-deploy.bundle main
+git push origin main
 ```
 
 Required `.env`: `DATABASE_URL`, `JWT_SECRET`, `PORT=5000`, `FRONTEND_URL=https://student.umunsi.com`

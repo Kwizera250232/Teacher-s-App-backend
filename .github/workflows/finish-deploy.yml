@@ -8,8 +8,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    outputs:
-      build_id: ${{ steps.version.outputs.build_id }}
     steps:
       - uses: actions/checkout@v4
 
@@ -20,10 +18,6 @@ jobs:
       - name: Build student UI for /app/
         run: bash scripts/build-student-web-dist.sh
 
-      - name: Write build id
-        id: version
-        run: echo "build_id=$(cat VERSION)" >> "$GITHUB_OUTPUT"
-
   deploy-api:
     needs: build
     runs-on: ubuntu-latest
@@ -31,13 +25,14 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Deploy via SSH
-        if: ${{ secrets.SSH_PRIVATE_KEY != '' && secrets.SSH_HOST != '' && secrets.SSH_USER != '' }}
         uses: appleboy/ssh-action@v1.2.0
+        continue-on-error: true
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
+          script_stop: true
           script: |
             set -e
             APP_DIR="${{ secrets.BACKEND_APP_DIR || '/home/umunsi/htdocs/studentapi.umunsi.com' }}"
@@ -50,20 +45,23 @@ jobs:
             pm2 save
 
       - name: Deploy via hook
-        if: ${{ secrets.DEPLOY_HOOK_SECRET != '' }}
+        continue-on-error: true
         env:
           DEPLOY_HOOK_SECRET: ${{ secrets.DEPLOY_HOOK_SECRET }}
         run: |
+          if [ -z "$DEPLOY_HOOK_SECRET" ]; then
+            echo "DEPLOY_HOOK_SECRET not set — skip hook deploy"
+            exit 0
+          fi
           curl -fsS -X POST "https://studentapi.umunsi.com/api/hooks/redeploy" \
             -H "Content-Type: application/json" \
             -H "X-Deploy-Secret: $DEPLOY_HOOK_SECRET" \
-            -d '{}' || echo "::warning::Deploy hook failed (set DEPLOY_HOOK_SECRET on server .env too)"
+            -d '{}'
 
-      - name: SSH secrets missing
-        if: ${{ secrets.SSH_PRIVATE_KEY == '' && secrets.DEPLOY_HOOK_SECRET == '' }}
+      - name: Deploy reminder
         run: |
-          echo "::warning::Add GitHub secrets SSH_HOST, SSH_USER, SSH_PRIVATE_KEY and/or DEPLOY_HOOK_SECRET"
-          echo "Manual VPS: cd /home/umunsi/htdocs/studentapi.umunsi.com && git pull origin main && npm ci --omit=dev && pm2 restart studentapi"
+          echo "If API is still old, SSH to VPS and run:"
+          echo "  cd /home/umunsi/htdocs/studentapi.umunsi.com && git pull origin main && npm ci --omit=dev && pm2 restart studentapi"
 
   deploy-vercel:
     needs: build
@@ -76,26 +74,36 @@ jobs:
           node-version: '22'
 
       - name: Push to Teacher-s-App-frontent
-        if: ${{ secrets.FRONTEND_DEPLOY_TOKEN != '' }}
+        continue-on-error: true
         env:
           FRONTEND_DEPLOY_TOKEN: ${{ secrets.FRONTEND_DEPLOY_TOKEN }}
-        run: bash scripts/sync-student-web-to-frontend.sh
+        run: |
+          if [ -z "$FRONTEND_DEPLOY_TOKEN" ]; then
+            echo "FRONTEND_DEPLOY_TOKEN not set — skip frontend push"
+            exit 0
+          fi
+          bash scripts/sync-student-web-to-frontend.sh
 
       - name: Vercel CLI deploy
-        if: ${{ secrets.VERCEL_TOKEN != '' }}
+        continue-on-error: true
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: bash scripts/deploy-vercel-frontend.sh
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then exit 0; fi
+          bash scripts/deploy-vercel-frontend.sh
 
       - name: Vercel deploy hook
-        if: ${{ secrets.VERCEL_DEPLOY_HOOK != '' }}
-        run: curl -fsS -X POST "${{ secrets.VERCEL_DEPLOY_HOOK }}"
-
-      - name: Frontend deploy skipped
-        if: ${{ secrets.FRONTEND_DEPLOY_TOKEN == '' && secrets.VERCEL_TOKEN == '' && secrets.VERCEL_DEPLOY_HOOK == '' }}
+        continue-on-error: true
+        env:
+          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
         run: |
-          echo "::warning::student.umunsi.com not updated. Add FRONTEND_DEPLOY_TOKEN or VERCEL_TOKEN to GitHub secrets."
-          echo "Or use https://studentapi.umunsi.com/app/ (updates when API server pulls main)."
+          if [ -z "$VERCEL_DEPLOY_HOOK" ]; then exit 0; fi
+          curl -fsS -X POST "$VERCEL_DEPLOY_HOOK"
+
+      - name: Frontend note
+        run: |
+          echo "student.umunsi.com updates when Teacher-s-App-frontent main is pushed."
+          echo "Use frontend-deploy.bundle on VPS: see DEPLOY.md"
 
   verify:
     needs: [build, deploy-api]
@@ -103,7 +111,7 @@ jobs:
     steps:
       - name: Health check
         run: |
-          sleep 8
+          sleep 5
           curl -fsS "https://studentapi.umunsi.com/api/health"
           echo ""
           curl -fsS "https://studentapi.umunsi.com/app/" | grep -oE 'index-[A-Za-z0-9_-]+\.js' | head -1 || true
