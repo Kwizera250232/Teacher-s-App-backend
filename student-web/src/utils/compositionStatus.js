@@ -56,10 +56,10 @@ export function normalizePickableResponse(picks) {
 export async function loadPickableShares(token, api) {
   let picks;
   try {
-    picks = await api.get('/composition-status/pickable-shares', token);
+    picks = await api.get('/composition-status/pickable-shares?wrap=1', token);
   } catch (e) {
     if (/404|not found/i.test(String(e.message))) {
-      picks = await api.get('/student/composition-status/pickable-shares', token);
+      picks = await api.get('/student/composition-status/pickable-shares?wrap=1', token);
     } else throw e;
   }
   let { items, pending_count: pendingCount } = normalizePickableResponse(picks);
