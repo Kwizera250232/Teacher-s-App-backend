@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { ensureStudentSharesModerationColumns } = require('../lib/studentSharesSchema');
 
 function schoolDomainFromName(name) {
   const slug = String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -575,20 +576,25 @@ router.put('/student-shares/:id/moderate', ...adminOnly, async (req, res) => {
   if (decision === 'declined' && !reviewNote) {
     return res.status(400).json({ error: 'Decline reason is required.' });
   }
+  const reviewerId = parseInt(req.user.id, 10);
+  if (!Number.isFinite(reviewerId)) {
+    return res.status(401).json({ error: 'Invalid session. Please log in again.' });
+  }
   try {
+    await ensureStudentSharesModerationColumns(pool);
     const result = await pool.query(
       `UPDATE student_shares
-       SET status = $1::varchar, reviewed_by = $2, reviewed_at = NOW(),
-           review_note = CASE WHEN $1::varchar = 'declined' THEN $3 ELSE NULL END
+       SET status = $1, reviewed_by = $2, reviewed_at = NOW(),
+           review_note = CASE WHEN $1 = 'declined' THEN $3 ELSE NULL END
        WHERE id = $4
        RETURNING id, status, review_note, reviewed_at`,
-      [decision, req.user.id, reviewNote || null, shareId]
+      [decision, reviewerId, reviewNote || null, shareId]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Article not found.' });
     res.json(result.rows[0]);
   } catch (err) {
-    console.error('[admin student-shares moderate]', err.message);
-    res.status(500).json({ error: 'Could not update article. Try again or contact support.' });
+    console.error('[admin student-shares moderate]', err.message, err.detail || '');
+    res.status(500).json({ error: err.message || 'Could not update article.' });
   }
 });
 
