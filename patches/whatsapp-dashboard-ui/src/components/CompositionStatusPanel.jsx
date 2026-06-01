@@ -55,9 +55,10 @@ export default function CompositionStatusPanel({ token, onClose, openPickerIniti
           picks = await api.get('/student/composition-status/pickable-shares', token);
         } else throw e;
       }
-      setPickable(Array.isArray(picks) ? picks : []);
-      if (openPickerInitially || (picks && picks.length)) {
-        setStep(picks.length ? 'pick' : 'empty');
+      const items = Array.isArray(picks) ? picks : (picks?.items || []);
+      setPickable(items);
+      if (openPickerInitially || items.length) {
+        setStep(items.length ? 'pick' : 'empty');
       } else {
         setStep('empty');
       }

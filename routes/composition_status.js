@@ -153,14 +153,18 @@ router.get('/pickable-shares', authenticateToken, requireRole('student'), async 
         [req.user.id]
       ),
     ]);
-    res.json({
-      items: shares.rows.map((r) => ({
-        ...r,
-        ...parseCompositionPreview(r.content),
-      })),
-      pending_count: stats.rows[0]?.pending_count || 0,
-      declined_count: stats.rows[0]?.declined_count || 0,
-    });
+    const items = shares.rows.map((r) => ({
+      ...r,
+      ...parseCompositionPreview(r.content),
+    }));
+    const pending_count = stats.rows[0]?.pending_count || 0;
+    const declined_count = stats.rows[0]?.declined_count || 0;
+    // Default: bare array for legacy student.umunsi.com (Vercel) SPA.
+    // New UI requests ?wrap=1 for pending/declined counts.
+    if (req.query.wrap === '1' || req.query.wrap === 'true') {
+      return res.json({ items, pending_count, declined_count });
+    }
+    res.json(items);
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
   }
