@@ -129,7 +129,11 @@ router.get('/pickable-shares', authenticateToken, requireRole('student'), async 
         `SELECT id, content, created_at, status, type
          FROM student_shares
          WHERE student_id = $1
-           AND type IN (${TYPE_LIST})
+           AND (
+             type IN (${TYPE_LIST})
+             OR type IS NULL
+             OR TRIM(type) = ''
+           )
            AND LOWER(TRIM(status)) = 'approved'
          ORDER BY created_at DESC
          LIMIT 30`,
@@ -137,10 +141,15 @@ router.get('/pickable-shares', authenticateToken, requireRole('student'), async 
       ),
       pool.query(
         `SELECT
-           COUNT(*) FILTER (WHERE status = 'pending')::int AS pending_count,
-           COUNT(*) FILTER (WHERE status = 'declined')::int AS declined_count
+           COUNT(*) FILTER (WHERE LOWER(TRIM(status)) = 'pending')::int AS pending_count,
+           COUNT(*) FILTER (WHERE LOWER(TRIM(status)) = 'declined')::int AS declined_count
          FROM student_shares
-         WHERE student_id = $1 AND type IN (${TYPE_LIST})`,
+         WHERE student_id = $1
+           AND (
+             type IN (${TYPE_LIST})
+             OR type IS NULL
+             OR TRIM(type) = ''
+           )`,
         [req.user.id]
       ),
     ]);

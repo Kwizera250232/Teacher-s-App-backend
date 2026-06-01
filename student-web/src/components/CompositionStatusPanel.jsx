@@ -137,13 +137,17 @@ export default function CompositionStatusPanel({ token, onClose, openPickerIniti
 
         {!loading && step === 'empty' && (
           <div className="csp-empty">
-            <div className="csp-empty-icon">📝</div>
-            <p>No approved work ready for C. Status yet.</p>
+            <div className="csp-empty-icon">✨</div>
+            <p>Ready to share your approved work?</p>
             <p className="csp-muted">
-              Post a lesson, dream, or motivation on Profile. After approval, return here to share it for 7 days.
+              If Profile shows <strong>Approved</strong>, tap below to refresh, then pick a post for your 7-day C. Status.
+              Classmates see it on the feed — subscribe to read the full text. Parents and teachers see everything.
             </p>
-            <button type="button" className="btn btn-primary" onClick={goProfile}>
-              Write on Profile
+            <button type="button" className="btn btn-primary" onClick={load} disabled={loading}>
+              Refresh my approved posts
+            </button>
+            <button type="button" className="btn btn-secondary" style={{ marginTop: 8 }} onClick={goProfile}>
+              Open Profile
             </button>
           </div>
         )}

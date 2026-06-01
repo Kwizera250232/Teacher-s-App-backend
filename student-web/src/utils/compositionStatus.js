@@ -1,6 +1,16 @@
 /** Types that can be published as 7-day C. Status */
 export const STATUS_ELIGIBLE_TYPES = ['composition', 'dream', 'lesson', 'motivation'];
 
+export function isApprovedShare(share) {
+  return String(share?.status || '').toLowerCase().trim() === 'approved';
+}
+
+export function isPickableType(type) {
+  const t = String(type || '').toLowerCase().trim();
+  if (!t) return true;
+  return STATUS_ELIGIBLE_TYPES.includes(t);
+}
+
 export function parseCompositionPreview(content) {
   const lines = String(content || '').split('\n');
   const title = lines[0]?.replace(/^📌\s*/, '') || 'Composition';
@@ -59,11 +69,11 @@ export async function loadPickableShares(token, api) {
       const shares = await api.get('/student-shares', token);
       const rows = Array.isArray(shares) ? shares : [];
       items = rows
-        .filter((s) => STATUS_ELIGIBLE_TYPES.includes(s.type) && s.status === 'approved')
+        .filter((s) => isPickableType(s.type) && isApprovedShare(s))
         .map(mapShareToPickable);
       if (!pendingCount) {
         pendingCount = rows.filter(
-          (s) => STATUS_ELIGIBLE_TYPES.includes(s.type) && s.status === 'pending'
+          (s) => isPickableType(s.type) && String(s.status || '').toLowerCase().trim() === 'pending'
         ).length;
       }
     } catch {
