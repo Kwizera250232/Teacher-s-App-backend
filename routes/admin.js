@@ -582,13 +582,13 @@ router.put('/student-shares/:id/moderate', ...adminOnly, async (req, res) => {
   }
   try {
     await ensureStudentSharesModerationColumns(pool);
+    const noteToSave = decision === 'declined' ? reviewNote : null;
     const result = await pool.query(
       `UPDATE student_shares
-       SET status = $1, reviewed_by = $2, reviewed_at = NOW(),
-           review_note = CASE WHEN $1 = 'declined' THEN $3 ELSE NULL END
+       SET status = $1, reviewed_by = $2, reviewed_at = NOW(), review_note = $3
        WHERE id = $4
        RETURNING id, status, review_note, reviewed_at`,
-      [decision, reviewerId, reviewNote || null, shareId]
+      [decision, reviewerId, noteToSave, shareId]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Article not found.' });
     res.json(result.rows[0]);
