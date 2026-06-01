@@ -67,6 +67,7 @@ After deploy, these must return **401** without a token (not **404**): `POST /ap
 
 ### Email rules
 
-- **Teachers / head teachers:** create a unique **school email** at signup (`school_email_local` → `name@schooldomain.edu`). That address is the login email.
-- **Students / parents:** Gmail or the school’s `@email_domain` only. Validated on register; optional strict mailbox check via `STRICT_EMAIL_VALIDATE=true`.
+- **Teachers / head teachers:** create a unique **school email** at signup (`school_email_local` → `name@schooldomain.edu`). Used for **login** and **in-app Chats** (send/receive). Not a hosted Gmail inbox unless the school owns that domain’s mail.
+- **Students:** Gmail or the school’s `@email_domain`. School-domain signups skip external mailbox checks (UClass-issued addresses).
+- **Parents:** personal Gmail/Yahoo/Outlook only (external mail + in-app).
 - **CLI:** `npm run check-email -- user@gmail.com` (add `--school-domain school.edu` for school addresses).

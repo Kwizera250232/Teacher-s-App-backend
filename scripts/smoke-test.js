@@ -9,6 +9,8 @@ const modules = [
   '../lib/parentReminders',
   '../lib/parentClassNotify',
   '../lib/optionalMailer',
+  '../lib/schoolEmailCapabilities',
+  '../lib/emailValidate',
   '../routes/parent_hub',
 ];
 

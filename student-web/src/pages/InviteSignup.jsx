@@ -4,6 +4,7 @@ import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { dashboardPath } from '../utils/roles';
 import AuthAppShell from '../components/AuthAppShell';
+import { SCHOOL_EMAIL_IN_APP_HELP } from '../utils/schoolEmailHelp';
 import './Auth.css';
 
 export default function InviteSignup() {
@@ -232,6 +233,9 @@ export default function InviteSignup() {
                       @{inviteSchoolDomain || 'school.edu'}
                     </span>
                   </div>
+                  <p style={{ fontSize: 12, color: '#64748b', marginTop: 6, lineHeight: 1.4 }}>
+                    {SCHOOL_EMAIL_IN_APP_HELP}
+                  </p>
                   {schoolEmailStatus && (
                     <span style={{ fontSize: 12, color: schoolEmailStatus.startsWith('✓') ? '#059669' : '#dc2626' }}>
                       {schoolEmailStatus}

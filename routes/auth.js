@@ -6,7 +6,8 @@ const rateLimit = require('express-rate-limit');
 const pool = require('../db');
 const { authenticateToken } = require('../middleware/auth');
 const { schoolDomainFromName, normalizeLocalPart, buildSchoolEmail } = require('../lib/schoolDomain');
-const { validateEmailForSignup } = require('../lib/emailValidate');
+const { validateEmailForSignup, isSchoolDomainEmail } = require('../lib/emailValidate');
+const { schoolEmailCapabilities } = require('../lib/schoolEmailCapabilities');
 require('dotenv').config();
 
 const STRICT_EMAIL = process.env.STRICT_EMAIL_VALIDATE === 'true';
@@ -273,6 +274,7 @@ router.get('/check-school-email', async (req, res) => {
       email_domain: domain,
       school_name: schoolName,
       using_platform_domain: !code,
+      capabilities: schoolEmailCapabilities('staff'),
     });
   } catch (err) {
     console.error('[check-school-email]', err);
@@ -336,10 +338,12 @@ router.post('/validate-email', authLimiter, async (req, res) => {
     if (!result.valid) {
       return res.status(400).json({ error: result.reason, mailbox: result.mailbox });
     }
+    const capKind = result.type === 'school' ? 'school' : 'personal';
     res.json({
       valid: true,
       type: result.type,
       mailbox: result.mailbox,
+      capabilities: schoolEmailCapabilities(capKind),
     });
   } catch (err) {
     console.error('[validate-email]', err);
@@ -598,6 +602,12 @@ router.post('/register', authLimiter, async (req, res) => {
       );
     }
 
+    const emailCapabilities = isStaffRole
+      ? schoolEmailCapabilities('staff')
+      : schoolDomainForEmail && isSchoolDomainEmail(email, schoolDomainForEmail)
+        ? schoolEmailCapabilities('school')
+        : schoolEmailCapabilities('personal');
+
     if (!isApproved) {
       audit('register', { email, role, status: 'pending_approval' });
       return res.status(202).json({
@@ -606,6 +616,7 @@ router.post('/register', authLimiter, async (req, res) => {
         school_code: schoolCode,
         school_welcome_message: schoolWelcomeMessage,
         login_email: email,
+        capabilities: emailCapabilities,
       });
     }
 
@@ -615,6 +626,7 @@ router.post('/register', authLimiter, async (req, res) => {
       token,
       user: userPayload(user),
       login_email: email,
+      capabilities: emailCapabilities,
     });
   } catch (err) {
     console.error('[register]', err);

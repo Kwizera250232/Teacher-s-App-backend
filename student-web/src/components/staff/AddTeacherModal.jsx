@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../../api';
+import { SCHOOL_EMAIL_IN_APP_HELP } from '../../utils/schoolEmailHelp';
 
 export default function AddTeacherModal({ token, onClose, onCreated }) {
   const [name, setName] = useState('');
@@ -51,7 +52,7 @@ export default function AddTeacherModal({ token, onClose, onCreated }) {
         ) : (
           <form onSubmit={submit}>
             <p className="phub-muted" style={{ marginBottom: 12 }}>
-              Enter the teacher&apos;s name and school email username. We show the full email before you save.
+              Enter the teacher&apos;s name and school email username. They will use it to sign in and to send or receive messages in UClass Chats. {SCHOOL_EMAIL_IN_APP_HELP}
             </p>
             <label className="form-group">
               Full name

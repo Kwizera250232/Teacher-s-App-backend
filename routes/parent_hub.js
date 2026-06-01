@@ -12,6 +12,7 @@ const {
 const { runParentDailyReminders } = require('../lib/parentReminders');
 const { periodClause } = require('../lib/periodFilters');
 const { maybeEmailParent } = require('../lib/parentNotifyEmail');
+const { schoolEmailCapabilities } = require('../lib/schoolEmailCapabilities');
 
 const router = express.Router();
 
@@ -736,7 +737,12 @@ router.get('/school/teachers/email-preview', authenticateToken, requireRole('hea
     let domain = school.rows[0].email_domain || schoolDomainFromName(school.rows[0].name);
     const email = buildSchoolEmail(local, domain);
     const taken = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
-    res.json({ email, available: taken.rows.length === 0, email_domain: domain });
+    res.json({
+      email,
+      available: taken.rows.length === 0,
+      email_domain: domain,
+      capabilities: schoolEmailCapabilities('staff'),
+    });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
   }

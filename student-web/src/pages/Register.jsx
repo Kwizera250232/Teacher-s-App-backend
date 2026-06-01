@@ -4,6 +4,7 @@ import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { dashboardPath } from '../utils/roles';
 import { schoolDomainFromName, buildSchoolEmailPreview } from '../utils/schoolDomain';
+import { SCHOOL_EMAIL_IN_APP_HELP, STUDENT_EMAIL_HELP } from '../utils/schoolEmailHelp';
 import './Auth.css';
 
 export default function Register() {
@@ -151,6 +152,8 @@ export default function Register() {
                   Injira ukoresheje: <strong>{schoolEmailPreview}</strong>
                 </>
               )}
+              <br />
+              <span style={{ fontSize: 13, color: '#64748b' }}>{SCHOOL_EMAIL_IN_APP_HELP}</span>
             </p>
             <div style={{ marginTop: 24 }}>
               <a href="/login" className="btn btn-primary btn-full">
@@ -183,7 +186,7 @@ export default function Register() {
             )}
             {(selectedRole === 'head_teacher' || selectedRole === 'teacher') && (
               <p style={{ color: '#64748b', fontSize: '0.875rem', marginTop: 4 }}>
-                Sign up now with your UClass school email. You can link to your school from the dashboard after login (school code optional).
+                Create your professional school email for login and UClass Chats (send and receive messages in the app).
               </p>
             )}
 
@@ -269,7 +272,9 @@ export default function Register() {
                           const r = await api.get(`/auth/check-school-email?${params}`);
                           setSchoolEmailPreview(r.email);
                           setSchoolEmailStatus(
-                            r.available ? `✓ ${r.email} is available` : `✗ ${r.email} is already taken`
+                            r.available
+                              ? `✓ ${r.email} — login + UClass messages`
+                              : `✗ ${r.email} is already taken`
                           );
                         } catch (err) {
                           setSchoolEmailStatus(err.message);
@@ -287,7 +292,7 @@ export default function Register() {
                     </span>
                   </div>
                   <p style={{ fontSize: 12, color: '#64748b', marginTop: 6, lineHeight: 1.4 }}>
-                    Injira ukoresheje <strong>username@izinaryishuri.edu</strong> — izina ry&apos;ishuri hejuru rigena aderesi yawe.
+                    Injira ukoresheje <strong>username@izinaryishuri.edu</strong>. {SCHOOL_EMAIL_IN_APP_HELP}
                   </p>
                   {schoolEmailPreview && (
                     <p style={{ fontSize: 12, marginTop: 4, color: '#0f766e' }}>
@@ -312,11 +317,15 @@ export default function Register() {
                       const em = form.email.trim().toLowerCase();
                       if (!em || selectedRole !== 'student') return;
                       try {
-                        await api.post('/auth/validate-email', {
+                        const vr = await api.post('/auth/validate-email', {
                           email: em,
                           school_id: form.school_id || verifiedSchool?.id || undefined,
                         });
-                        setStudentEmailStatus('✓ Email looks valid');
+                        setStudentEmailStatus(
+                          vr.capabilities?.summary
+                            ? `✓ ${vr.capabilities.summary}`
+                            : '✓ Email looks valid'
+                        );
                       } catch (err) {
                         setStudentEmailStatus(err.message);
                       }
@@ -325,7 +334,7 @@ export default function Register() {
                     required
                   />
                   <p style={{ fontSize: 12, color: '#64748b', marginTop: 6, lineHeight: 1.4 }}>
-                    Use a real Gmail address or your school email. Fake or disposable addresses are not allowed.
+                    {STUDENT_EMAIL_HELP}
                   </p>
                   {studentEmailStatus && (
                     <p style={{ fontSize: 12, marginTop: 4, color: studentEmailStatus.startsWith('✓') ? '#059669' : '#dc2626' }}>
