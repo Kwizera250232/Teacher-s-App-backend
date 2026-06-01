@@ -4,7 +4,6 @@ import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { dashboardPath } from '../utils/roles';
 import { schoolDomainFromName, buildSchoolEmailPreview } from '../utils/schoolDomain';
-import AuthAppShell from '../components/AuthAppShell';
 import './Auth.css';
 
 export default function Register() {
@@ -17,12 +16,7 @@ export default function Register() {
   const [selectedRole, setSelectedRole] = useState(
     ['head_teacher', 'teacher'].includes(searchRole) ? searchRole : 'student'
   );
-  const [codeInput, setCodeInput] = useState('');
-  const [codeLoading, setCodeLoading] = useState(false);
-  const [codeError, setCodeError] = useState('');
   const [verifiedSchool, setVerifiedSchool] = useState(null);
-  const [optionalCode, setOptionalCode] = useState('');
-  const [showOptionalCode, setShowOptionalCode] = useState(false);
 
   const [form, setForm] = useState({
     name: '',
@@ -88,7 +82,7 @@ export default function Register() {
       } else if (form.email.trim()) {
         await api.post('/auth/validate-email', {
           email: form.email.trim().toLowerCase(),
-          school_code: verifiedSchool ? codeInput.trim().toUpperCase() : undefined,
+          school_code: verifiedSchool?.code ? String(verifiedSchool.code).trim().toUpperCase() : undefined,
           school_id: schoolId || undefined,
         });
       }
@@ -110,11 +104,8 @@ export default function Register() {
         payload.email = form.email.trim().toLowerCase();
       }
 
-      const codeForRegister = (verifiedSchool && (codeInput || optionalCode))
-        ? (codeInput || optionalCode).trim().toUpperCase()
-        : '';
-      if (codeForRegister) {
-        payload.school_code = codeForRegister;
+      if (verifiedSchool?.code) {
+        payload.school_code = String(verifiedSchool.code).trim().toUpperCase();
       }
 
       const data = await api.post('/auth/register', payload);
@@ -144,14 +135,14 @@ export default function Register() {
   };
 
   return (
-    <AuthAppShell
-      title={pending ? "Konti Yoherejwe" : step === "role" ? "Fungura Konti" : "Fungura Konti"}
-      subtitle={pending ? "Tegereza kwemezwa n'umuyobozi" : step === "role" ? "Hitamo uwo uri we" : "Injira mu rubuga rw'inyigisho"}
-      footer={<p>Usanzwe ufite konti? <Link to="/login">Injira</Link></p>}
-    >
+    <div className="auth-container">
+      <div className="auth-card">
+        <div className="auth-logo">🎓</div>
+
         {pending ? (
           <>
-            <p className="auth-app-shell__sub" style={{ marginTop: 12, lineHeight: 1.6 }}>
+            <h2>✅ Konti Yoherejwe!</h2>
+            <p className="auth-sub" style={{ marginTop: 12, lineHeight: 1.6 }}>
               Konti yawe y'umwarimu yoherejwe.{' '}
               <strong>Tegereza ko umuyobozi w'ishuri ayemera</strong> mbere yo kwinjira.
               {schoolEmailPreview && (
@@ -169,6 +160,8 @@ export default function Register() {
           </>
         ) : step === 'role' ? (
           <>
+            <h2>Fungura Konti</h2>
+            <p className="auth-sub">Hitamo uwo uri we</p>
 
             <div className="form-group" style={{ marginTop: 20 }}>
               <label>Ndi</label>
@@ -201,10 +194,14 @@ export default function Register() {
             >
               Komeza →
             </button>
-
+            <p className="auth-link" style={{ marginTop: 16 }}>
+              Usanzwe ufite konti? <Link to="/login">Injira</Link>
+            </p>
           </>
         ) : (
           <>
+            <h2>Fungura Konti</h2>
+            <p className="auth-sub">Injira mu rubuga rw'inyigisho</p>
             {error && <div className="alert alert-error">{error}</div>}
             <form onSubmit={handleSubmit}>
               <div className="form-group">
@@ -238,9 +235,6 @@ export default function Register() {
                     required={!verifiedSchool}
                     style={verifiedSchool ? { background: '#f1f5f9' } : undefined}
                   />
-                  {verifiedSchool && (
-                    <p style={{ fontSize: 12, color: '#059669', marginTop: 4 }}>🏫 Linked via school code</p>
-                  )}
                 </div>
                 <div className="form-group">
                   <label>Imeyili y&apos;ishuri (login)</label>
@@ -260,16 +254,18 @@ export default function Register() {
                       onBlur={async () => {
                         const local = form.schoolEmailLocal.trim();
                         if (!local) return;
-                        const code = (verifiedSchool ? codeInput : optionalCode).trim().toUpperCase();
                         const schoolName = verifiedSchool?.name || form.staffSchoolName.trim();
-                        if (!code && !schoolName) {
+                        if (!schoolName) {
                           setSchoolEmailStatus('Andika izina ry\'ishuri mbere.');
                           return;
                         }
                         try {
                           const params = new URLSearchParams({ local });
-                          if (code) params.set('code', code);
-                          else params.set('school_name', schoolName);
+                          if (verifiedSchool?.code) {
+                            params.set('code', String(verifiedSchool.code).trim().toUpperCase());
+                          } else {
+                            params.set('school_name', schoolName);
+                          }
                           const r = await api.get(`/auth/check-school-email?${params}`);
                           setSchoolEmailPreview(r.email);
                           setSchoolEmailStatus(
@@ -291,11 +287,11 @@ export default function Register() {
                     </span>
                   </div>
                   <p style={{ fontSize: 12, color: '#64748b', marginTop: 6, lineHeight: 1.4 }}>
-                    Your login is <strong>username@schoolname.edu</strong> — the school name above sets the address (not @staff.umunsi.edu).
+                    Injira ukoresheje <strong>username@izinaryishuri.edu</strong> — izina ry&apos;ishuri hejuru rigena aderesi yawe.
                   </p>
                   {schoolEmailPreview && (
                     <p style={{ fontSize: 12, marginTop: 4, color: '#0f766e' }}>
-                      Login email: <strong>{schoolEmailPreview}</strong>
+                      Imeyili yo kwinjira: <strong>{schoolEmailPreview}</strong>
                     </p>
                   )}
                   {schoolEmailStatus && (
@@ -304,60 +300,6 @@ export default function Register() {
                     </p>
                   )}
                 </div>
-                {!showOptionalCode ? (
-                  <button
-                    type="button"
-                    className="btn btn-outline btn-sm"
-                    style={{ marginBottom: 12 }}
-                    onClick={() => setShowOptionalCode(true)}
-                  >
-                    Nfite kode y&apos;ishuri (optional)
-                  </button>
-                ) : (
-                  <div className="form-group">
-                    <label>Kode y&apos;ishuri (optional)</label>
-                    <input
-                      type="text"
-                      value={optionalCode}
-                      onChange={(e) => {
-                        setOptionalCode(e.target.value.toUpperCase());
-                        setCodeInput(e.target.value.toUpperCase());
-                        setVerifiedSchool(null);
-                        setCodeError('');
-                      }}
-                      onBlur={async () => {
-                        const c = optionalCode.trim();
-                        if (!c) return;
-                        setCodeLoading(true);
-                        setCodeError('');
-                        try {
-                          const data = await api.get(`/auth/validate-school-code?code=${encodeURIComponent(c)}`);
-                          if (selectedRole === 'head_teacher' && data.school.has_head_teacher) {
-                            setCodeError('This school already has a Head Teacher. Continue without code or join as Teacher.');
-                            setVerifiedSchool(null);
-                          } else {
-                            setVerifiedSchool(data.school);
-                            setCodeInput(c);
-                            setForm((f) => ({ ...f, staffSchoolName: data.school.name }));
-                            setSchoolEmailStatus('');
-                          }
-                        } catch (err) {
-                          setCodeError(err.message);
-                          setVerifiedSchool(null);
-                        } finally {
-                          setCodeLoading(false);
-                        }
-                      }}
-                      placeholder="e.g. AB3X7YQ2"
-                      maxLength={12}
-                      style={{ letterSpacing: '0.1em', textTransform: 'uppercase' }}
-                    />
-                    {codeError && <p style={{ fontSize: 12, color: '#dc2626' }}>{codeError}</p>}
-                    {verifiedSchool && (
-                      <p style={{ fontSize: 12, color: '#059669' }}>🏫 {verifiedSchool.name} · @{verifiedSchool.email_domain}</p>
-                    )}
-                  </div>
-                )}
                 </>
               ) : (
                 <div className="form-group">
@@ -467,7 +409,8 @@ export default function Register() {
             </p>
           </>
         )}
-    </AuthAppShell>
+      </div>
+    </div>
   );
 }
 

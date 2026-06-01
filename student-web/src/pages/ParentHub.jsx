@@ -6,12 +6,33 @@ import { useAuth } from '../context/AuthContext';
 import DonateButton from '../components/DonateButton';
 import MessageContextBanner from '../components/MessageContextBanner';
 import '../pages/Messages.css';
-import DeanSupportFab from '../components/DeanSupportFab';
 import { downloadWord, downloadCatSheetWord } from '../utils/downloadResult';
-import '../styles/WaChatShell.css';
 import './ParentHub.css';
 
 const DEFAULT_AVATAR = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%234285f4'/%3E%3Ctext y='.9em' font-size='50' x='25' fill='white'%3E%F0%9F%91%A4%3C/text%3E%3C/svg%3E";
+
+function dedupeTeachers(list) {
+  const map = new Map();
+  (list || []).forEach((t) => {
+    if (!t?.id) return;
+    const prev = map.get(t.id);
+    if (!prev) {
+      map.set(t.id, { ...t });
+      return;
+    }
+    const classes = [prev.class_name, t.class_name].filter(Boolean);
+    const uniqueClasses = [...new Set(classes)];
+    map.set(t.id, {
+      ...prev,
+      ...t,
+      email: t.email || prev.email,
+      phone: t.phone || prev.phone,
+      class_name: uniqueClasses.length > 1 ? uniqueClasses.join(', ') : (uniqueClasses[0] || null),
+      student_name: t.student_name || prev.student_name,
+    });
+  });
+  return [...map.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+}
 
 export default function ParentHub() {
   const { user, token, logout } = useAuth();
@@ -167,8 +188,9 @@ export default function ParentHub() {
   const child = hub?.children?.find((c) => c.id === selectedChild);
   const latestCtx = [...thread].reverse().find((m) => m.context_json)?.context_json;
   const activeContact = contacts.find((c) => c.id === activeChat);
-  const teachers = hub?.teachers?.length ? hub.teachers : (summary?.teachers || []);
+  const teachers = dedupeTeachers([...(hub?.teachers || []), ...(summary?.teachers || [])]);
   const contactById = new Map(contacts.map((c) => [c.id, c]));
+  const hasLinkedChild = (hub?.children?.length ?? 0) > 0;
 
   const downloadMarksWord = async () => {
     if (!selectedChild) return;
@@ -268,12 +290,18 @@ export default function ParentHub() {
         ))}
       </nav>
 
-      {teachers.length > 0 && (
+      {hasLinkedChild && (
         <section className="phub-teachers-strip" aria-label="School teachers">
-          <h2 className="phub-teachers-strip-title">Your child&apos;s teachers — contact</h2>
-          <div className="phub-teachers-scroll">
-            {teachers.map((t) => renderTeacherContact(t, `t-${t.id}-${t.class_name || 's'}`))}
-          </div>
+          <h2 className="phub-teachers-strip-title">Your child&apos;s teachers — email &amp; phone</h2>
+          {teachers.length > 0 ? (
+            <div className="phub-teachers-scroll">
+              {teachers.map((t) => renderTeacherContact(t, `t-${t.id}-${t.class_name || 's'}`))}
+            </div>
+          ) : (
+            <p className="phub-muted" style={{ margin: 0, fontSize: 13 }}>
+              No teachers linked yet. Ask the school to add your child to a class.
+            </p>
+          )}
         </section>
       )}
 
@@ -393,6 +421,14 @@ export default function ParentHub() {
 
         {tab === 'school' && (
           <div className="phub-panel">
+            {teachers.length > 0 && (
+              <section className="phub-section" style={{ marginTop: 0 }}>
+                <h2>Teachers — contact</h2>
+                <div className="phub-teachers-grid">
+                  {teachers.map((t) => renderTeacherContact(t, `school-t-${t.id}`))}
+                </div>
+              </section>
+            )}
             <h2>School announcements</h2>
             {hub?.announcements?.length ? hub.announcements.map((a) => (
               <article key={a.id} className={`phub-card ${a.is_pinned ? 'phub-pinned' : ''}`}>
@@ -456,11 +492,11 @@ export default function ParentHub() {
                   </div>
                 </div>
 
-                {(summary?.teachers?.length > 0) && (
+                {teachers.length > 0 && (
                   <section className="phub-section">
                     <h3>Teachers — email &amp; phone</h3>
                     <div className="phub-teachers-grid">
-                      {summary.teachers.map((t) => renderTeacherContact(t, `child-t-${t.id}-${t.class_name}`))}
+                      {teachers.map((t) => renderTeacherContact(t, `child-t-${t.id}-${t.class_name || 'x'}`))}
                     </div>
                   </section>
                 )}
@@ -552,7 +588,6 @@ export default function ParentHub() {
           </div>
         )}
       </div>
-          <DeanSupportFab token={token} />
     </div>
   );
 }

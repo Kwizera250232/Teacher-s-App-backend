@@ -285,10 +285,10 @@ router.get('/staff-signup-domain', async (req, res) => {
   const legacy = getStaffSignupEmailDomain();
   res.json({
     email_domain: legacy,
-    requires_school_code: !legacy,
+    requires_school_code: false,
     hint: legacy
-      ? null
-      : 'Enter your school code to use your school email (@schoolname.edu).',
+      ? 'Legacy domain — prefer signup with your school name for @schoolname.edu.'
+      : 'Enter your school name on the form to get your login email (@schoolname.edu).',
   });
 });
 

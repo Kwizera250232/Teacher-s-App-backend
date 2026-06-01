@@ -49,3 +49,22 @@
   font-weight: 600;
   text-decoration: none;
 }
+
+.auth-school-email-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.auth-school-email-local {
+  flex: 1 1 140px;
+  min-width: 120px;
+}
+
+.auth-school-email-domain {
+  color: #475569;
+  font-weight: 600;
+  font-size: 14px;
+  word-break: break-all;
+}

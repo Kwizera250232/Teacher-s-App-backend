@@ -199,6 +199,13 @@ router.get('/children/:studentId/summary', authenticateToken, requireRole('paren
        JOIN classes c ON c.id = cm.class_id
        JOIN users u ON u.id = ct.teacher_id
        WHERE cm.student_id = $1
+       UNION
+       SELECT DISTINCT ht.id, ht.name, ht.email, ht.phone, ht.role,
+              NULL AS class_name, NULL AS subject
+       FROM users st
+       JOIN users ht ON ht.school_id = st.school_id
+         AND ht.role = 'head_teacher' AND ht.is_approved = TRUE
+       WHERE st.id = $1 AND st.school_id IS NOT NULL
        ORDER BY name`,
       [studentId]
     );
