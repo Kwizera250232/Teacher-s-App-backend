@@ -38,6 +38,30 @@
 .csp-pick-item span { font-size: 12px; color: #667781; }
 .csp-pick-type { display: block; text-transform: capitalize; }
 .csp-empty-icon { font-size: 36px; margin-bottom: 8px; }
+.csp-empty--pending { background: linear-gradient(180deg, #fffbeb, #fff); border-radius: 12px; padding: 8px; }
+.csp-ready-banner {
+  background: linear-gradient(135deg, #dcfce7, #ecfdf5);
+  border: 1px solid #86efac;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.csp-ready-banner p {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #166534;
+  line-height: 1.45;
+}
+.csp-ready-badge {
+  display: inline-block;
+  background: #16a34a;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+}
 
 .csp-feed-section {
   margin: 20px 0 28px;

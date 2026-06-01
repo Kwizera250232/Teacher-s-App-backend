@@ -130,7 +130,7 @@ router.get('/pickable-shares', authenticateToken, requireRole('student'), async 
          FROM student_shares
          WHERE student_id = $1
            AND type IN (${TYPE_LIST})
-           AND status = 'approved'
+           AND LOWER(TRIM(status)) = 'approved'
          ORDER BY created_at DESC
          LIMIT 30`,
         [req.user.id]
@@ -262,7 +262,7 @@ router.post('/', authenticateToken, requireRole('student'), async (req, res) => 
     if (!isStatusEligibleType(share.rows[0].type)) {
       return res.status(400).json({ error: 'This post cannot be used as C. Status.' });
     }
-    if (share.rows[0].status !== 'approved') {
+    if (String(share.rows[0].status || '').toLowerCase().trim() !== 'approved') {
       return res.status(400).json({
         error: 'Composition must be approved first. Finish writing on your Profile, then try again.',
         needs_profile: true,

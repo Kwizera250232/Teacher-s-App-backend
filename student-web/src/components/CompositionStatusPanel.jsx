@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { MODAL_CARD_STYLE, MODAL_OVERLAY_STYLE } from '../utils/modalOverlay';
+import { loadPickableShares } from '../utils/compositionStatus';
 import './CompositionStatusPanel.css';
 
 function ReadMore({ text, max = 200 }) {
@@ -48,22 +49,15 @@ export default function CompositionStatusPanel({ token, onClose, openPickerIniti
         setStep('active');
         return;
       }
-      let picks;
-      try {
-        picks = await api.get('/composition-status/pickable-shares', token);
-      } catch (e) {
-        if (/404|not found/i.test(String(e.message))) {
-          picks = await api.get('/student/composition-status/pickable-shares', token);
-        } else throw e;
-      }
-      const items = Array.isArray(picks) ? picks : (picks.items || []);
-      const pending = picks.pending_count ?? 0;
+      const { items, pending_count: pending } = await loadPickableShares(token, api);
       setPickable(items);
       setPendingCount(pending);
-      if (openPickerInitially || items.length) {
-        setStep(items.length ? 'pick' : pending > 0 ? 'pending' : 'empty');
+      if (items.length) {
+        setStep('pick');
+      } else if (pending > 0) {
+        setStep('pending');
       } else {
-        setStep(pending > 0 ? 'pending' : 'empty');
+        setStep('empty');
       }
     } catch (e) {
       if (/404|not found/i.test(e.message)) {
@@ -89,10 +83,11 @@ export default function CompositionStatusPanel({ token, onClose, openPickerIniti
       setMine(res.active);
       setStep('active');
     } catch (e) {
-      if (e.message?.includes('needs_profile') || e.message?.includes('approved')) {
+      const msg = String(e.message || '');
+      if (e.needs_profile || msg.includes('needs_profile') || /must be approved/i.test(msg)) {
         setStep('need-profile');
       } else {
-        setError(e.message);
+        setError(msg);
       }
     } finally {
       setPublishing(false);
@@ -143,8 +138,10 @@ export default function CompositionStatusPanel({ token, onClose, openPickerIniti
         {!loading && step === 'empty' && (
           <div className="csp-empty">
             <div className="csp-empty-icon">📝</div>
-            <p>You have no approved composition yet.</p>
-            <p className="csp-muted">Write on Profile, wait for teacher approval, then publish as C. Status.</p>
+            <p>No approved work ready for C. Status yet.</p>
+            <p className="csp-muted">
+              Post a lesson, dream, or motivation on Profile. After approval, return here to share it for 7 days.
+            </p>
             <button type="button" className="btn btn-primary" onClick={goProfile}>
               Write on Profile
             </button>
@@ -173,7 +170,11 @@ export default function CompositionStatusPanel({ token, onClose, openPickerIniti
 
         {!loading && step === 'pick' && (
           <div className="csp-pick-list">
-            <p className="csp-muted">Choose an approved composition for your 7-day status:</p>
+            <div className="csp-ready-banner">
+              <span className="csp-ready-badge">✓ Approved</span>
+              <p>Pick one to share for 7 days. Classmates see it on the feed — they subscribe to read the full text.</p>
+            </div>
+            <p className="csp-muted">Your approved posts:</p>
             {pickable.length === 0 ? (
               <button type="button" className="btn btn-primary" onClick={goProfile}>
                 Write on Profile

@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
+import { STATUS_ELIGIBLE_TYPES } from '../utils/compositionStatus';
 import './StudentShareFeed.css';
 
 const CATEGORIES = [
@@ -53,6 +55,7 @@ function timeAgo(dateStr) {
 
 export default function StudentShareFeed({ token }) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [shares, setShares] = useState([]);
   const [loading, setLoading] = useState(true);
   const [posting, setPosting] = useState(false);
@@ -305,10 +308,19 @@ export default function StudentShareFeed({ token }) {
                 </div>
               )}
               <div className="sf-post-foot">
-                {isOwn && ['composition', 'dream', 'lesson', 'motivation'].includes(s.type) && s.status === 'approved' && (
-                  <button type="button" className="sf-like-btn" onClick={() => handlePin(s)}>
-                    {s.pinned ? '📌 Pinned' : '📍 Pin'}
-                  </button>
+                {isOwn && STATUS_ELIGIBLE_TYPES.includes(s.type) && s.status === 'approved' && (
+                  <>
+                    <button
+                      type="button"
+                      className="sf-cstatus-btn"
+                      onClick={() => navigate('/student/dashboard?status=1')}
+                    >
+                      ✨ C. Status
+                    </button>
+                    <button type="button" className="sf-like-btn" onClick={() => handlePin(s)}>
+                      {s.pinned ? '📌 Pinned' : '📍 Pin'}
+                    </button>
+                  </>
                 )}
                 <button className={`sf-like-btn${s.liked_by_me ? ' sf-like-btn--on' : ''}`}
                   disabled={liking === s.id} onClick={() => handleLike(s.id)}>

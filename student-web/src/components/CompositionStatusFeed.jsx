@@ -118,7 +118,7 @@ export default function CompositionStatusFeed({ token, compact = false }) {
       {!compact && (
         <header className="csp-feed-header">
           <h2>✍️ C. Status at your school</h2>
-          <p>See who shared a composition. Subscribe to classmates to read the full text.</p>
+          <p>Classmates share approved work for 7 days. Parents and teachers read everything — subscribe to a classmate to unlock their full text.</p>
         </header>
       )}
       <div className="csp-feed-list">

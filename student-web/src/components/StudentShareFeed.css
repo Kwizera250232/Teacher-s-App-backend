@@ -184,6 +184,23 @@
 .sf-like-btn--on { color: #e11d48; border-color: #fda4af; background: #fff1f2; }
 .sf-like-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
+.sf-cstatus-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  color: #fff;
+  background: linear-gradient(135deg, #25d366, #128c7e);
+  box-shadow: 0 3px 12px rgba(37, 211, 102, 0.35);
+}
+.sf-cstatus-btn:hover { filter: brightness(1.05); }
+
 /* Empty / loading */
 .sf-state {
   display: flex;
