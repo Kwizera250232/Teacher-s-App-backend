@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run ON the VPS (or via: ssh user@host 'bash -s' < scripts/deploy-production.sh)
 set -euo pipefail
-APP_DIR="${BACKEND_APP_DIR:-/var/www/Teacher-s-App-backend}"
+APP_DIR="${BACKEND_APP_DIR:-/home/umunsi/htdocs/studentapi.umunsi.com}"
 cd "$APP_DIR"
 git fetch origin main
 git checkout main

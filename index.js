@@ -103,6 +103,7 @@ app.use('/api/classroom-feed', classroomFeedRoutes);
 app.use('/api/parent', parentPortalRoutes);
 app.use('/api/parent', parentHubRoutes);
 app.use('/api/donate', donateRoutes);
+app.use('/api/hooks', require('./routes/hooks'));
 
 // Serve avatars
 app.use('/uploads/avatars', express.static(require('path').join(__dirname, 'uploads/avatars')));
@@ -120,7 +121,17 @@ app.post('/api/pwa/install', async (req, res) => {
   }
 });
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+app.get('/api/health', (req, res) => {
+  let build = process.env.BUILD_ID || null;
+  if (!build) {
+    try {
+      build = require('fs').readFileSync(path.join(__dirname, 'VERSION'), 'utf8').trim();
+    } catch {
+      build = null;
+    }
+  }
+  res.json({ status: 'ok', build });
+});
 
 // Student web UI (built React app) — https://studentapi.umunsi.com/app/
 const studentUiDist = path.join(__dirname, 'student-web-dist');

@@ -15,4 +15,5 @@ npm ci
 VITE_BASE_PATH=/app/ npm run build
 rm -rf "$ROOT/student-web-dist"
 cp -a dist "$ROOT/student-web-dist"
+git -C "$ROOT" rev-parse HEAD > "$ROOT/VERSION" 2>/dev/null || date -u +%Y%m%d-%H%M%S > "$ROOT/VERSION"
 echo "Built → $ROOT/student-web-dist (serve at https://studentapi.umunsi.com/app/)"
