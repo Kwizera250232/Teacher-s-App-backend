@@ -42,6 +42,19 @@ Required `.env`: `DATABASE_URL`, `JWT_SECRET`, `PORT=5000`, `FRONTEND_URL=https:
 
 Optional: `SMTP_*` for parent email; `STRICT_EMAIL_VALIDATE=false`
 
+### Real school email (`@schoolslug.mail.umunsi.com`)
+
+Staff sign up with a **real** address (usable on Cursor, Google, etc.). Inbound mail is **forwarded** to their verified personal Gmail/Yahoo/Outlook.
+
+1. In `.env` on the VPS:
+   - `SCHOOL_MAIL_ENABLED=true`
+   - `SCHOOL_MAIL_BASE_DOMAIN=mail.umunsi.com`
+   - `SMTP_*` (sends verification codes + forwards)
+   - `MAILGUN_API_KEY`, `MAILGUN_DOMAIN=mail.umunsi.com`, `MAILGUN_WEBHOOK_SIGNING_KEY` (inbound)
+2. **DNS** for `mail.umunsi.com` (Mailgun): MX + SPF + DKIM per Mailgun dashboard.
+3. Mailgun route: forward `*@*.mail.umunsi.com` → `https://studentapi.umunsi.com/api/mail/inbound`
+4. After deploy, `GET https://studentapi.umunsi.com/api/mail/status` should show `"enabled": true`.
+
 ## GitHub Action (optional)
 
 Workflow: `.github/workflows/deploy-server.yml`

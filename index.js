@@ -104,6 +104,7 @@ app.use('/api/parent', parentPortalRoutes);
 app.use('/api/parent', parentHubRoutes);
 app.use('/api/donate', donateRoutes);
 app.use('/api/hooks', require('./routes/hooks'));
+app.use('/api/mail', require('./routes/mail'));
 
 // Serve avatars
 app.use('/uploads/avatars', express.static(require('path').join(__dirname, 'uploads/avatars')));

@@ -8,7 +8,21 @@ const { authenticateToken } = require('../middleware/auth');
 const { schoolDomainFromName, normalizeLocalPart, buildSchoolEmail } = require('../lib/schoolDomain');
 const { validateEmailForSignup, isSchoolDomainEmail } = require('../lib/emailValidate');
 const { schoolEmailCapabilities } = require('../lib/schoolEmailCapabilities');
+const {
+  isSchoolMailEnabled,
+  ensureSchoolMailSchema,
+  resolveMailboxDomain,
+  buildMailboxAddress,
+  mailboxDomainForSchool,
+  sendForwardVerificationCode,
+  verifyForwardCode,
+  consumeForwardToken,
+  attachMailbox,
+  mailboxCapabilities,
+} = require('../lib/schoolMail');
 require('dotenv').config();
+
+ensureSchoolMailSchema(pool).catch((e) => console.error('[auth] school mail schema:', e.message));
 
 const STRICT_EMAIL = process.env.STRICT_EMAIL_VALIDATE === 'true';
 
@@ -24,18 +38,7 @@ function userPayload(row) {
 }
 
 async function ensureSchoolEmailDomain(pool, schoolRow) {
-  let domain = schoolRow.email_domain;
-  if (!domain) {
-    domain = schoolDomainFromName(schoolRow.name);
-    if (domain) {
-      await pool.query(
-        `UPDATE schools SET email_domain = $1 WHERE id = $2`,
-        [domain, schoolRow.id]
-      );
-      schoolRow.email_domain = domain;
-    }
-  }
-  return domain;
+  return resolveMailboxDomain(pool, schoolRow);
 }
 
 const router = express.Router();
@@ -232,6 +235,42 @@ router.get('/invite-preview', async (req, res) => {
 });
 
 // GET check school email username availability (staff signup)
+router.post('/school-mail/send-code', authLimiter, async (req, res) => {
+  if (!isSchoolMailEnabled()) {
+    return res.status(503).json({ error: 'School mail is not enabled on this server.' });
+  }
+  try {
+    const result = await sendForwardVerificationCode(pool, req.body.personal_email);
+    if (!result.ok) return res.status(400).json({ error: result.error });
+    res.json({
+      ok: true,
+      mail_sent: result.mail_sent,
+      ...(result.dev_code ? { dev_code: result.dev_code } : {}),
+    });
+  } catch (err) {
+    console.error('[school-mail/send-code]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.post('/school-mail/confirm-code', authLimiter, async (req, res) => {
+  if (!isSchoolMailEnabled()) {
+    return res.status(503).json({ error: 'School mail is not enabled on this server.' });
+  }
+  try {
+    const result = await verifyForwardCode(
+      pool,
+      req.body.personal_email,
+      req.body.code
+    );
+    if (!result.ok) return res.status(400).json({ error: result.error });
+    res.json(result);
+  } catch (err) {
+    console.error('[school-mail/confirm-code]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 router.get('/check-school-email', async (req, res) => {
   const local = normalizeLocalPart(req.query.local);
   const code = String(req.query.code || req.query.school_code || '').trim().toUpperCase();
@@ -239,42 +278,50 @@ router.get('/check-school-email', async (req, res) => {
   if (!local) return res.status(400).json({ error: 'Email username is required.' });
   if (local.length < 2) return res.status(400).json({ error: 'Username is too short.' });
   try {
-    const { schoolDomainFromName } = require('../lib/schoolDomain');
     let domain;
     let schoolName = null;
+    let schoolRow = null;
     if (code) {
       const schoolRes = await pool.query(
-        'SELECT id, name, email_domain FROM schools WHERE code = $1 LIMIT 1',
+        'SELECT id, name, email_domain, mail_slug FROM schools WHERE code = $1 LIMIT 1',
         [code]
       );
       if (!schoolRes.rows.length) {
         return res.status(404).json({ error: 'Invalid school code.' });
       }
-      domain = await ensureSchoolEmailDomain(pool, schoolRes.rows[0]);
-      schoolName = schoolRes.rows[0].name;
+      schoolRow = schoolRes.rows[0];
+      domain = await ensureSchoolEmailDomain(pool, schoolRow);
+      schoolName = schoolRow.name;
       if (!domain) {
         return res.status(400).json({ error: 'School email domain is not configured.' });
       }
     } else if (schoolNameInput) {
-      domain = schoolDomainFromName(schoolNameInput);
       schoolName = schoolNameInput;
+      schoolRow = { name: schoolNameInput, mail_slug: null, email_domain: null };
+      domain = mailboxDomainForSchool(schoolRow);
       if (!domain) {
         return res.status(400).json({ error: 'Enter a valid school name (letters and numbers).' });
       }
     } else {
       return res.status(400).json({
-        error: 'Enter your school name to create your login email (@schoolname.edu).',
+        error: 'Enter your school name to create your login email.',
       });
     }
-    const email = buildSchoolEmail(local, domain);
+    const email = schoolRow
+      ? buildMailboxAddress(local, schoolRow) || buildSchoolEmail(local, domain)
+      : buildSchoolEmail(local, domain);
     const taken = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+    const caps =
+      mailboxCapabilities(isSchoolMailEnabled(), false) ||
+      schoolEmailCapabilities('staff');
     res.json({
       available: taken.rows.length === 0,
       email,
       email_domain: domain,
       school_name: schoolName,
-      using_platform_domain: !code,
-      capabilities: schoolEmailCapabilities('staff'),
+      using_platform_domain: isSchoolMailEnabled(),
+      real_mailbox: isSchoolMailEnabled(),
+      capabilities: caps,
     });
   } catch (err) {
     console.error('[check-school-email]', err);
@@ -451,6 +498,7 @@ router.post('/register', authLimiter, async (req, res) => {
         `INSERT INTO schools (name, location, code, email_domain) VALUES ($1,$2,$3,$4) RETURNING *`,
         [newSchoolName, newSchoolLocation || null, code, emailDomain]
       );
+      await resolveMailboxDomain(pool, schoolRes.rows[0]);
       resolvedSchoolId = schoolRes.rows[0].id;
       schoolCode = schoolRes.rows[0].code;
     } else if (inviteRow && inviteRow.school_id) {
@@ -518,14 +566,23 @@ router.post('/register', authLimiter, async (req, res) => {
     }
 
     let schoolDomainForEmail = null;
+    let schoolRowForMail = null;
     if (resolvedSchoolId) {
-      const sd = await pool.query('SELECT id, name, email_domain FROM schools WHERE id=$1', [resolvedSchoolId]);
+      const sd = await pool.query(
+        'SELECT id, name, email_domain, mail_slug FROM schools WHERE id=$1',
+        [resolvedSchoolId]
+      );
       if (sd.rows.length) {
-        schoolDomainForEmail = await ensureSchoolEmailDomain(pool, sd.rows[0]);
+        schoolRowForMail = sd.rows[0];
+        schoolDomainForEmail = await ensureSchoolEmailDomain(pool, schoolRowForMail);
       }
+    } else if (staffSchoolName && (role === 'teacher' || role === 'head_teacher')) {
+      schoolRowForMail = { name: staffSchoolName, email_domain: null, mail_slug: null };
+      schoolDomainForEmail = mailboxDomainForSchool(schoolRowForMail);
     }
 
     const isStaffRole = role === 'teacher' || role === 'head_teacher';
+    let forwardTo = null;
 
     if (isStaffRole) {
       if (!schoolEmailLocal) {
@@ -533,20 +590,36 @@ router.post('/register', authLimiter, async (req, res) => {
           error: 'Create your school email username (e.g. john for john@school.edu).',
         });
       }
-      let domainForStaff = schoolDomainForEmail;
-      if (!domainForStaff && inviteRow?.can_create_school && newSchoolName) {
-        domainForStaff = schoolDomainFromName(newSchoolName);
+      if (isSchoolMailEnabled()) {
+        forwardTo = await consumeForwardToken(pool, req.body.forward_token);
+        if (!forwardTo) {
+          return res.status(400).json({
+            error:
+              'Verify your personal Gmail, Yahoo, or Outlook first so we can deliver mail from Cursor and other sites.',
+          });
+        }
+        if (!schoolRowForMail) {
+          return res.status(400).json({
+            error: 'Enter your school name (or a valid school code) to create your school email.',
+          });
+        }
+        email = buildMailboxAddress(schoolEmailLocal, schoolRowForMail);
+      } else {
+        let domainForStaff = schoolDomainForEmail;
+        if (!domainForStaff && inviteRow?.can_create_school && newSchoolName) {
+          domainForStaff = schoolDomainFromName(newSchoolName);
+        }
+        if (!domainForStaff && staffSchoolName) {
+          domainForStaff = schoolDomainFromName(staffSchoolName);
+        }
+        if (!domainForStaff) {
+          return res.status(400).json({
+            error:
+              'Enter your school name (or a valid school code) to get your @schoolname.edu login email.',
+          });
+        }
+        email = buildSchoolEmail(schoolEmailLocal, domainForStaff);
       }
-      if (!domainForStaff && staffSchoolName) {
-        domainForStaff = schoolDomainFromName(staffSchoolName);
-      }
-      if (!domainForStaff) {
-        return res.status(400).json({
-          error:
-            'Enter your school name (or a valid school code) to get your @schoolname.edu login email.',
-        });
-      }
-      email = buildSchoolEmail(schoolEmailLocal, domainForStaff);
       if (!email) {
         return res.status(400).json({ error: 'Invalid school email username.' });
       }
@@ -602,11 +675,29 @@ router.post('/register', authLimiter, async (req, res) => {
       );
     }
 
-    const emailCapabilities = isStaffRole
-      ? schoolEmailCapabilities('staff')
-      : schoolDomainForEmail && isSchoolDomainEmail(email, schoolDomainForEmail)
-        ? schoolEmailCapabilities('school')
-        : schoolEmailCapabilities('personal');
+    if (isStaffRole && isSchoolMailEnabled() && forwardTo && schoolRowForMail) {
+      const mailboxEmail = await attachMailbox(pool, {
+        userId: user.id,
+        schoolId: resolvedSchoolId,
+        local: schoolEmailLocal,
+        schoolRow: schoolRowForMail,
+        forwardTo,
+      });
+      if (mailboxEmail && mailboxEmail !== user.email) {
+        await pool.query('UPDATE users SET email = $1 WHERE id = $2', [mailboxEmail, user.id]);
+        user.email = mailboxEmail;
+        email = mailboxEmail;
+      }
+    }
+
+    const emailCapabilities =
+      isStaffRole && isSchoolMailEnabled()
+        ? mailboxCapabilities(true, Boolean(forwardTo))
+        : isStaffRole
+          ? schoolEmailCapabilities('staff')
+          : schoolDomainForEmail && isSchoolDomainEmail(email, schoolDomainForEmail)
+            ? schoolEmailCapabilities('school')
+            : schoolEmailCapabilities('personal');
 
     if (!isApproved) {
       audit('register', { email, role, status: 'pending_approval' });

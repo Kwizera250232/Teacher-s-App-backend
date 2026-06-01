@@ -3,8 +3,12 @@ import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { dashboardPath } from '../utils/roles';
-import { schoolDomainFromName, buildSchoolEmailPreview } from '../utils/schoolDomain';
-import { SCHOOL_EMAIL_IN_APP_HELP, STUDENT_EMAIL_HELP } from '../utils/schoolEmailHelp';
+import { schoolMailDomainFromName, buildSchoolEmailPreview } from '../utils/schoolDomain';
+import {
+  SCHOOL_EMAIL_IN_APP_HELP,
+  SCHOOL_EMAIL_FORWARD_HELP,
+  STUDENT_EMAIL_HELP,
+} from '../utils/schoolEmailHelp';
 import './Auth.css';
 
 export default function Register() {
@@ -32,6 +36,12 @@ export default function Register() {
   const [schoolEmailPreview, setSchoolEmailPreview] = useState('');
   const [schoolEmailStatus, setSchoolEmailStatus] = useState('');
   const [studentEmailStatus, setStudentEmailStatus] = useState('');
+  const [schoolMailEnabled, setSchoolMailEnabled] = useState(true);
+  const [personalEmail, setPersonalEmail] = useState('');
+  const [verifyCode, setVerifyCode] = useState('');
+  const [forwardToken, setForwardToken] = useState('');
+  const [forwardStatus, setForwardStatus] = useState('');
+  const [sendingCode, setSendingCode] = useState(false);
 
   const [schools, setSchools] = useState([]);
   const [error, setError] = useState('');
@@ -43,6 +53,7 @@ export default function Register() {
 
   useEffect(() => {
     api.get('/auth/schools').then(setSchools).catch(() => {});
+    api.get('/mail/status').then((s) => setSchoolMailEnabled(s.enabled !== false)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -80,6 +91,11 @@ export default function Register() {
           setLoading(false);
           return;
         }
+        if (schoolMailEnabled && !forwardToken) {
+          setError('Verify your personal Gmail, Yahoo, or Outlook first (code below).');
+          setLoading(false);
+          return;
+        }
       } else if (form.email.trim()) {
         await api.post('/auth/validate-email', {
           email: form.email.trim().toLowerCase(),
@@ -98,6 +114,9 @@ export default function Register() {
 
       if (isStaff) {
         payload.school_email_local = form.schoolEmailLocal.trim();
+        if (schoolMailEnabled && forwardToken) {
+          payload.forward_token = forwardToken;
+        }
         if (!verifiedSchool && form.staffSchoolName.trim()) {
           payload.staff_school_name = form.staffSchoolName.trim();
         }
@@ -186,7 +205,7 @@ export default function Register() {
             )}
             {(selectedRole === 'head_teacher' || selectedRole === 'teacher') && (
               <p style={{ color: '#64748b', fontSize: '0.875rem', marginTop: 4 }}>
-                Create your professional school email for login and UClass Chats (send and receive messages in the app).
+                Create a real school email for UClass, Cursor, and other sites — copies go to your personal inbox.
               </p>
             )}
 
@@ -228,7 +247,7 @@ export default function Register() {
                       if (verifiedSchool) return;
                       setForm({ ...form, staffSchoolName: e.target.value });
                       setSchoolEmailStatus('');
-                      const dom = schoolDomainFromName(e.target.value);
+                      const dom = schoolMailDomainFromName(e.target.value, schoolMailEnabled);
                       if (form.schoolEmailLocal.trim() && dom) {
                         setSchoolEmailPreview(buildSchoolEmailPreview(form.schoolEmailLocal, dom));
                       }
@@ -249,7 +268,9 @@ export default function Register() {
                         const local = e.target.value;
                         setForm({ ...form, schoolEmailLocal: local });
                         setSchoolEmailStatus('');
-                        const dom = verifiedSchool?.email_domain || schoolDomainFromName(form.staffSchoolName);
+                        const dom =
+                          verifiedSchool?.email_domain
+                          || schoolMailDomainFromName(form.staffSchoolName, schoolMailEnabled);
                         if (local.trim() && dom) {
                           setSchoolEmailPreview(buildSchoolEmailPreview(local, dom));
                         }
@@ -287,12 +308,12 @@ export default function Register() {
                     <span className="auth-school-email-domain">
                       @
                       {verifiedSchool?.email_domain
-                        || schoolDomainFromName(form.staffSchoolName)
-                        || 'schoolname.edu'}
+                        || schoolMailDomainFromName(form.staffSchoolName, schoolMailEnabled)
+                        || 'school.mail.umunsi.com'}
                     </span>
                   </div>
                   <p style={{ fontSize: 12, color: '#64748b', marginTop: 6, lineHeight: 1.4 }}>
-                    Injira ukoresheje <strong>username@izinaryishuri.edu</strong>. {SCHOOL_EMAIL_IN_APP_HELP}
+                    {SCHOOL_EMAIL_IN_APP_HELP}
                   </p>
                   {schoolEmailPreview && (
                     <p style={{ fontSize: 12, marginTop: 4, color: '#0f766e' }}>
@@ -305,6 +326,92 @@ export default function Register() {
                     </p>
                   )}
                 </div>
+                {schoolMailEnabled && (
+                  <div className="form-group" style={{ background: '#f8fafc', padding: 12, borderRadius: 10 }}>
+                    <label>Personal email (Gmail, Yahoo, Outlook)</label>
+                    <input
+                      type="email"
+                      value={personalEmail}
+                      onChange={(e) => {
+                        setPersonalEmail(e.target.value);
+                        setForwardToken('');
+                        setForwardStatus('');
+                      }}
+                      placeholder="you@gmail.com"
+                      required
+                    />
+                    <p style={{ fontSize: 12, color: '#64748b', marginTop: 6, lineHeight: 1.4 }}>
+                      {SCHOOL_EMAIL_FORWARD_HELP}
+                    </p>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        disabled={sendingCode || !personalEmail.trim()}
+                        onClick={async () => {
+                          setSendingCode(true);
+                          setForwardStatus('');
+                          try {
+                            const r = await api.post('/auth/school-mail/send-code', {
+                              personal_email: personalEmail.trim().toLowerCase(),
+                            });
+                            setForwardStatus(
+                              r.dev_code
+                                ? `Dev code: ${r.dev_code}`
+                                : 'Code sent — check your personal inbox.'
+                            );
+                          } catch (err) {
+                            setForwardStatus(err.message);
+                          } finally {
+                            setSendingCode(false);
+                          }
+                        }}
+                      >
+                        {sendingCode ? 'Sending…' : 'Send code'}
+                      </button>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={verifyCode}
+                        onChange={(e) => setVerifyCode(e.target.value)}
+                        placeholder="6-digit code"
+                        style={{ flex: '1 1 120px', padding: '8px 10px' }}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        disabled={!verifyCode.trim() || !personalEmail.trim()}
+                        onClick={async () => {
+                          setForwardStatus('');
+                          try {
+                            const r = await api.post('/auth/school-mail/confirm-code', {
+                              personal_email: personalEmail.trim().toLowerCase(),
+                              code: verifyCode.trim(),
+                            });
+                            setForwardToken(r.forward_token);
+                            setForwardStatus(`✓ Linked to ${r.forward_to}`);
+                          } catch (err) {
+                            setForwardToken('');
+                            setForwardStatus(err.message);
+                          }
+                        }}
+                      >
+                        Verify
+                      </button>
+                    </div>
+                    {forwardStatus && (
+                      <p
+                        style={{
+                          fontSize: 12,
+                          marginTop: 8,
+                          color: forwardStatus.startsWith('✓') ? '#059669' : '#dc2626',
+                        }}
+                      >
+                        {forwardStatus}
+                      </p>
+                    )}
+                  </div>
+                )}
                 </>
               ) : (
                 <div className="form-group">

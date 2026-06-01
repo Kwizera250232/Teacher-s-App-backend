@@ -11,6 +11,7 @@ const modules = [
   '../lib/optionalMailer',
   '../lib/schoolEmailCapabilities',
   '../lib/emailValidate',
+  '../lib/schoolMail',
   '../routes/parent_hub',
 ];
 

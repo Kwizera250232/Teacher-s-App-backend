@@ -67,7 +67,7 @@ After deploy, these must return **401** without a token (not **404**): `POST /ap
 
 ### Email rules
 
-- **Teachers / head teachers:** create a unique **school email** at signup (`school_email_local` → `name@schooldomain.edu`). Used for **login** and **in-app Chats** (send/receive). Not a hosted Gmail inbox unless the school owns that domain’s mail.
-- **Students:** Gmail or the school’s `@email_domain`. School-domain signups skip external mailbox checks (UClass-issued addresses).
-- **Parents:** personal Gmail/Yahoo/Outlook only (external mail + in-app).
-- **CLI:** `npm run check-email -- user@gmail.com` (add `--school-domain school.edu` for school addresses).
+- **Teachers / head teachers:** `school_email_local` → `name@schoolslug.mail.umunsi.com` (when `SCHOOL_MAIL_ENABLED=true`). Real address for **UClass login**, **in-app Chats**, and **external sites** (Cursor, etc.). Inbound mail forwards to verified personal Gmail/Yahoo/Outlook (`POST /api/auth/school-mail/send-code` + `confirm-code`).
+- **Mail:** `lib/schoolMail.js`, `routes/mail.js` (Mailgun inbound `POST /api/mail/inbound`). Requires SMTP + Mailgun DNS on `SCHOOL_MAIL_BASE_DOMAIN`.
+- **Students:** Gmail or school domain; **Parents:** personal providers only.
+- **CLI:** `npm run check-email -- user@gmail.com`
