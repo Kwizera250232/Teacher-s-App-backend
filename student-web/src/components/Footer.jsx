@@ -1,5 +1,6 @@
 import umunsiLogo from '../assets/umunsi-logo.jpg';
 import umunsimediaLogo from '../assets/umunsimedia-logo.jpg';
+import dpoLogo from '../assets/dpo-rwanda-logo.svg';
 import { useInstallPrompt } from './InstallPrompt';
 
 export default function Footer() {
@@ -39,6 +40,22 @@ export default function Footer() {
           <a href="tel:+250783450859" className="footer-contact-num">📞 0783450859</a>
         </div>
 
+      </div>
+
+      <div className="footer-dpo-trust">
+        <a
+          href="https://dpo.gov.rw/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="footer-dpo-trust__link"
+        >
+          <img src={dpoLogo} alt="DPO Rwanda — Data Protection Office" className="footer-dpo-trust__logo" />
+          <div className="footer-dpo-trust__text">
+            <span className="footer-dpo-trust__badge">Trusted &amp; certified by</span>
+            <strong>DPO Rwanda</strong>
+            <span className="footer-dpo-trust__sub">Data Protection and Privacy Office</span>
+          </div>
+        </a>
       </div>
 
       <div className="footer-powered">

@@ -9,8 +9,7 @@ import ParentInviteModal from '../components/ParentInviteModal';
 import MobileStudentHeader from '../components/MobileStudentHeader';
 import MobileBottomBar from '../components/MobileBottomBar';
 import CompositionStatusPanel from '../components/CompositionStatusPanel';
-import DeanSupportFab from '../components/DeanSupportFab';
-import StudentClassmatesList from '../components/StudentClassmatesList';
+import DeanAiModal from '../components/DeanAiModal';
 import './Dashboard.css';
 import './MobileDashboard.css';
 
@@ -227,25 +226,9 @@ export default function StudentDashboard() {
           )}
         </section>
 
-        {classes.length > 0 && (
-          <section className="student-classmates-section">
-            <h2 className="student-section-title">Classmates</h2>
-            <StudentClassmatesList token={token} classes={classes} />
-          </section>
-        )}
-
-        <section className="student-dean-banner">
-          <div>
-            <strong>Dean (Our AI Support)</strong>
-            <p>Ask how UClass works: join classes, compositions, parent invites, and more.</p>
-          </div>
-          <button type="button" className="btn btn-primary" onClick={() => setShowDean(true)}>
-            Ask Dean (Our AI Support) 🎓
-          </button>
-        </section>
       </main>
 
-      <DeanSupportFab token={token} open={showDean} onOpenChange={setShowDean} />
+      {showDean && <DeanAiModal token={token} onClose={() => setShowDean(false)} />}
 
       <MobileBottomBar items={quickNavItems} className="student-bottom-nav" />
 

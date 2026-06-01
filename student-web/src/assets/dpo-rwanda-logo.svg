@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 48" role="img" aria-label="DPO Rwanda">
+  <defs>
+    <linearGradient id="dpoShield" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e5a9e"/>
+      <stop offset="100%" stop-color="#0d3d6b"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#dpoShield)" d="M24 4L38 9v11c0 10-6 16-14 19C16 36 10 30 10 20V9L24 4z"/>
+  <path fill="none" stroke="#7ec8f7" stroke-width="1.2" d="M18 14c2 4 4 6 6 8 2-2 4-4 6-8"/>
+  <path fill="none" stroke="#7ec8f7" stroke-width="0.9" opacity="0.85" d="M15 16c3 3 6 5 9 7M33 16c-3 3-6 5-9 7"/>
+  <ellipse fill="none" stroke="#4a9fd4" stroke-width="1" cx="24" cy="22" rx="20" ry="8" transform="rotate(-12 24 22)"/>
+  <text x="48" y="22" font-family="system-ui,Arial,sans-serif" font-size="16" font-weight="800" fill="#1e5a9e">DPO</text>
+  <text x="48" y="36" font-family="system-ui,Arial,sans-serif" font-size="7" font-weight="700" fill="#2b7bc0" letter-spacing="0.4">DATA PROTECTION OFFICE</text>
+</svg>
