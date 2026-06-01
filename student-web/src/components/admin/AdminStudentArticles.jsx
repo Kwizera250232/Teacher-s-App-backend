@@ -1,6 +1,16 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../api';
 
+/** Strip leading pin emoji / legacy mojibake from article first line. */
+function articleTitle(content) {
+  const first = String(content || '').split('\n')[0] || '';
+  return first
+    .replace(/^[\u{1F4CC}\u{FE0F}\u{200D}]+\s*/gu, '')
+    .replace(/^📌\s*/, '')
+    .replace(/^[\x00-\x1F]+/, '')
+    .trim() || 'Untitled';
+}
+
 export default function AdminStudentArticles({ token }) {
   const [status, setStatus] = useState('pending');
   const [rows, setRows] = useState([]);
@@ -34,6 +44,10 @@ export default function AdminStudentArticles({ token }) {
     setError('');
     try {
       const note = (reviewText[id] || '').trim();
+      if (decision === 'declined' && !note) {
+        setError('Please enter a decline reason.');
+        return;
+      }
       await api.put(`/admin/student-shares/${id}/moderate`, { decision, review_note: note }, token);
       setRows(prev => prev.filter(r => r.id !== id));
       setReviewText(prev => ({ ...prev, [id]: '' }));
@@ -47,7 +61,7 @@ export default function AdminStudentArticles({ token }) {
   return (
     <div className="admin-card">
       <div className="admin-section-header">
-        <h2 className="admin-section-title">≡ƒº╛ Student Articles Review</h2>
+        <h2 className="admin-section-title">Student Articles Review</h2>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           {[
             { key: 'pending', label: 'Pending' },
@@ -77,7 +91,7 @@ export default function AdminStudentArticles({ token }) {
 
       {!loading && rows.map(a => {
         const lines = String(a.content || '').split('\n');
-        const title = lines[0]?.replace('≡ƒôî ', '') || 'Untitled';
+        const title = articleTitle(a.content);
         const shortText = lines.slice(1).join(' ').slice(0, 260);
         return (
           <div key={a.id} style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: '0.9rem 1rem', marginBottom: 10 }}>
@@ -85,13 +99,13 @@ export default function AdminStudentArticles({ token }) {
               <div>
                 <div style={{ fontWeight: 700, color: '#0f172a' }}>{title}</div>
                 <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-                  Γ£ì∩╕Å {a.student_name} ({a.student_email})
+                  Student: {a.student_name} ({a.student_email})
                 </div>
                 <div style={{ fontSize: 12, color: '#64748b' }}>
-                  ≡ƒÅ½ {a.school || 'ΓÇö'} ΓÇó ≡ƒÄô {a.class_name || 'ΓÇö'} ΓÇó ≡ƒæ¿ΓÇì≡ƒÅ½ {a.teacher_name || 'ΓÇö'}
+                  School: {a.school || '—'} · Class: {a.class_name || '—'} · Teacher: {a.teacher_name || '—'}
                 </div>
                 <div style={{ fontSize: 12, color: '#94a3b8' }}>
-                  {new Date(a.created_at).toLocaleString()} ΓÇó status: {a.status}
+                  {new Date(a.created_at).toLocaleString()} · status: {a.status}
                 </div>
               </div>
               {a.status === 'declined' && a.review_note && (
@@ -115,10 +129,10 @@ export default function AdminStudentArticles({ token }) {
                   onChange={e => setReviewText(prev => ({ ...prev, [a.id]: e.target.value }))}
                 />
                 <button className="btn-sm btn-success" disabled={savingId === a.id} onClick={() => moderate(a.id, 'approved')}>
-                  Γ£à Approve
+                  Approve
                 </button>
                 <button className="btn-sm btn-danger" disabled={savingId === a.id} onClick={() => moderate(a.id, 'declined')}>
-                  Γ¥î Decline
+                  Decline
                 </button>
               </div>
             )}

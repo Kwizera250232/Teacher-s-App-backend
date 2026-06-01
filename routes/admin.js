@@ -40,6 +40,23 @@ pool.query(`
   );
 `).catch(err => console.error('[admin] school_join_requests migration error:', err.message));
 
+pool.query(`
+  ALTER TABLE student_shares ADD COLUMN IF NOT EXISTS school VARCHAR(200);
+  ALTER TABLE student_shares ADD COLUMN IF NOT EXISTS class_name VARCHAR(100);
+  ALTER TABLE student_shares ADD COLUMN IF NOT EXISTS teacher_name VARCHAR(100);
+  ALTER TABLE student_shares ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'pending';
+  ALTER TABLE student_shares ADD COLUMN IF NOT EXISTS reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
+  ALTER TABLE student_shares ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;
+  ALTER TABLE student_shares ADD COLUMN IF NOT EXISTS review_note TEXT;
+`).catch(err => console.error('[admin] student_shares moderation columns:', err.message));
+
+pool.query(`
+  ALTER TABLE student_shares DROP CONSTRAINT IF EXISTS student_shares_status_check;
+  ALTER TABLE student_shares ADD CONSTRAINT student_shares_status_check
+    CHECK (status IN ('pending','approved','declined'));
+  UPDATE student_shares SET status = 'approved' WHERE status IS NULL OR status = '';
+`).catch(err => console.error('[admin] student_shares status constraint:', err.message));
+
 // ─── SCHOOL JOIN REQUESTS (teacher requests to join a school) ─────────────────
 
 router.get('/my-school', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
@@ -536,6 +553,10 @@ router.get('/student-shares', ...adminOnly, async (req, res) => {
 });
 
 router.put('/student-shares/:id/moderate', ...adminOnly, async (req, res) => {
+  const shareId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(shareId)) {
+    return res.status(400).json({ error: 'Invalid article id.' });
+  }
   const decision = (req.body.decision || '').toString();
   const reviewNote = (req.body.review_note || '').toString().trim();
   if (!['approved', 'declined'].includes(decision)) {
@@ -547,16 +568,17 @@ router.put('/student-shares/:id/moderate', ...adminOnly, async (req, res) => {
   try {
     const result = await pool.query(
       `UPDATE student_shares
-       SET status = $1, reviewed_by = $2, reviewed_at = NOW(),
-           review_note = CASE WHEN $1 = 'declined' THEN $3 ELSE NULL END
+       SET status = $1::varchar, reviewed_by = $2, reviewed_at = NOW(),
+           review_note = CASE WHEN $1::varchar = 'declined' THEN $3 ELSE NULL END
        WHERE id = $4
        RETURNING id, status, review_note, reviewed_at`,
-      [decision, req.user.id, reviewNote || null, req.params.id]
+      [decision, req.user.id, reviewNote || null, shareId]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Article not found.' });
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: 'Internal server error.' });
+    console.error('[admin student-shares moderate]', err.message);
+    res.status(500).json({ error: 'Could not update article. Try again or contact support.' });
   }
 });
 
