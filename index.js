@@ -59,6 +59,8 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json());
+const { teacherApprovalGate } = require('./middleware/teacherApproval');
+app.use(teacherApprovalGate);
 // Allow uploads to be embedded in iframes and loaded cross-origin (avatars, PDFs)
 app.use('/uploads', (req, res, next) => {
   res.removeHeader('X-Frame-Options');

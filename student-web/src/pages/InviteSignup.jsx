@@ -4,7 +4,7 @@ import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { dashboardPath } from '../utils/roles';
 import AuthAppShell from '../components/AuthAppShell';
-import { SCHOOL_EMAIL_IN_APP_HELP } from '../utils/schoolEmailHelp';
+import { GMAIL_SIGNUP_HELP } from '../utils/schoolEmailHelp';
 import './Auth.css';
 
 export default function InviteSignup() {
@@ -20,16 +20,12 @@ export default function InviteSignup() {
   const [form, setForm] = useState({
     name: '',
     email: '',
-    schoolEmailLocal: '',
     password: '',
     phone: '',
     new_school_name: '',
     new_school_location: '',
   });
-  const [schoolEmailPreview, setSchoolEmailPreview] = useState('');
-  const [schoolEmailStatus, setSchoolEmailStatus] = useState('');
   const [error, setError] = useState('');
-  const [pending, setPending] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const isParentInvite = Boolean(parentToken);
@@ -51,11 +47,6 @@ export default function InviteSignup() {
 
   const staffInvite =
     !isParentInvite && (preview?.role === 'teacher' || preview?.role === 'head_teacher');
-  const inviteSchoolDomain =
-    preview?.email_domain ||
-    (preview?.can_create_school && form.new_school_name
-      ? `${form.new_school_name.toLowerCase().replace(/[^a-z0-9]/g, '')}.edu`
-      : null);
 
   const roleLabel = isParentInvite
     ? 'Parent'
@@ -84,11 +75,11 @@ export default function InviteSignup() {
       } else if (staffInvite) {
         payload.role = preview.role;
         payload.invite_token = token;
+        payload.email = form.email.trim().toLowerCase();
         payload.new_school_name = preview.can_create_school ? form.new_school_name : undefined;
         payload.new_school_location = preview.can_create_school ? form.new_school_location : undefined;
-        payload.school_email_local = form.schoolEmailLocal.trim();
-        if (!payload.school_email_local) {
-          setError('Create your school email username.');
+        if (!payload.email) {
+          setError('Andika aderesi ya Gmail.');
           setSubmitting(false);
           return;
         }
@@ -99,12 +90,6 @@ export default function InviteSignup() {
       }
 
       const data = await api.post('/auth/register', payload);
-
-      if (data.pending) {
-        if (data.login_email) setSchoolEmailPreview(data.login_email);
-        setPending(true);
-        return;
-      }
 
       login(data.token, data.user);
       navigate(dashboardPath(data.user.role));
@@ -133,146 +118,90 @@ export default function InviteSignup() {
 
   return (
     <AuthAppShell
-      title={pending ? 'Account submitted' : `${roleLabel} signup`}
+      title={`${roleLabel} signup`}
       subtitle={
-        pending
-          ? 'Waiting for approval — Dean (Our AI Support) can help after you sign in'
-          : isParentInvite
-            ? `Parent invite for ${preview.student_name}`
-            : 'Complete your account — same look as inside the app'
+        isParentInvite
+          ? `Parent invite for ${preview.student_name}`
+          : 'Complete your account — same look as inside the app'
       }
       footer={<p>Already have an account? <Link to="/login">Sign in</Link></p>}
     >
-        {pending ? (
-          <>
-            <p className="auth-app-shell__sub">
-              Your {roleLabel} account is waiting for approval. You will be able to log in once approved.
-              {schoolEmailPreview && (
-                <>
-                  <br />
-                  Use: <strong>{schoolEmailPreview}</strong>
-                </>
-              )}
+        <p className="auth-app-shell__sub">
+          {isParentInvite
+            ? 'Create your parent account to view your child\'s classroom work only.'
+            : 'Complete your account using this invitation.'}
+        </p>
+
+        <section style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
+          {isParentInvite ? (
+            <p style={{ margin: 0, color: '#1e40af' }}>
+              <strong>Child:</strong> {preview.student_name}
+              <br />You will only see this student&apos;s posts and their teachers&apos; updates.
             </p>
-            <Link to="/login" className="btn btn-primary btn-full">Go to login</Link>
-          </>
-        ) : (
-          <>
-            <p className="auth-app-shell__sub">
-              {isParentInvite
-                ? 'Create your parent account to view your child\'s classroom work only.'
-                : 'Complete your account using this invitation.'}
+          ) : preview.can_create_school ? (
+            <p style={{ margin: 0, color: '#1e40af' }}>
+              <strong>Create your school</strong> — register as Head Teacher for a new school.
             </p>
+          ) : (
+            <p style={{ margin: 0, color: '#1e40af' }}>
+              <strong>School:</strong> {preview.school_name}
+              {preview.class_name && <><br /><strong>Class:</strong> {preview.class_name} (co-teacher)</>}
+              {preview.school_code && <><br /><strong>School code:</strong> {preview.school_code}</>}
+            </p>
+          )}
+        </section>
 
-            <section style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
-              {isParentInvite ? (
-                <p style={{ margin: 0, color: '#1e40af' }}>
-                  <strong>Child:</strong> {preview.student_name}
-                  <br />You will only see this student&apos;s posts and their teachers&apos; updates.
-                </p>
-              ) : preview.can_create_school ? (
-                <p style={{ margin: 0, color: '#1e40af' }}>
-                  <strong>Create your school</strong> — register as Head Teacher for a new school.
-                </p>
-              ) : (
-                <p style={{ margin: 0, color: '#1e40af' }}>
-                  <strong>School:</strong> {preview.school_name}
-                  {preview.class_name && <><br /><strong>Class:</strong> {preview.class_name} (co-teacher)</>}
-                  {preview.school_code && <><br /><strong>School code:</strong> {preview.school_code}</>}
-                </p>
-              )}
-            </section>
+        {error && <p className="alert alert-error">{error}</p>}
 
-            {error && <p className="alert alert-error">{error}</p>}
-
-            <form onSubmit={handleSubmit}>
-              {!isParentInvite && preview.can_create_school && (
-                <>
-                  <label className="form-group">
-                    School name *
-                    <input required value={form.new_school_name} onChange={(e) => setForm({ ...form, new_school_name: e.target.value })} />
-                  </label>
-                  <label className="form-group">
-                    School location
-                    <input value={form.new_school_location} onChange={(e) => setForm({ ...form, new_school_location: e.target.value })} />
-                  </label>
-                </>
-              )}
+        <form onSubmit={handleSubmit}>
+          {!isParentInvite && preview.can_create_school && (
+            <>
               <label className="form-group">
-                Full name *
-                <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-              </label>
-              {staffInvite ? (
-                <label className="form-group">
-                  School email (your login) *
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-                    <input
-                      required
-                      value={form.schoolEmailLocal}
-                      onChange={(e) => {
-                        setForm({ ...form, schoolEmailLocal: e.target.value });
-                        setSchoolEmailStatus('');
-                      }}
-                      onBlur={async () => {
-                        const local = form.schoolEmailLocal.trim();
-                        if (!local || !preview.school_code) return;
-                        try {
-                          const r = await api.get(
-                            `/auth/check-school-email?local=${encodeURIComponent(local)}&code=${encodeURIComponent(preview.school_code)}`
-                          );
-                          setSchoolEmailPreview(r.email);
-                          setSchoolEmailStatus(r.available ? `✓ ${r.email}` : '✗ Already taken');
-                        } catch (err) {
-                          setSchoolEmailStatus(err.message);
-                        }
-                      }}
-                      placeholder="john.doe"
-                      style={{ flex: '1 1 140px' }}
-                    />
-                    <span style={{ fontWeight: 600, color: '#475569' }}>
-                      @{inviteSchoolDomain || 'school.edu'}
-                    </span>
-                  </div>
-                  <p style={{ fontSize: 12, color: '#64748b', marginTop: 6, lineHeight: 1.4 }}>
-                    {SCHOOL_EMAIL_IN_APP_HELP}
-                  </p>
-                  {schoolEmailStatus && (
-                    <span style={{ fontSize: 12, color: schoolEmailStatus.startsWith('✓') ? '#059669' : '#dc2626' }}>
-                      {schoolEmailStatus}
-                    </span>
-                  )}
-                </label>
-              ) : (
-                <label className="form-group">
-                  {isParentInvite ? 'Personal email (Gmail, Yahoo, Outlook…) *' : 'Email *'}
-                  <input
-                    type="email"
-                    required
-                    value={form.email}
-                    onChange={(e) => setForm({ ...form, email: e.target.value })}
-                    placeholder={isParentInvite ? 'you@gmail.com' : undefined}
-                  />
-                  {isParentInvite && (
-                    <p style={{ fontSize: 12, color: '#64748b', marginTop: 6, lineHeight: 1.4 }}>
-                      Use your real personal email (Gmail, Yahoo, Outlook, etc.). School @ addresses are for teachers only.
-                    </p>
-                  )}
-                </label>
-              )}
-              <label className="form-group">
-                Password *
-                <input type="password" required minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+                School name *
+                <input required value={form.new_school_name} onChange={(e) => setForm({ ...form, new_school_name: e.target.value })} />
               </label>
               <label className="form-group">
-                Phone (optional)
-                <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                School location
+                <input value={form.new_school_location} onChange={(e) => setForm({ ...form, new_school_location: e.target.value })} />
               </label>
-              <button type="submit" className="btn btn-primary btn-full" disabled={submitting}>
-                {submitting ? 'Creating account...' : 'Create account'}
-              </button>
-            </form>
-          </>
-        )}
+            </>
+          )}
+          <label className="form-group">
+            Full name *
+            <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          </label>
+          <label className="form-group">
+            {isParentInvite ? 'Personal email (Gmail, Yahoo, Outlook…) *' : 'Gmail (login) *'}
+            <input
+              type="email"
+              required
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              placeholder={isParentInvite ? 'you@gmail.com' : 'amazina@gmail.com'}
+            />
+            {!isParentInvite && (
+              <p style={{ fontSize: 12, color: '#64748b', marginTop: 6, lineHeight: 1.4 }}>
+                {GMAIL_SIGNUP_HELP}
+              </p>
+            )}
+            {isParentInvite && (
+              <p style={{ fontSize: 12, color: '#64748b', marginTop: 6, lineHeight: 1.4 }}>
+                Use your real personal email (Gmail, Yahoo, Outlook, etc.).
+              </p>
+            )}
+          </label>
+          <label className="form-group">
+            Password *
+            <input type="password" required minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+          </label>
+          <label className="form-group">
+            Phone (optional)
+            <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+          </label>
+          <button type="submit" className="btn btn-primary btn-full" disabled={submitting}>
+            {submitting ? 'Creating account...' : 'Create account'}
+          </button>
+        </form>
     </AuthAppShell>
   );
 }

@@ -43,7 +43,12 @@ async function request(method, endpoint, body, token) {
     throw new Error(`Server returned ${res.status} — check that the API URL is correct.`);
   }
   const data = await res.json();
-  if (!res.ok) throw new Error(normalizeLegacySchoolDomainError(data.error || 'Request failed'));
+  if (!res.ok) {
+    if (data?.code === 'STAFF_APPROVAL_PENDING') {
+      throw new Error('Tegereza gato UCLASS Staff');
+    }
+    throw new Error(normalizeLegacySchoolDomainError(data.error || 'Request failed'));
+  }
   return data;
 }
 
@@ -94,6 +99,11 @@ export async function uploadFile(endpoint, formData, token, options = {}) {
     }
     throw new Error(text?.slice(0, 200) || `Upload failed (${res.status})`);
   }
-  if (!res.ok) throw new Error(normalizeLegacySchoolDomainError(data.error || 'Upload failed'));
+  if (!res.ok) {
+    if (data?.code === 'STAFF_APPROVAL_PENDING') {
+      throw new Error('Tegereza gato UCLASS Staff');
+    }
+    throw new Error(normalizeLegacySchoolDomainError(data.error || 'Upload failed'));
+  }
   return data;
 }
