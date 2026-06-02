@@ -1,15 +1,23 @@
 import { useState } from 'react';
 import { uploadFile } from '../../api';
-import { prepareMomentImageFiles } from '../../utils/compressImage';
+import { useAuth } from '../../context/AuthContext';
+import { prepareMomentMediaFiles } from '../../utils/compressImage';
 
-export default function AddClassMomentModal({ token, classes, onClose, onPublished }) {
+export default function AddClassMomentModal({
+  token,
+  classes,
+  user,
+  onClose,
+  onPublished,
+  onUploadFailed,
+}) {
+  const { user: authUser } = useAuth();
+  const me = user || authUser;
   const [classId, setClassId] = useState(classes[0]?.id ? String(classes[0].id) : '');
   const [description, setDescription] = useState('');
   const [files, setFiles] = useState([]);
   const [previews, setPreviews] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [preparing, setPreparing] = useState(false);
-  const [uploadPhase, setUploadPhase] = useState('');
   const [error, setError] = useState('');
 
   const onPickFiles = async (e) => {
@@ -19,66 +27,90 @@ export default function AddClassMomentModal({ token, classes, onClose, onPublish
     setError('');
     setPreparing(true);
     try {
-      const merged = [...files, ...picked].slice(0, 10);
-      const optimized = await prepareMomentImageFiles(merged);
-      previews.forEach((u) => URL.revokeObjectURL(u));
-      setFiles(optimized);
-      setPreviews(optimized.map((f) => URL.createObjectURL(f)));
+      const optimized = await prepareMomentMediaFiles(picked);
+      const merged = [...files, ...optimized].slice(0, 10);
+      previews.forEach((u) => {
+        if (u.startsWith('blob:')) URL.revokeObjectURL(u);
+      });
+      setFiles(merged);
+      setPreviews(merged.map((f) => URL.createObjectURL(f)));
     } catch (err) {
-      setError(err.message || 'Could not prepare photos.');
+      setError(err.message || 'Could not prepare files.');
     } finally {
       setPreparing(false);
     }
   };
 
   const removeAt = (i) => {
-    URL.revokeObjectURL(previews[i]);
+    const url = previews[i];
+    if (url?.startsWith('blob:')) URL.revokeObjectURL(url);
     setFiles((prev) => prev.filter((_, j) => j !== i));
     setPreviews((prev) => prev.filter((_, j) => j !== i));
   };
 
-  const publish = async (e) => {
+  const publish = (e) => {
     e.preventDefault();
     if (!classId) {
       setError('Select a class.');
       return;
     }
     if (!files.length) {
-      setError('Add at least one photo.');
+      setError('Add at least one photo or video.');
       return;
     }
-    setLoading(true);
-    setUploadPhase('Uploading…');
-    setError('');
-    try {
-      const fd = new FormData();
-      fd.append('class_id', classId);
-      fd.append('description', description.trim());
-      files.forEach((f) => fd.append('photos', f));
-      const data = await uploadFile('/class-moments', fd, token);
-      onPublished?.(data.moment);
-      onClose();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-      setUploadPhase('');
+    if (description.trim().length < 3) {
+      setError('Write a short description (at least 3 characters).');
+      return;
     }
-  };
 
-  const busy = loading || preparing;
+    const cls = classes.find((c) => String(c.id) === classId);
+    const tempId = `pending-${Date.now()}`;
+    const optimistic = {
+      id: tempId,
+      _pending: true,
+      teacher_id: me?.id,
+      description: description.trim(),
+      class_name: cls?.name || 'Class',
+      teacher_name: me?.name || 'Teacher',
+      published_at: new Date().toISOString(),
+      images: previews.map((url, i) => ({
+        id: `tmp-${i}`,
+        file_path: url,
+        sort_order: i,
+      })),
+    };
+
+    onPublished?.(optimistic, { pendingId: tempId });
+    onClose();
+
+    const fd = new FormData();
+    fd.append('class_id', classId);
+    fd.append('description', description.trim());
+    files.forEach((f) => fd.append('photos', f));
+
+    uploadFile('/class-moments', fd, token)
+      .then((data) => {
+        previews.forEach((u) => {
+          if (u.startsWith('blob:')) URL.revokeObjectURL(u);
+        });
+        onPublished?.(data.moment, { replaceId: tempId });
+      })
+      .catch((err) => {
+        onUploadFailed?.(tempId, err.message || 'Upload failed.');
+      });
+  };
 
   return (
     <div className="cm-modal-overlay" onClick={onClose}>
       <div className="cm-modal" onClick={(ev) => ev.stopPropagation()}>
         <h2 style={{ margin: '0 0 4px', fontSize: '1.25rem' }}>Add Class Moment</h2>
         <p style={{ margin: '0 0 16px', color: '#64748b', fontSize: 14 }}>
-          Photos are optimized automatically for a faster upload.
+          Posts instantly — photos and videos upload in the background.
         </p>
         {error && <div className="alert alert-error">{error}</div>}
         {preparing && (
           <p className="cm-upload-status" role="status">
-            Optimizing photos…
+            Preparing files…
           </p>
         )}
         <form onSubmit={publish}>
@@ -86,9 +118,9 @@ export default function AddClassMomentModal({ token, classes, onClose, onPublish
             Class
             <select
               value={classId}
-              onChange={(e) => setClassId(e.target.value)}
+              onChange={(ev) => setClassId(ev.target.value)}
               required
-              disabled={busy}
+              disabled={preparing}
               style={{ width: '100%', padding: '10px 12px', borderRadius: 10 }}
             >
               {classes.map((c) => (
@@ -99,15 +131,25 @@ export default function AddClassMomentModal({ token, classes, onClose, onPublish
             </select>
           </label>
           <label className="form-group">
-            Photos (1–10)
-            <input type="file" accept="image/*" multiple onChange={onPickFiles} disabled={busy} />
+            Photos or videos (1–10)
+            <input
+              type="file"
+              accept="image/*,video/*"
+              multiple
+              onChange={onPickFiles}
+              disabled={preparing}
+            />
           </label>
           {previews.length > 0 && (
             <div className="cm-photo-grid">
               {previews.map((src, i) => (
                 <div key={src} className="cm-photo-thumb">
-                  <img src={src} alt="" />
-                  <button type="button" className="cm-photo-remove" onClick={() => removeAt(i)} disabled={busy}>
+                  {files[i]?.type?.startsWith('video/') ? (
+                    <video src={src} muted playsInline className="cm-thumb-video" />
+                  ) : (
+                    <img src={src} alt="" />
+                  )}
+                  <button type="button" className="cm-photo-remove" onClick={() => removeAt(i)}>
                     ×
                   </button>
                 </div>
@@ -118,21 +160,21 @@ export default function AddClassMomentModal({ token, classes, onClose, onPublish
             Description
             <textarea
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(ev) => setDescription(ev.target.value)}
               placeholder="Today learners practiced reading comprehension…"
               rows={4}
               required
               minLength={3}
-              disabled={busy}
+              disabled={preparing}
               style={{ width: '100%', padding: '10px 12px', borderRadius: 10 }}
             />
           </label>
           <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-            <button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy}>
+            <button type="button" className="btn btn-secondary" onClick={onClose}>
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary btn-full" disabled={busy}>
-              {loading ? uploadPhase || 'Publishing…' : 'Publish now'}
+            <button type="submit" className="btn btn-primary btn-full" disabled={preparing}>
+              Publish now
             </button>
           </div>
         </form>

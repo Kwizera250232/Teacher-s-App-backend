@@ -55,24 +55,33 @@ export const api = {
   delete: (endpoint, token) => request('DELETE', endpoint, null, token),
 };
 
-export async function uploadFile(endpoint, formData, token) {
+export async function uploadFile(endpoint, formData, token, options = {}) {
   const headers = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
+  const timeoutMs = options.timeoutMs ?? 120000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res;
   try {
     res = await fetch(`${API_BASE}${endpoint}`, {
       method: 'POST',
       headers,
       body: formData,
+      signal: controller.signal,
     });
   } catch (err) {
     const msg = String(err?.message || err);
+    if (err?.name === 'AbortError') {
+      throw new Error('Upload timed out. Try fewer items or a shorter video.');
+    }
     if (/failed to fetch|networkerror|load failed/i.test(msg)) {
       throw new Error(
         'Upload could not reach the server. Check your connection or try again on Wi‑Fi.'
       );
     }
     throw err;
+  } finally {
+    clearTimeout(timer);
   }
   const contentType = res.headers.get('content-type') || '';
   let data = {};

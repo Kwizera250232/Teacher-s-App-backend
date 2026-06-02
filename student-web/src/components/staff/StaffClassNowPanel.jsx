@@ -92,10 +92,24 @@ export default function StaffClassNowPanel({ token, classes }) {
         <AddClassMomentModal
           token={token}
           classes={classes}
+          user={user}
           onClose={() => setShowAdd(false)}
-          onPublished={() => {
-            setShowAdd(false);
+          onPublished={(moment, meta) => {
+            if (meta?.replaceId) {
+              setMoments((prev) =>
+                prev.map((m) => (m.id === meta.replaceId ? { ...moment, _pending: false } : m))
+              );
+              return;
+            }
+            if (meta?.pendingId) {
+              setMoments((prev) => [moment, ...prev]);
+              return;
+            }
             loadFeed();
+          }}
+          onUploadFailed={(pendingId, message) => {
+            setMoments((prev) => prev.filter((m) => m.id !== pendingId));
+            alert(message || 'Could not publish. Try again.');
           }}
         />
       )}

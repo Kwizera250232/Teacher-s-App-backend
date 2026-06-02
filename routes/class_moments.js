@@ -214,23 +214,42 @@ router.post('/', authenticateToken, momentPhotosMiddleware, async (req, res) => 
       );
     }
 
-    const full = momentSelectSql('WHERE m.id = $1', [moment.id]);
-    const out = await pool.query(full.sql, [moment.id]);
-    const published = out.rows[0];
+    const imageRows = files.map((f, i) => ({
+      id: null,
+      file_path: path.join('moments', path.basename(f.path)).replace(/\\/g, '/'),
+      sort_order: i,
+    }));
+
+    const teacherRow = await pool.query(
+      `SELECT u.name, p.avatar_path
+       FROM users u LEFT JOIN user_profiles p ON p.user_id = u.id
+       WHERE u.id = $1`,
+      [req.user.id]
+    );
+    const teacherMeta = teacherRow.rows[0] || {};
+
+    const published = {
+      ...moment,
+      teacher_name: teacherMeta.name || 'Teacher',
+      class_name: manage.cls?.name || '',
+      teacher_avatar_path: teacherMeta.avatar_path || null,
+      images: imageRows,
+    };
 
     res.status(201).json({
       moment: published,
       notified: { queued: true },
     });
 
+    const teacherId = req.user.id;
+    const className = manage.cls?.name;
     setImmediate(async () => {
       try {
-        const cls = await pool.query('SELECT name FROM classes WHERE id = $1', [classId]);
         await notifyClassMomentPublished({
           momentId: moment.id,
           classId,
-          teacherId: req.user.id,
-          className: cls.rows[0]?.name,
+          teacherId,
+          className,
         });
       } catch (notifyErr) {
         console.error('[class_moments/notify]', notifyErr);

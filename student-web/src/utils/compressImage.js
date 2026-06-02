@@ -72,6 +72,18 @@ export async function prepareMomentImageFile(file, index = 0) {
   });
 }
 
-export async function prepareMomentImageFiles(files) {
-  return Promise.all(files.map((f, i) => prepareMomentImageFile(f, i)));
+function isVideoFile(file) {
+  if (!file) return false;
+  if (file.type?.startsWith('video/')) return true;
+  return /\.(mp4|mov|webm|3gp|m4v|mkv)$/i.test(file.name || '');
+}
+
+/** Compress images only; pass videos through unchanged */
+export async function prepareMomentMediaFiles(files) {
+  return Promise.all(
+    files.map(async (f, i) => {
+      if (isVideoFile(f)) return f;
+      return prepareMomentImageFile(f, i);
+    })
+  );
 }
