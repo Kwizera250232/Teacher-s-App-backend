@@ -3,3 +3,4 @@ frontend/
 .env
 uploads/*
 !uploads/.gitkeep
+.deploy-frontend/
