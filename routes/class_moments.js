@@ -199,32 +199,42 @@ router.post('/', authenticateToken, momentPhotosMiddleware, async (req, res) => 
     );
     const moment = ins.rows[0];
     const files = req.files || [];
-    for (let i = 0; i < files.length; i += 1) {
-      const rel = path.join('moments', path.basename(files[i].path)).replace(/\\/g, '/');
-      await pool.query(
-        `INSERT INTO class_moment_images (moment_id, file_path, sort_order) VALUES ($1,$2,$3)`,
-        [moment.id, rel, i]
-      );
-    }
-
-    const cls = await pool.query('SELECT name FROM classes WHERE id = $1', [classId]);
-    let notify = { parents: 0, students: 0 };
-    try {
-      notify = await notifyClassMomentPublished({
-        momentId: moment.id,
-        classId,
-        teacherId: req.user.id,
-        className: cls.rows[0]?.name,
+    if (files.length) {
+      const values = [];
+      const params = [moment.id];
+      files.forEach((f, i) => {
+        const rel = path.join('moments', path.basename(f.path)).replace(/\\/g, '/');
+        const base = params.length;
+        values.push(`($1,$${base + 1},$${base + 2})`);
+        params.push(rel, i);
       });
-    } catch (notifyErr) {
-      console.error('[class_moments/notify]', notifyErr);
+      await pool.query(
+        `INSERT INTO class_moment_images (moment_id, file_path, sort_order) VALUES ${values.join(',')}`,
+        params
+      );
     }
 
     const full = momentSelectSql('WHERE m.id = $1', [moment.id]);
     const out = await pool.query(full.sql, [moment.id]);
+    const published = out.rows[0];
+
     res.status(201).json({
-      moment: out.rows[0],
-      notified: notify,
+      moment: published,
+      notified: { queued: true },
+    });
+
+    setImmediate(async () => {
+      try {
+        const cls = await pool.query('SELECT name FROM classes WHERE id = $1', [classId]);
+        await notifyClassMomentPublished({
+          momentId: moment.id,
+          classId,
+          teacherId: req.user.id,
+          className: cls.rows[0]?.name,
+        });
+      } catch (notifyErr) {
+        console.error('[class_moments/notify]', notifyErr);
+      }
     });
   } catch (err) {
     console.error('[class_moments/post]', err);
