@@ -22,6 +22,20 @@ In **Teacher-s-App-backend** → Settings → Secrets, add **one** of:
 |--------|---------|
 | `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY` | Workflow SSH pull + pm2 restart |
 | `DEPLOY_HOOK_SECRET` | Same value in server `.env` — workflow calls `POST /api/hooks/redeploy` |
+| `FRONTEND_DEPLOY_TOKEN` | GitHub PAT with push access to `Teacher-s-App-frontent` (updates student.umunsi.com) |
+| `VERCEL_TOKEN` + org/project IDs | Optional — `scripts/deploy-vercel-frontend.sh` |
+
+### One-command deploy (Hostinger SSH terminal)
+
+If GitHub Actions cannot SSH (missing `SSH_PRIVATE_KEY`), open **Hostinger → VPS → SSH** and run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Kwizera250232/Teacher-s-App-backend/main/scripts/hostinger-terminal-deploy.sh | bash
+```
+
+This updates the API and **https://studentapi.umunsi.com/app/** (latest UI with Class Now + reactions).
+
+For **https://student.umunsi.com** (Vercel), also push `student-web` to `Teacher-s-App-frontent` or add `FRONTEND_DEPLOY_TOKEN` to GitHub secrets.
 | `FRONTEND_DEPLOY_TOKEN` | Push `student-web` → **Teacher-s-App-frontent** (Vercel) |
 | `VERCEL_TOKEN` + org/project ids | Direct Vercel deploy |
 
