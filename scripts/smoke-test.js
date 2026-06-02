@@ -14,6 +14,13 @@ const modules = [
   '../lib/schoolMail',
   '../lib/classMomentsSchema',
   '../lib/classMomentReactions',
+  '../lib/expoPush',
+  '../lib/expoPushSchema',
+  '../lib/phoneNormalize',
+  '../lib/parentSms',
+  '../lib/parentSmsSchema',
+  '../routes/mobile_push',
+  '../routes/parent_sms',
   '../routes/parent_hub',
 ];
 

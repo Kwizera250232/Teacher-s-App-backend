@@ -13,6 +13,7 @@ import CoTeacherInvite from '../components/CoTeacherInvite';
 import NotifyParentsModal from '../components/staff/NotifyParentsModal';
 import WeeklyDigestModal from '../components/staff/WeeklyDigestModal';
 import ParentInviteModal from '../components/ParentInviteModal';
+import StudentParentPhoneModal from '../components/StudentParentPhoneModal';
 import CompositionStatusList from '../components/CompositionStatusList';
 import ClassDeanHelp from '../components/ClassDeanHelp';
 import '../pages/Dashboard.css';
@@ -50,6 +51,7 @@ export default function TeacherClassPage() {
   const [showNotifyParents, setShowNotifyParents] = useState(false);
   const [showWeeklyDigest, setShowWeeklyDigest] = useState(false);
   const [parentInviteFor, setParentInviteFor] = useState(null);
+  const [parentPhoneFor, setParentPhoneFor] = useState(null);
 
   useEffect(() => {
     const urlTab = searchParams.get('tab');
@@ -673,6 +675,17 @@ export default function TeacherClassPage() {
                     >
                       👪 Parent invite
                     </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-sm"
+                      style={{ fontSize: 10, padding: '2px 6px', marginTop: 2 }}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        setParentPhoneFor({ studentId: s.id, studentName: s.name });
+                      }}
+                    >
+                      📱 Parent SMS
+                    </button>
                   </div>
                 );
               })}
@@ -741,6 +754,19 @@ export default function TeacherClassPage() {
               >
                 👪 Parent invite link
               </button>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                style={{ marginTop: '0.5rem', width: '100%' }}
+                onClick={() => {
+                  setParentPhoneFor({
+                    studentId: selectedStudent.id,
+                    studentName: selectedStudent.name,
+                  });
+                }}
+              >
+                📱 Parent SMS number
+              </button>
               <button onClick={() => setSelectedStudent(null)} style={{ marginTop: '0.75rem', background: '#6366f1', color: 'white', border: 'none', borderRadius: 10, padding: '0.6rem 2rem', cursor: 'pointer', fontWeight: 600 }}>Funga</button>
             </div>
           </div>
@@ -805,6 +831,16 @@ export default function TeacherClassPage() {
           studentId={parentInviteFor.studentId}
           studentName={parentInviteFor.studentName}
           onClose={() => setParentInviteFor(null)}
+        />
+      )}
+
+      {parentPhoneFor && (
+        <StudentParentPhoneModal
+          token={token}
+          classId={id}
+          studentId={parentPhoneFor.studentId}
+          studentName={parentPhoneFor.studentName}
+          onClose={() => setParentPhoneFor(null)}
         />
       )}
     </div>

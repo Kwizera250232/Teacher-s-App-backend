@@ -64,6 +64,23 @@ After deploy, these must return **401** without a token (not **404**): `POST /ap
 - Tables: `class_moments`, `class_moment_images`, `class_moment_reads`, `user_notifications` (`lib/classMomentsSchema.js`).
 - Mark parent notifs read: `PUT /api/parent/notifications/read-by-moment/:momentId`.
 
+### Parent SMS (Twilio)
+
+- Sends SMS when `insertParentNotification` runs (homework, class moments, school posts, etc.) if Twilio is configured.
+- Env: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_SMS_FROM` **or** `TWILIO_MESSAGING_SERVICE_SID`. Optional `PARENT_SMS_DAILY_CAP` (default 30).
+- Parent phone on `users.phone` (Rwanda mobile `078…`). `users.sms_notify` defaults true.
+- APIs: `GET/PUT /api/parent/sms/settings`, `GET /api/parent/class/:classId/parent-phones`, `PUT /api/parent/students/:studentId/parent-phone`.
+- UI: parent hub SMS banner; class **Students** → **Parent SMS**; parent signup requires phone on invite.
+
+### Parent mobile push (Expo)
+
+- Expo app: `studentumunsiapp/` — EAS project `4bb1dc32-c0ec-4bcd-945b-0c51e40d058b`. See `studentumunsiapp/README.md`.
+- `POST /api/mobile/push/register` — save Expo push token (JWT). `DELETE` same path to unregister.
+- `lib/expoPush.js` sends via `https://exp.host/--/api/v2/push/send`; table `expo_push_tokens` (`lib/expoPushSchema.js`).
+- Every `insertParentNotification` in `lib/parentHub.js` also triggers `sendExpoPushToUser` (homework, class moments, school posts, reminders).
+- New homework: `notifyParentsInClass` in `routes/homework.js`.
+- Optional server env: `EXPO_ACCESS_TOKEN`.
+
 ### Parent hub API (mounted at `/api/parent` alongside `parent_portal`)
 
 - `routes/parent_hub.js` — hub overview, child summary, school announcements, parent notify, HT add teacher.

@@ -3,6 +3,7 @@ const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { createUpload } = require('../lib/uploads');
 const { userCanManageClass } = require('../lib/classAccess');
+const { notifyParentsInClass } = require('../lib/expoPush');
 
 const router = express.Router();
 const uploadHomework = createUpload('file');
@@ -46,7 +47,24 @@ router.post('/:classId/homework', authenticateToken, requireRole('teacher', 'hea
       'INSERT INTO homework (class_id, title, description, due_date, file_path, file_name) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
       [classId, String(title).trim(), description || null, due_date || null, filePath, fileName]
     );
-    res.status(201).json(result.rows[0]);
+    const hw = result.rows[0];
+    const classRow = await pool.query('SELECT name FROM classes WHERE id = $1', [classId]);
+    const className = classRow.rows[0]?.name || 'Class';
+    const dueStr = due_date ? new Date(due_date).toLocaleString() : 'no due date set';
+    setImmediate(async () => {
+      try {
+        await notifyParentsInClass(classId, {
+          title: `📚 New homework — ${className}`,
+          body: `"${hw.title}" — due ${dueStr}. Open the app to help your child.`,
+          type: 'homework',
+          payload: { homework_id: hw.id, class_id: classId, class_name: className },
+          senderId: req.user.id,
+        });
+      } catch (e) {
+        console.error('[homework] parent push:', e.message);
+      }
+    });
+    res.status(201).json(hw);
   } catch (err) {
     console.error('[homework POST] error:', err.message, err.code, err.detail);
     res.status(500).json({ error: 'Failed to create homework. Please try again.' });

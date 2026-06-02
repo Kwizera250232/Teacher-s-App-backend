@@ -264,8 +264,19 @@ export default function InviteSignup() {
                 <input type="password" required minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
               </label>
               <label className="form-group">
-                Phone (optional)
-                <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                {isParentInvite ? 'Mobile phone for SMS alerts *' : 'Phone (optional)'}
+                <input
+                  type="tel"
+                  required={isParentInvite}
+                  placeholder={isParentInvite ? '078 123 4567' : undefined}
+                  value={form.phone}
+                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                />
+                {isParentInvite && (
+                  <p style={{ fontSize: 12, color: '#64748b', marginTop: 6, lineHeight: 1.4 }}>
+                    Rwanda MTN/Airtel number — we text you when teachers post homework or class updates.
+                  </p>
+                )}
               </label>
               <button type="submit" className="btn btn-primary btn-full" disabled={submitting}>
                 {submitting ? 'Creating account...' : 'Create account'}
