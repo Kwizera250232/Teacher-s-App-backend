@@ -10,7 +10,7 @@ import MobileStudentHeader from '../components/MobileStudentHeader';
 import MobileBottomBar from '../components/MobileBottomBar';
 import CompositionStatusPanel from '../components/CompositionStatusPanel';
 import CompositionStatusFeed from '../components/CompositionStatusFeed';
-import ClassMomentsHero from '../components/classMoments/ClassMomentsHero';
+import ClassMomentsFold from '../components/classMoments/ClassMomentsFold';
 import { useClassMomentAlerts } from '../hooks/useClassMomentAlerts';
 import { classMomentDetailPath } from '../utils/classMomentPaths';
 import '../components/classMoments/ClassMoments.css';
@@ -184,8 +184,6 @@ export default function StudentDashboard() {
           <button type="button" onClick={() => setShowParentInvite(true)}>Get parent invite link</button>
         </div>
 
-        <ClassMomentsHero preview={momentPreview} feedPath="/student/class-moments" />
-
         <CompositionStatusFeed token={token} />
 
         {error && <div className="alert alert-error">{error}</div>}
@@ -243,6 +241,12 @@ export default function StudentDashboard() {
             </div>
           )}
         </section>
+
+        <ClassMomentsFold
+          preview={momentPreview}
+          feedPath="/student/class-moments"
+          defaultOpen={false}
+        />
 
       </main>
 

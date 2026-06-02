@@ -9,6 +9,8 @@ import ClassLeaderboard from '../components/ClassLeaderboard';
 import ClassmateProfileModal from '../components/ClassmateProfileModal';
 import ClassroomFeed from '../components/ClassroomFeed';
 import ClassDeanHelp from '../components/ClassDeanHelp';
+import ClassMomentsClassFold from '../components/classMoments/ClassMomentsClassFold';
+import '../components/classMoments/ClassMoments.css';
 import VerifiedBadge from '../components/VerifiedBadge';
 import '../pages/Dashboard.css';
 
@@ -478,6 +480,8 @@ export default function StudentClassPage() {
             ))}
           </div>
         )}
+
+        <ClassMomentsClassFold classId={id} token={token} className={cls?.name} />
       </main>
 
       {selectedPerson && (

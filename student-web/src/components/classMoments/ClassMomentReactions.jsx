@@ -67,44 +67,44 @@ export default function ClassMomentReactions({
     .map(([e]) => e);
 
   return (
-    <div className="cm-wa-reactions">
+    <div className="cm-soc-reactions">
       {total > 0 && (
-        <div className="cm-wa-reaction-summary" aria-label={`${total} reactions`}>
-          <span className="cm-wa-reaction-emojis">{summaryEmojis.join('')}</span>
-          <span className="cm-wa-reaction-count">{total}</span>
+        <div className="cm-soc-reaction-tally" aria-label={`${total} reactions`}>
+          <span className="cm-soc-reaction-tally__icons">{summaryEmojis.join('')}</span>
+          <span className="cm-soc-reaction-tally__count">{total}</span>
         </div>
       )}
 
-      <div className="cm-wa-reaction-bar">
+      <div className="cm-soc-action-bar">
         <button
           type="button"
-          className={`cm-wa-react-btn${mine === '❤️' ? ' active' : ''}`}
+          className={`cm-soc-action${mine === '❤️' ? ' cm-soc-action--active' : ''}`}
           disabled={disabled || busy}
           aria-label={mine === '❤️' ? 'Remove like' : 'Like'}
           onClick={() => react(mine === '❤️' ? '❤️' : 'like')}
         >
-          <span className="cm-wa-react-icon" aria-hidden>
+          <span className="cm-soc-action__icon" aria-hidden>
             {mine === '❤️' ? '❤️' : '🤍'}
           </span>
-          <span>Like</span>
+          Like
         </button>
         <button
           type="button"
-          className={`cm-wa-react-btn${pickerOpen ? ' active' : ''}`}
+          className={`cm-soc-action${pickerOpen ? ' cm-soc-action--active' : ''}`}
           disabled={disabled || busy}
           aria-expanded={pickerOpen}
           aria-label="Add reaction"
           onClick={() => setPickerOpen((o) => !o)}
         >
-          <span className="cm-wa-react-icon" aria-hidden>
+          <span className="cm-soc-action__icon" aria-hidden>
             😊
           </span>
-          <span>React</span>
+          React
         </button>
       </div>
 
       {pickerOpen && (
-        <div className="cm-wa-emoji-picker" role="toolbar" aria-label="Choose reaction">
+        <div className="cm-soc-emoji-tray" role="toolbar" aria-label="Choose reaction">
           {QUICK_EMOJI.map((e) => (
             <button
               key={e}
