@@ -234,7 +234,7 @@ router.post('/:id/share', authenticateToken, async (req, res) => {
     const frontend = frontendBase();
     const shareUrl = `${apiBase}/share/moment/${token}`;
     const appUrl = `${frontend}/share/moment/${token}`;
-    const preview = sharePreviewFromMoment(moment, apiBase);
+    const preview = sharePreviewFromMoment(moment, apiBase, token);
     res.status(201).json({
       share_url: shareUrl,
       app_url: appUrl,

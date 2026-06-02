@@ -33,7 +33,7 @@ router.get('/moments/:token', async (req, res) => {
     if (!row.rows.length) return res.status(404).json({ error: 'This link has expired or was removed.' });
     const moment = row.rows[0];
     const apiBase = process.env.API_PUBLIC_URL || 'https://studentapi.umunsi.com';
-    const preview = sharePreviewFromMoment(moment, apiBase);
+    const preview = sharePreviewFromMoment(moment, apiBase, token);
     res.json({
       share_token: token,
       shared_at: moment.shared_at,
@@ -44,6 +44,7 @@ router.get('/moments/:token', async (req, res) => {
       published_at: moment.published_at,
       ...preview,
       images: moment.images,
+      photo_count: preview.preview_images?.length || 0,
     });
   } catch (err) {
     console.error('[public/moments]', err);
