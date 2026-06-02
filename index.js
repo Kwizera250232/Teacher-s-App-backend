@@ -102,6 +102,7 @@ app.use('/api/student-shares', studentSharesRoutes);
 app.use('/api/composition-status', compositionStatusRoutes);
 app.use('/api/classroom-feed', classroomFeedRoutes);
 app.use('/api/class-moments', require('./routes/class_moments'));
+app.use('/api/mobile/push', require('./routes/mobile_push'));
 app.use('/api/parent', parentPortalRoutes);
 app.use('/api/parent', parentHubRoutes);
 app.use('/api/donate', donateRoutes);

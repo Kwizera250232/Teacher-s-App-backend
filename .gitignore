@@ -1,4 +1,5 @@
 node_modules/
+studentumunsiapp/node_modules/
 frontend/
 .env
 uploads/*

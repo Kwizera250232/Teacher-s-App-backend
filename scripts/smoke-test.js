@@ -14,6 +14,9 @@ const modules = [
   '../lib/schoolMail',
   '../lib/classMomentsSchema',
   '../lib/classMomentReactions',
+  '../lib/expoPush',
+  '../lib/expoPushSchema',
+  '../routes/mobile_push',
   '../routes/parent_hub',
 ];
 
