@@ -6,6 +6,7 @@ import {
   isMomentVideo,
 } from '../../utils/momentImages';
 import ClassMomentReactions from './ClassMomentReactions';
+import { canReactToMoment } from '../../utils/momentReactions';
 
 export default function ClassMomentCard({
   moment,
@@ -19,7 +20,7 @@ export default function ClassMomentCard({
   const current = images[idx];
   const src = current ? momentImageUrl(current.file_path) : '';
   const isVideo = current && isMomentVideo(current.file_path);
-  const canReact = showReactions && token && typeof moment.id === 'number' && !moment._pending;
+  const canReact = showReactions && token && canReactToMoment(moment);
 
   const handleReactions = (reactions) => {
     onReactionsChange?.(moment.id, reactions);

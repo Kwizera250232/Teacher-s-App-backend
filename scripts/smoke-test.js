@@ -13,6 +13,7 @@ const modules = [
   '../lib/emailValidate',
   '../lib/schoolMail',
   '../lib/classMomentsSchema',
+  '../lib/classMomentReactions',
   '../routes/parent_hub',
 ];
 

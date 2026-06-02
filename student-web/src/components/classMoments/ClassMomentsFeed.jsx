@@ -22,6 +22,7 @@ export default function ClassMomentsFeed({ moments, loading, token, onReactionsC
     );
   }
   return (
+    <div className="cm-wa-feed-wrap">
     <div className="cm-wa-feed">
       {moments.map((m, i) => (
         <ClassMomentCard
@@ -32,6 +33,7 @@ export default function ClassMomentsFeed({ moments, loading, token, onReactionsC
           onReactionsChange={patchReactions}
         />
       ))}
+    </div>
     </div>
   );
 }

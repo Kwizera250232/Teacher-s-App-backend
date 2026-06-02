@@ -6,7 +6,11 @@ const { userCanManageClass, userCanAccessClass } = require('../lib/classAccess')
 const { ensureClassMomentsSchema } = require('../lib/classMomentsSchema');
 const { momentPhotosMiddleware } = require('../lib/momentUpload');
 const { notifyClassMomentPublished } = require('../lib/classMomentNotify');
-const { attachReactionsToMoments, setMomentReaction } = require('../lib/classMomentReactions');
+const {
+  attachReactionsToMoments,
+  setMomentReaction,
+  momentIdNum,
+} = require('../lib/classMomentReactions');
 
 const REACT_ROLES = new Set(['student', 'teacher', 'head_teacher', 'parent', 'admin']);
 
@@ -154,12 +158,13 @@ router.get('/feed', authenticateToken, async (req, res) => {
 
 /** POST like / emoji reaction (all roles with class access) */
 router.post('/:id/react', authenticateToken, async (req, res) => {
-  const momentId = parseInt(req.params.id, 10);
+  const momentId = momentIdNum(req.params.id);
   if (!momentId) return res.status(400).json({ error: 'Invalid moment.' });
   if (!REACT_ROLES.has(req.user.role)) {
     return res.status(403).json({ error: 'Reactions are not available for your account.' });
   }
   try {
+    await ensureClassMomentsSchema();
     const row = await pool.query('SELECT id, class_id FROM class_moments WHERE id = $1', [momentId]);
     if (!row.rows.length) return res.status(404).json({ error: 'Not found.' });
     const moment = row.rows[0];

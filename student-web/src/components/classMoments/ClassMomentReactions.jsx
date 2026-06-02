@@ -1,5 +1,11 @@
 import { useState } from 'react';
 import { api } from '../../api';
+import {
+  applyReactionToggle,
+  canReactToMoment,
+  momentIdNum,
+  normalizeReactionEmoji,
+} from '../../utils/momentReactions';
 
 const QUICK_EMOJI = ['❤️', '👍', '😂', '😮', '😢', '🙏', '👏', '🔥'];
 
@@ -15,20 +21,45 @@ export default function ClassMomentReactions({
   const counts = reactions.counts || {};
   const mine = reactions.mine;
   const total = reactions.total ?? Object.values(counts).reduce((a, b) => a + b, 0);
+  const momentId = momentIdNum(moment.id);
 
   const react = async (emoji) => {
-    if (disabled || busy || !token || typeof moment.id !== 'number') return;
-    setBusy(true);
+    if (disabled || busy || !token || !momentId) return;
+
+    const normalized = emoji == null ? '❤️' : normalizeReactionEmoji(emoji);
+    const willRemove = mine === normalized;
+    const previous = moment.reactions || { counts: {}, mine: null, people: [], total: 0 };
+    const optimistic = applyReactionToggle(moment, emoji, willRemove, normalized);
+
     setPickerOpen(false);
+    setBusy(true);
+    onReactionsChange?.(momentId, optimistic);
+
     try {
-      const data = await api.post(`/class-moments/${moment.id}/react`, { emoji }, token);
-      onReactionsChange?.(data.reactions);
+      const data = await api.post(
+        `/class-moments/${momentId}/react`,
+        { emoji: willRemove ? normalized : emoji ?? 'like' },
+        token
+      );
+      if (data.reactions) {
+        onReactionsChange?.(momentId, data.reactions);
+      }
     } catch (err) {
-      alert(err.message || 'Could not update reaction.');
+      onReactionsChange?.(momentId, previous);
+      const msg = String(err.message || '');
+      if (/404|not found/i.test(msg)) {
+        alert(
+          'Reactions need a server update. Ask your school to deploy the latest API, then try again.'
+        );
+      } else {
+        alert(msg || 'Could not save reaction. Check your connection and try again.');
+      }
     } finally {
       setBusy(false);
     }
   };
+
+  if (!canReactToMoment(moment)) return null;
 
   const summaryEmojis = Object.entries(counts)
     .sort((a, b) => b[1] - a[1])
@@ -50,7 +81,7 @@ export default function ClassMomentReactions({
           className={`cm-wa-react-btn${mine === '❤️' ? ' active' : ''}`}
           disabled={disabled || busy}
           aria-label={mine === '❤️' ? 'Remove like' : 'Like'}
-          onClick={() => react(mine === '❤️' ? null : 'like')}
+          onClick={() => react(mine === '❤️' ? '❤️' : 'like')}
         >
           <span className="cm-wa-react-icon" aria-hidden>
             {mine === '❤️' ? '❤️' : '🤍'}

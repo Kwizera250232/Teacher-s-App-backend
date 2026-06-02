@@ -5,9 +5,13 @@
   --wa-green-dark: #128c7e;
   --wa-chat-bg: #e5ddd5;
   --wa-bubble-in: #ffffff;
-  min-height: 100vh;
+  min-height: auto;
   background: var(--wa-chat-bg);
   background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23d4cdc4' fill-opacity='0.35'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+
+.cm-wa-page.dashboard {
+  min-height: 100dvh;
 }
 
 .cm-wa-header {
@@ -31,9 +35,17 @@
 }
 
 .cm-page {
-  max-width: 560px;
+  max-width: 480px;
   margin: 0 auto;
   padding: 0 12px 5rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.cm-wa-feed-wrap {
+  max-width: 420px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .cm-wa-feed {
@@ -78,7 +90,7 @@
 .cm-wa-col {
   flex: 1;
   min-width: 0;
-  max-width: calc(100% - 44px);
+  max-width: min(340px, calc(100% - 44px));
 }
 
 .cm-wa-pending {
@@ -94,6 +106,8 @@
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
   overflow: hidden;
   max-width: 100%;
+  width: fit-content;
+  min-width: 0;
 }
 
 .cm-wa-bubble-head {
@@ -127,15 +141,17 @@
 .cm-wa-media img {
   display: block;
   width: 100%;
-  max-height: 360px;
+  max-width: 300px;
+  max-height: 220px;
   object-fit: cover;
 }
 
 .cm-wa-video {
   display: block;
   width: 100%;
-  max-height: 360px;
-  object-fit: contain;
+  max-width: 300px;
+  max-height: 220px;
+  object-fit: cover;
   background: #0b141a;
 }
 
@@ -357,6 +373,9 @@
   border-radius: 16px;
   padding: 1rem;
   margin-top: 0.5rem;
+  max-width: 480px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .cm-staff-panel-head h2 {

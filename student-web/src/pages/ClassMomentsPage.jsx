@@ -57,8 +57,10 @@ export default function ClassMomentsPage({ backPath }) {
         loading ? (
           <p className="cm-wa-empty">Loading…</p>
         ) : single ? (
-          <div className="cm-wa-feed">
-            <ClassMomentCard moment={single} token={token} onReactionsChange={patchReactions} />
+          <div className="cm-wa-feed-wrap">
+            <div className="cm-wa-feed">
+              <ClassMomentCard moment={single} token={token} onReactionsChange={patchReactions} />
+            </div>
           </div>
         ) : (
           <p className="cm-wa-empty">Moment not found.</p>
