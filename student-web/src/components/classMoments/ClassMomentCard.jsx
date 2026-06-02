@@ -37,12 +37,12 @@ export default function ClassMomentCard({
         alt=""
       />
       <div className="cm-wa-col">
-        {moment._pending && (
-          <p className="cm-wa-pending" role="status">
-            Publishing…
-          </p>
-        )}
         <div className="cm-wa-bubble">
+          {moment._pending && (
+            <span className="cm-wa-pending-chip" role="status">
+              Uploading…
+            </span>
+          )}
           <header className="cm-wa-bubble-head">
             <span className="cm-wa-name">{moment.teacher_name}</span>
             <span className="cm-wa-meta">

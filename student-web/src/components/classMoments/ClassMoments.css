@@ -74,7 +74,11 @@
 }
 
 .cm-wa-row--pending {
-  opacity: 0.88;
+  opacity: 0.95;
+}
+
+.cm-wa-row--pending .cm-wa-bubble {
+  box-shadow: 0 0 0 1px rgba(37, 211, 102, 0.35);
 }
 
 .cm-wa-avatar {
@@ -93,19 +97,26 @@
   max-width: min(340px, calc(100% - 44px));
 }
 
-.cm-wa-pending {
-  margin: 0 0 6px;
-  font-size: 11px;
+.cm-wa-pending-chip {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  font-size: 10px;
   font-weight: 700;
-  color: var(--wa-green-dark);
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(7, 94, 84, 0.85);
+  color: #fff;
 }
 
 .cm-wa-bubble {
+  position: relative;
   background: var(--wa-bubble-in);
   border-radius: 0 12px 12px 12px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
   overflow: hidden;
-  max-width: 100%;
+  max-width: min(300px, 100%);
   width: fit-content;
   min-width: 0;
 }
@@ -140,17 +151,18 @@
 
 .cm-wa-media img {
   display: block;
-  width: 100%;
-  max-width: 300px;
-  max-height: 220px;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 200px;
   object-fit: cover;
 }
 
 .cm-wa-video {
   display: block;
   width: 100%;
-  max-width: 300px;
-  max-height: 220px;
+  max-width: 100%;
+  max-height: 200px;
   object-fit: cover;
   background: #0b141a;
 }
@@ -482,6 +494,37 @@
   color: #075e54;
   font-size: 14px;
   font-weight: 600;
+}
+
+.cm-upload-status--active {
+  animation: cm-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes cm-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.65;
+  }
+}
+
+/* Staff dashboard tab — keep feed narrow (overrides full-width shell) */
+.cm-staff-panel .cm-wa-feed-wrap {
+  max-width: 400px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.cm-staff-panel .cm-wa-col {
+  max-width: min(320px, calc(100% - 44px));
+}
+
+.app-wa-shell .cm-staff-panel {
+  max-width: 480px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .cm-thumb-video {
