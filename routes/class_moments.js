@@ -72,7 +72,7 @@ async function classIdsForUser(user) {
     const r = await pool.query(
       `SELECT id FROM classes WHERE teacher_id = $1
        UNION SELECT class_id AS id FROM class_co_teachers WHERE teacher_id = $1`,
-      [user.id, user.id]
+      [user.id]
     );
     return r.rows.map((x) => x.id);
   }
@@ -105,7 +105,7 @@ router.get('/preview', authenticateToken, async (req, res) => {
       'WHERE m.class_id = ANY($1::int[])',
       [classIds]
     );
-    const latest = await pool.query(`${latestQ.sql} LIMIT 1`, classIds);
+    const latest = await pool.query(`${latestQ.sql} LIMIT 1`, [classIds]);
 
     let unread = 0;
     if (req.user.role === 'student') {
@@ -142,12 +142,17 @@ router.get('/preview', authenticateToken, async (req, res) => {
 /** GET feed (student / parent / staff read) */
 router.get('/feed', authenticateToken, async (req, res) => {
   try {
-    const classIds = await classIdsForUser(req.user);
+    let classIds = await classIdsForUser(req.user);
     if (!classIds.length) return res.json([]);
 
-    const limit = Math.min(parseInt(req.query.limit, 10) || 40, 80);
+    const filterClassId = parseInt(req.query.class_id, 10);
+    if (filterClassId && classIds.includes(filterClassId)) {
+      classIds = [filterClassId];
+    }
+
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 40, 1), 80);
     const q = momentSelectSql('WHERE m.class_id = ANY($1::int[])', [classIds]);
-    const rows = await pool.query(`${q.sql} LIMIT $2`, [...classIds, limit]);
+    const rows = await pool.query(`${q.sql} LIMIT ${limit}`, [classIds]);
     const withReactions = await attachReactionsToMoments(rows.rows, req.user.id);
     res.json(withReactions);
   } catch (err) {
@@ -213,7 +218,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 });
 
 /** POST publish moment (teacher / HT / admin) */
-router.post('/', authenticateToken, momentPhotosMiddleware, async (req, res) => {
+router.post('/', authenticateToken, momentPhotosMiddleware(), async (req, res) => {
   try {
     const classId = parseInt(req.body.class_id, 10);
     const description = String(req.body.description || '').trim();
@@ -237,18 +242,12 @@ router.post('/', authenticateToken, momentPhotosMiddleware, async (req, res) => 
     );
     const moment = ins.rows[0];
     const files = req.files || [];
-    if (files.length) {
-      const values = [];
-      const params = [moment.id];
-      files.forEach((f, i) => {
-        const rel = path.join('moments', path.basename(f.path)).replace(/\\/g, '/');
-        const base = params.length;
-        values.push(`($1,$${base + 1},$${base + 2})`);
-        params.push(rel, i);
-      });
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const rel = path.join('moments', path.basename(f.path)).replace(/\\/g, '/');
       await pool.query(
-        `INSERT INTO class_moment_images (moment_id, file_path, sort_order) VALUES ${values.join(',')}`,
-        params
+        `INSERT INTO class_moment_images (moment_id, file_path, sort_order) VALUES ($1,$2,$3)`,
+        [moment.id, rel, i]
       );
     }
 
