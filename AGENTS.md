@@ -5,8 +5,10 @@
 ### Running the backend
 
 - `npm run dev` starts nodemon on port 5000.
-- Requires PostgreSQL with a `studentapp` database. Configure via `DATABASE_URL` in `.env`.
+- Requires PostgreSQL with a `studentapp` database. Configure via `DATABASE_URL` in `.env` (copy from `.env.example`; `.env` is gitignored).
 - Run `npm run init-db` once to apply `schema.sql`, then manually add missing columns (see below).
+- **Cloud VM without Docker:** PostgreSQL 16 is installed as a system service. Start it with `sudo service postgresql start` before the API. Use `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/studentapp` (set the postgres role password once if peer auth fails over TCP).
+- **With Docker:** `docker compose up -d` in this repo starts Postgres on port 5432 with the same credentials.
 
 ### Database schema fragmentation
 
