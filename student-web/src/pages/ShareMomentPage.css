@@ -1,0 +1,74 @@
+.share-moment-page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #e8f5e9 0%, #f0f2f5 35%);
+  padding: 1rem 1rem 3rem;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.share-moment-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+}
+
+.share-moment-brand {
+  font-weight: 800;
+  font-size: 1.25rem;
+  color: #075e54;
+  text-decoration: none;
+}
+
+.share-moment-tag {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #128c7e;
+  background: rgba(18, 140, 126, 0.12);
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.share-moment-card {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+  padding: 1rem;
+  border: 1px solid #e4e6eb;
+}
+
+.share-moment-card--error {
+  text-align: center;
+}
+
+.share-moment-shared-by {
+  font-size: 12px;
+  color: #65676b;
+}
+
+.share-moment-cta-text {
+  font-size: 14px;
+  color: #65676b;
+  line-height: 1.5;
+  margin: 12px 0;
+}
+
+.share-moment-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.share-moment-footer {
+  margin-top: 2rem;
+  font-size: 11px;
+  color: #8a8d91;
+  text-align: center;
+}
+
+.share-moment-muted {
+  text-align: center;
+  color: #65676b;
+}

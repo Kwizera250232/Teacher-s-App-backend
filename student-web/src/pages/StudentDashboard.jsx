@@ -246,6 +246,8 @@ export default function StudentDashboard() {
           preview={momentPreview}
           feedPath="/student/class-moments"
           defaultOpen={false}
+          token={token}
+          userRole={user?.role || 'student'}
         />
 
       </main>

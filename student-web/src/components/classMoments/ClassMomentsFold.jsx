@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ClassMomentsHero from './ClassMomentsHero';
+import ClassMomentsDashboardBlock from './ClassMomentsDashboardBlock';
 
 const STORAGE_KEY = 'student_class_updates_fold_open';
 
@@ -11,6 +12,8 @@ export default function ClassMomentsFold({
   preview,
   feedPath = '/student/class-moments',
   defaultOpen = false,
+  token,
+  userRole = 'student',
 }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(() => {
@@ -74,6 +77,16 @@ export default function ClassMomentsFold({
             Optional — check when class is done. Homework and quizzes stay above in each class.
           </p>
           <ClassMomentsHero preview={preview} feedPath={feedPath} />
+          {token && (
+            <ClassMomentsDashboardBlock
+              token={token}
+              userRole={userRole}
+              preview={preview}
+              feedPath={feedPath}
+              hideHero
+              showOpenAll={false}
+            />
+          )}
         </div>
       )}
     </section>

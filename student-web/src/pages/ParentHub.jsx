@@ -7,7 +7,7 @@ import DonateButton from '../components/DonateButton';
 import MessageContextBanner from '../components/MessageContextBanner';
 import '../pages/Messages.css';
 import { downloadWord, downloadCatSheetWord } from '../utils/downloadResult';
-import ClassMomentsHero from '../components/classMoments/ClassMomentsHero';
+import ClassMomentsDashboardBlock from '../components/classMoments/ClassMomentsDashboardBlock';
 import { useClassMomentAlerts } from '../hooks/useClassMomentAlerts';
 import { classMomentDetailPath } from '../utils/classMomentPaths';
 import '../components/classMoments/ClassMoments.css';
@@ -323,7 +323,12 @@ export default function ParentHub() {
       </nav>
 
       <div className="phub-moments-hero-wrap">
-        <ClassMomentsHero preview={momentPreview} feedPath="/parent/class-moments" />
+        <ClassMomentsDashboardBlock
+          token={token}
+          userRole={user?.role || 'parent'}
+          preview={momentPreview}
+          feedPath="/parent/class-moments"
+        />
       </div>
 
       {hasLinkedChild && (

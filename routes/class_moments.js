@@ -11,6 +11,13 @@ const {
   setMomentReaction,
   momentIdNum,
 } = require('../lib/classMomentReactions');
+const { classIdsForUser } = require('../lib/classMomentsAccess');
+const { discoverMomentsForUser } = require('../lib/classMomentsDiscover');
+const {
+  ensureClassMomentSharesSchema,
+  newShareToken,
+  sharePreviewFromMoment,
+} = require('../lib/classMomentShares');
 
 const REACT_ROLES = new Set(['student', 'teacher', 'head_teacher', 'parent', 'admin']);
 
@@ -46,47 +53,7 @@ function momentSelectSql(extraWhere = '', extraParams = []) {
   };
 }
 
-async function classIdsForUser(user) {
-  if (user.role === 'admin') {
-    const r = await pool.query('SELECT id FROM classes');
-    return r.rows.map((x) => x.id);
-  }
-  if (user.role === 'student') {
-    const r = await pool.query(
-      'SELECT class_id AS id FROM class_members WHERE student_id = $1',
-      [user.id]
-    );
-    return r.rows.map((x) => x.id);
-  }
-  if (user.role === 'parent') {
-    const r = await pool.query(
-      `SELECT DISTINCT cm.class_id AS id
-       FROM parent_children pc
-       JOIN class_members cm ON cm.student_id = pc.student_id
-       WHERE pc.parent_id = $1`,
-      [user.id]
-    );
-    return r.rows.map((x) => x.id);
-  }
-  if (user.role === 'teacher') {
-    const r = await pool.query(
-      `SELECT id FROM classes WHERE teacher_id = $1
-       UNION SELECT class_id AS id FROM class_co_teachers WHERE teacher_id = $1`,
-      [user.id]
-    );
-    return r.rows.map((x) => x.id);
-  }
-  if (user.role === 'head_teacher' && user.school_id) {
-    const r = await pool.query(
-      `SELECT c.id FROM classes c
-       JOIN users u ON u.id = c.teacher_id
-       WHERE u.school_id = $1`,
-      [user.school_id]
-    );
-    return r.rows.map((x) => x.id);
-  }
-  return [];
-}
+ensureClassMomentSharesSchema().catch((e) => console.error('[class_moment_shares] schema:', e.message));
 
 /** GET featured preview for home cards */
 router.get('/preview', authenticateToken, async (req, res) => {
@@ -161,6 +128,58 @@ router.get('/feed', authenticateToken, async (req, res) => {
   }
 });
 
+/** GET moments from other classes in your school */
+router.get('/discover', authenticateToken, async (req, res) => {
+  try {
+    const { school_id: schoolId, items } = await discoverMomentsForUser(req.user);
+    const withReactions = await attachReactionsToMoments(items, req.user.id);
+    res.json({ school_id: schoolId, items: withReactions });
+  } catch (err) {
+    console.error('[class_moments/discover]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+/** GET recent social shares in your school (in-app preview cards) */
+router.get('/shared-feed', authenticateToken, async (req, res) => {
+  try {
+    await ensureClassMomentSharesSchema();
+    const { resolveSchoolIdForUser } = require('../lib/classMomentsDiscover');
+    const schoolId = await resolveSchoolIdForUser(req.user);
+    if (!schoolId) return res.json([]);
+
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 40);
+    const rows = await pool.query(
+      `SELECT s.id AS share_id, s.share_token, s.channel, s.created_at AS shared_at,
+              s.sharer_id, sh.name AS sharer_name, p.avatar_path AS sharer_avatar_path,
+              m.id AS moment_id, m.description, m.published_at, m.class_id,
+              c.name AS class_name, u.name AS teacher_name,
+              COALESCE(
+                (SELECT json_agg(json_build_object(
+                  'id', i.id, 'file_path', i.file_path, 'sort_order', i.sort_order
+                ) ORDER BY i.sort_order, i.id)
+                 FROM class_moment_images i WHERE i.moment_id = m.id),
+                '[]'::json
+              ) AS images
+       FROM class_moment_shares s
+       JOIN class_moments m ON m.id = s.moment_id
+       JOIN classes c ON c.id = m.class_id
+       JOIN users u ON u.id = m.teacher_id
+       JOIN users sh ON sh.id = s.sharer_id
+       LEFT JOIN user_profiles p ON p.user_id = sh.id
+       JOIN users tc ON tc.id = c.teacher_id
+       WHERE tc.school_id = $1
+       ORDER BY s.created_at DESC
+       LIMIT ${limit}`,
+      [schoolId]
+    );
+    res.json(rows.rows);
+  } catch (err) {
+    console.error('[class_moments/shared-feed]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 /** POST like / emoji reaction (all roles with class access) */
 router.post('/:id/react', authenticateToken, async (req, res) => {
   const momentId = momentIdNum(req.params.id);
@@ -186,6 +205,46 @@ router.post('/:id/react', authenticateToken, async (req, res) => {
     res.json({ ...result, reactions: enriched?.reactions || { counts: {}, mine: null, people: [], total: 0 } });
   } catch (err) {
     console.error('[class_moments/react]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+/** POST create share link (social / WhatsApp) */
+router.post('/:id/share', authenticateToken, async (req, res) => {
+  const momentId = momentIdNum(req.params.id);
+  if (!momentId) return res.status(400).json({ error: 'Invalid moment.' });
+  try {
+    await ensureClassMomentSharesSchema();
+    const q = momentSelectSql('WHERE m.id = $1', [momentId]);
+    const row = await pool.query(q.sql, [momentId]);
+    if (!row.rows.length) return res.status(404).json({ error: 'Not found.' });
+    const moment = row.rows[0];
+    const access = await userCanAccessClass(req.user, moment.class_id);
+    if (!access.ok && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden.' });
+    }
+    const token = newShareToken();
+    await pool.query(
+      `INSERT INTO class_moment_shares (moment_id, sharer_id, share_token, channel)
+       VALUES ($1,$2,$3,$4)`,
+      [momentId, req.user.id, token, String(req.body?.channel || 'social').slice(0, 40)]
+    );
+    const frontend = (process.env.FRONTEND_URL || 'https://student.umunsi.com').replace(/\/$/, '');
+    const shareUrl = `${frontend}/share/moment/${token}`;
+    const apiBase = process.env.API_PUBLIC_URL || 'https://studentapi.umunsi.com';
+    const preview = sharePreviewFromMoment(moment, apiBase);
+    res.status(201).json({
+      share_url: shareUrl,
+      share_token: token,
+      preview: {
+        ...preview,
+        teacher_name: moment.teacher_name,
+        class_name: moment.class_name,
+        sharer_name: req.user.name,
+      },
+    });
+  } catch (err) {
+    console.error('[class_moments/share]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });

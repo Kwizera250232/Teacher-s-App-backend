@@ -41,7 +41,11 @@ ALTER TABLE schools ADD COLUMN IF NOT EXISTS welcome_message TEXT;
 
 ### Production API deploy (no GitHub SSH secrets)
 
-Manual on VPS (`93.127.186.217`): `cd` app dir → `git pull origin main` → `npm ci --omit=dev` → `pm2 restart studentapi`. See `scripts/deploy-production.sh` and `DEPLOY.md`.
+Manual on VPS (`93.127.186.217`): `cd` app dir → `git pull origin main` → `npm ci --omit=dev` → `pm2 restart studentapi`. See `scripts/deploy-production.sh` and `DEPLOY.md`. One-liner on Hostinger SSH: `curl -fsSL https://raw.githubusercontent.com/Kwizera250232/Teacher-s-App-backend/main/scripts/hostinger-terminal-deploy.sh | bash`
+
+**Vercel** (`student.umunsi.com`): deploys from `Teacher-s-App-frontent` `main` (or `bash scripts/sync-student-web-to-frontend.sh` from backend repo). **API VPS** must be updated separately; GitHub Actions needs `SSH_PRIVATE_KEY` or run the Hostinger script above.
+
+**Class Moments upload:** `POST /api/class-moments` requires `momentPhotosMiddleware()` (with `()`) in `routes/class_moments.js` — without it uploads hang.
 
 After deploy, these must return **401** without a token (not **404**): `POST /api/auth/parent-invite`, `POST /api/parent/my/parent-invite`, `GET /api/composition-status/mine`. If students see “server update” or parent invite “insufficient role”, production is still on an old build.
 - Invite URLs use request `Origin` when allowed, else `FRONTEND_URL` (default `https://student.umunsi.com`).

@@ -21,6 +21,9 @@ import './ParentHub.css';
 import './MobileDashboard.css';
 import CompositionStatusList from '../components/CompositionStatusList';
 import StaffClassNowPanel from '../components/staff/StaffClassNowPanel';
+import ClassMomentsDashboardBlock from '../components/classMoments/ClassMomentsDashboardBlock';
+import OnlineNowStrip from '../components/classMoments/OnlineNowStrip';
+import { usePresence } from '../hooks/usePresence';
 import '../components/classMoments/ClassMoments.css';
 
 export default function StaffDashboard({ roleLabel, basePath }) {
@@ -37,14 +40,22 @@ export default function StaffDashboard({ roleLabel, basePath }) {
   const [showParentInvites, setShowParentInvites] = useState(false);
   const [hubTab, setHubTab] = useState('classes');
   const [showWeeklyDigest, setShowWeeklyDigest] = useState(false);
+  const [momentPreview, setMomentPreview] = useState(null);
+  const { online } = usePresence(token);
   const isHeadTeacher = roleLabel === 'Head Teacher';
   const hasSchool = Boolean(user?.school_id);
+  const momentsFeedPath = `${basePath}/class-moments`;
 
   const dismissAnnouncement = (id) => {
     const updated = [...dismissed, id];
     setDismissed(updated);
     localStorage.setItem('dismissed_announcements', JSON.stringify(updated));
   };
+
+  useEffect(() => {
+    if (!token) return;
+    api.get('/class-moments/preview', token).then(setMomentPreview).catch(() => {});
+  }, [token]);
 
   const loadClasses = () => {
     api.get('/classes', token).then(data => {
@@ -156,11 +167,23 @@ export default function StaffDashboard({ roleLabel, basePath }) {
         )}
 
         {hubTab === 'classnow' && (
-          <StaffClassNowPanel token={token} classes={classes} />
+          <>
+            <OnlineNowStrip online={online} />
+            <StaffClassNowPanel token={token} classes={classes} />
+          </>
         )}
 
         {hubTab === 'tools' && (
           <div style={{ marginBottom: 16 }}>
+            {hasSchool && (
+              <ClassMomentsDashboardBlock
+                token={token}
+                userRole={user?.role}
+                preview={momentPreview}
+                feedPath={momentsFeedPath}
+                showOpenAll
+              />
+            )}
             {hasSchool && (
               <section style={{ marginBottom: 20 }}>
                 <h2 style={{ fontSize: 17, color: '#075e54', marginBottom: 10 }}>✍️ C. Status (school)</h2>
