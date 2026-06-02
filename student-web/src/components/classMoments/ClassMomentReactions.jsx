@@ -6,6 +6,7 @@ import {
   momentIdNum,
   normalizeReactionEmoji,
 } from '../../utils/momentReactions';
+import ClassMomentShareButton from './ClassMomentShareButton';
 
 const QUICK_EMOJI = ['❤️', '👍', '😂', '😮', '😢', '🙏', '👏', '🔥'];
 
@@ -101,6 +102,7 @@ export default function ClassMomentReactions({
           </span>
           React
         </button>
+        <ClassMomentShareButton moment={moment} token={token} />
       </div>
 
       {pickerOpen && (

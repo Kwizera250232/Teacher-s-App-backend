@@ -18,6 +18,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import JoinClass from './pages/JoinClass';
 import StudentNotes from './pages/StudentNotes';
 import ClassMomentsPage from './pages/ClassMomentsPage';
+import ShareMomentPage from './pages/ShareMomentPage';
 import InviteSignup from './pages/InviteSignup';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
@@ -61,6 +62,7 @@ function AppShell() {
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
                 <Route path="/invite" element={<InviteSignup />} />
+                <Route path="/share/moment/:token" element={<ShareMomentPage />} />
 
                 <Route path="/admin" element={
                   <ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>
