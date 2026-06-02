@@ -7,6 +7,7 @@
 - `npm run dev` starts nodemon on port 5000.
 - Requires PostgreSQL with a `studentapp` database. Configure via `DATABASE_URL` in `.env`.
 - Run `npm run init-db` once to apply `schema.sql`, then manually add missing columns (see below).
+- **Cursor Cloud VM (no Docker):** PostgreSQL 16 is installed on the host. Start it with `sudo service postgresql start` (this environment has no systemd). Use `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/studentapp` if you create `.env` from `.env.example`. Copy `.env.example` → `.env` and set `EXPOSE_RESET_CODE=true` / `SCHOOL_MAIL_ENABLED=false` for frictionless local dev.
 
 ### Database schema fragmentation
 
