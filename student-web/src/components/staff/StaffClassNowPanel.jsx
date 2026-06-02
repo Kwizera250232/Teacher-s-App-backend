@@ -62,17 +62,26 @@ export default function StaffClassNowPanel({ token, classes }) {
       {!classes?.length ? (
         <p className="phub-muted">Create or open a class first, then share a moment.</p>
       ) : loading ? (
-        <p className="cm-empty">Loading moments…</p>
+        <p className="cm-wa-empty">Loading moments…</p>
       ) : !moments.length ? (
         <div className="cm-empty-state">
           <span className="cm-empty-icon">📷</span>
           <p>No moments yet. Tap &quot;Add Class Moment&quot; to share photos from today&apos;s lesson.</p>
         </div>
       ) : (
-        <div className="cm-feed">
+        <div className="cm-wa-feed">
           {moments.map((m, i) => (
             <div key={m.id} className="cm-staff-card-wrap">
-              <ClassMomentCard moment={m} style={{ animationDelay: `${i * 0.06}s` }} />
+              <ClassMomentCard
+                moment={m}
+                token={token}
+                style={{ animationDelay: `${i * 0.05}s` }}
+                onReactionsChange={(momentId, reactions) => {
+                  setMoments((prev) =>
+                    prev.map((x) => (x.id === momentId ? { ...x, reactions } : x))
+                  );
+                }}
+              />
               {canDelete(m) && (
                 <button
                   type="button"

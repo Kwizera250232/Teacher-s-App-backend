@@ -6,6 +6,9 @@ const { userCanManageClass, userCanAccessClass } = require('../lib/classAccess')
 const { ensureClassMomentsSchema } = require('../lib/classMomentsSchema');
 const { momentPhotosMiddleware } = require('../lib/momentUpload');
 const { notifyClassMomentPublished } = require('../lib/classMomentNotify');
+const { attachReactionsToMoments, setMomentReaction } = require('../lib/classMomentReactions');
+
+const REACT_ROLES = new Set(['student', 'teacher', 'head_teacher', 'parent', 'admin']);
 
 const router = express.Router();
 
@@ -141,9 +144,38 @@ router.get('/feed', authenticateToken, async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit, 10) || 40, 80);
     const q = momentSelectSql('WHERE m.class_id = ANY($1::int[])', [classIds]);
     const rows = await pool.query(`${q.sql} LIMIT $2`, [...classIds, limit]);
-    res.json(rows.rows);
+    const withReactions = await attachReactionsToMoments(rows.rows, req.user.id);
+    res.json(withReactions);
   } catch (err) {
     console.error('[class_moments/feed]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+/** POST like / emoji reaction (all roles with class access) */
+router.post('/:id/react', authenticateToken, async (req, res) => {
+  const momentId = parseInt(req.params.id, 10);
+  if (!momentId) return res.status(400).json({ error: 'Invalid moment.' });
+  if (!REACT_ROLES.has(req.user.role)) {
+    return res.status(403).json({ error: 'Reactions are not available for your account.' });
+  }
+  try {
+    const row = await pool.query('SELECT id, class_id FROM class_moments WHERE id = $1', [momentId]);
+    if (!row.rows.length) return res.status(404).json({ error: 'Not found.' });
+    const moment = row.rows[0];
+    const access = await userCanAccessClass(req.user, moment.class_id);
+    if (!access.ok && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden.' });
+    }
+    const result = await setMomentReaction({
+      momentId,
+      userId: req.user.id,
+      emoji: req.body?.emoji,
+    });
+    const [enriched] = await attachReactionsToMoments([{ id: momentId }], req.user.id);
+    res.json({ ...result, reactions: enriched?.reactions || { counts: {}, mine: null, people: [], total: 0 } });
+  } catch (err) {
+    console.error('[class_moments/react]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
@@ -167,7 +199,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
         [req.user.id, momentId]
       );
     }
-    res.json(moment);
+    const [enriched] = await attachReactionsToMoments([moment], req.user.id);
+    res.json(enriched);
   } catch (err) {
     console.error('[class_moments/get]', err);
     res.status(500).json({ error: 'Internal server error.' });
@@ -236,8 +269,9 @@ router.post('/', authenticateToken, momentPhotosMiddleware, async (req, res) => 
       images: imageRows,
     };
 
+    const [withReactions] = await attachReactionsToMoments([published], req.user.id);
     res.status(201).json({
-      moment: published,
+      moment: withReactions,
       notified: { queued: true },
     });
 

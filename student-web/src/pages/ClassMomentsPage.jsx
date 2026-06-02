@@ -39,24 +39,37 @@ export default function ClassMomentsPage({ backPath }) {
       .finally(() => setLoading(false));
   }, [id, token, user?.role]);
 
+  const patchReactions = (momentId, reactions) => {
+    const patch = (m) => (m.id === momentId ? { ...m, reactions } : m);
+    setMoments((prev) => prev.map(patch));
+    setSingle((s) => (s?.id === momentId ? { ...s, reactions } : s));
+  };
+
   return (
-    <div className="dashboard cm-page" style={{ minHeight: '100vh', background: '#f1f5f9' }}>
-      <header className="dash-header" style={{ marginBottom: 12 }}>
+    <div className="dashboard cm-page cm-wa-page">
+      <header className="cm-wa-header">
         <Link to={home} className="btn btn-secondary btn-sm">
           ← Back
         </Link>
-        <h1 style={{ margin: '8px 0 0', fontSize: '1.2rem' }}>📸 Today&apos;s Class Moments</h1>
+        <h1>📸 Today&apos;s Class Moments</h1>
       </header>
       {id ? (
         loading ? (
-          <p className="cm-empty">Loading…</p>
+          <p className="cm-wa-empty">Loading…</p>
         ) : single ? (
-          <ClassMomentCard moment={single} />
+          <div className="cm-wa-feed">
+            <ClassMomentCard moment={single} token={token} onReactionsChange={patchReactions} />
+          </div>
         ) : (
-          <p className="cm-empty">Moment not found.</p>
+          <p className="cm-wa-empty">Moment not found.</p>
         )
       ) : (
-        <ClassMomentsFeed moments={moments} loading={loading} />
+        <ClassMomentsFeed
+          moments={moments}
+          loading={loading}
+          token={token}
+          onReactionsChange={patchReactions}
+        />
       )}
     </div>
   );

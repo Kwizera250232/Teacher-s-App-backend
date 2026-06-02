@@ -1,21 +1,36 @@
 import ClassMomentCard from './ClassMomentCard';
 
-export default function ClassMomentsFeed({ moments, loading }) {
+export default function ClassMomentsFeed({ moments, loading, token, onReactionsChange }) {
+  const patchReactions = (momentId, reactions) => {
+    onReactionsChange?.(momentId, reactions);
+  };
+
   if (loading) {
-    return <p className="cm-empty">Loading moments…</p>;
+    return <p className="cm-wa-empty">Loading moments…</p>;
   }
   if (!moments?.length) {
     return (
-      <div className="cm-empty">
-        <p style={{ fontSize: '2.5rem', margin: '0 0 8px' }}>📸</p>
-        <p>No class moments yet. When your teacher shares photos from today&apos;s lesson, they will appear here.</p>
+      <div className="cm-wa-empty">
+        <p className="cm-wa-empty-icon" aria-hidden>
+          📸
+        </p>
+        <p>
+          No class moments yet. When your teacher shares photos from today&apos;s lesson, they
+          will appear here.
+        </p>
       </div>
     );
   }
   return (
-    <div className="cm-feed">
+    <div className="cm-wa-feed">
       {moments.map((m, i) => (
-        <ClassMomentCard key={m.id} moment={m} style={{ animationDelay: `${i * 0.06}s` }} />
+        <ClassMomentCard
+          key={m.id}
+          moment={m}
+          token={token}
+          style={{ animationDelay: `${i * 0.05}s` }}
+          onReactionsChange={patchReactions}
+        />
       ))}
     </div>
   );
