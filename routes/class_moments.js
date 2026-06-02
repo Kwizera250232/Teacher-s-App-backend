@@ -229,12 +229,15 @@ router.post('/:id/share', authenticateToken, async (req, res) => {
        VALUES ($1,$2,$3,$4)`,
       [momentId, req.user.id, token, String(req.body?.channel || 'social').slice(0, 40)]
     );
-    const frontend = (process.env.FRONTEND_URL || 'https://student.umunsi.com').replace(/\/$/, '');
-    const shareUrl = `${frontend}/share/moment/${token}`;
-    const apiBase = process.env.API_PUBLIC_URL || 'https://studentapi.umunsi.com';
+    const { apiPublicBase, frontendBase } = require('../lib/classMomentSharePage');
+    const apiBase = apiPublicBase();
+    const frontend = frontendBase();
+    const shareUrl = `${apiBase}/share/moment/${token}`;
+    const appUrl = `${frontend}/share/moment/${token}`;
     const preview = sharePreviewFromMoment(moment, apiBase);
     res.status(201).json({
       share_url: shareUrl,
+      app_url: appUrl,
       share_token: token,
       preview: {
         ...preview,

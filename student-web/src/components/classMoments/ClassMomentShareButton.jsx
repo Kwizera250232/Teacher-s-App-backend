@@ -9,14 +9,15 @@ export default function ClassMomentShareButton({ moment, token }) {
     setBusy(true);
     try {
       const data = await api.post(`/class-moments/${moment.id}/share`, { channel: 'social' }, token);
-      const url = data.share_url;
+      const url = data.share_url || data.app_url;
       const text = data.preview?.description || data.preview?.title || 'Class moment on UClass';
       const title = data.preview?.title || "Today's Class Moment";
+      const imageNote = data.preview?.image_url ? `\n${data.preview.image_url}` : '';
 
       if (navigator.share) {
-        await navigator.share({ title, text, url });
+        await navigator.share({ title, text: `${text}${imageNote}`, url });
       } else if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(`${title}\n${text}\n${url}`);
+        await navigator.clipboard.writeText(`${title}\n${text}\n${url}${imageNote}`);
         alert('Link copied — paste on WhatsApp, Facebook, or Instagram.');
       } else {
         window.prompt('Copy this link:', url);
