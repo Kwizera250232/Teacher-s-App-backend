@@ -646,6 +646,21 @@ router.post('/register', authLimiter, async (req, res) => {
       return res.status(409).json({ error: 'Email already registered.' });
     }
 
+    let phoneStored = phone ? String(phone).trim() : null;
+    if (role === 'parent' && parentInviteRow && !phoneStored) {
+      return res.status(400).json({
+        error: 'Mobile phone is required so we can send homework and class update SMS.',
+      });
+    }
+    if (role === 'parent' && phoneStored) {
+      const { validateRwandaMobileInput } = require('../lib/phoneNormalize');
+      const phoneCheck = validateRwandaMobileInput(phoneStored);
+      if (!phoneCheck.valid) {
+        return res.status(400).json({ error: phoneCheck.error });
+      }
+      phoneStored = phoneCheck.display;
+    }
+
     const hashed = await bcrypt.hash(password, 12);
     const needsSchoolApproval = role === 'teacher' && resolvedSchoolId && codeBasedSignup;
     const isApproved = !needsSchoolApproval;
@@ -653,7 +668,7 @@ router.post('/register', authLimiter, async (req, res) => {
       `INSERT INTO users (name, email, password, role, school_id, is_approved, phone)
        VALUES ($1,$2,$3,$4,$5,$6,$7)
        RETURNING id, name, email, role, school_id, is_approved`,
-      [name, email, hashed, role, resolvedSchoolId, isApproved, phone || null]
+      [name, email, hashed, role, resolvedSchoolId, isApproved, phoneStored]
     );
     const user = result.rows[0];
 

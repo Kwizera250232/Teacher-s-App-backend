@@ -8,6 +8,7 @@ import MessageContextBanner from '../components/MessageContextBanner';
 import '../pages/Messages.css';
 import { downloadWord, downloadCatSheetWord } from '../utils/downloadResult';
 import ClassMomentsHero from '../components/classMoments/ClassMomentsHero';
+import ParentSmsPhoneBanner from '../components/ParentSmsPhoneBanner';
 import { useClassMomentAlerts } from '../hooks/useClassMomentAlerts';
 import { classMomentDetailPath } from '../utils/classMomentPaths';
 import '../components/classMoments/ClassMoments.css';
@@ -302,6 +303,8 @@ export default function ParentHub() {
           <button type="button" className="btn btn-outline btn-sm" onClick={logout}>Logout</button>
         </div>
       </header>
+
+      <ParentSmsPhoneBanner token={token} />
 
       <nav className="phub-nav">
         {['chats', 'feed', 'school', 'child'].map((t) => (

@@ -16,7 +16,11 @@ const modules = [
   '../lib/classMomentReactions',
   '../lib/expoPush',
   '../lib/expoPushSchema',
+  '../lib/phoneNormalize',
+  '../lib/parentSms',
+  '../lib/parentSmsSchema',
   '../routes/mobile_push',
+  '../routes/parent_sms',
   '../routes/parent_hub',
 ];
 
