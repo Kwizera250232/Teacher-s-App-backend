@@ -69,7 +69,7 @@ export async function uploadFile(endpoint, formData, token) {
     const msg = String(err?.message || err);
     if (/failed to fetch|networkerror|load failed/i.test(msg)) {
       throw new Error(
-        'Upload could not reach the server. Try fewer or smaller photos (under 5MB each), or use Wi‑Fi.'
+        'Upload could not reach the server. Check your connection or try again on Wi‑Fi.'
       );
     }
     throw err;
@@ -81,7 +81,7 @@ export async function uploadFile(endpoint, formData, token) {
   } else {
     const text = await res.text();
     if (res.status === 413) {
-      throw new Error('Photos are too large for one post. Try fewer images or smaller files (under 5MB each).');
+      throw new Error('Upload was too large for the server. Try fewer photos in one post, then publish again.');
     }
     throw new Error(text?.slice(0, 200) || `Upload failed (${res.status})`);
   }
