@@ -4,3 +4,5 @@ frontend/
 uploads/*
 !uploads/.gitkeep
 .deploy-frontend/
+github-deploy-key
+github-deploy-key.pub

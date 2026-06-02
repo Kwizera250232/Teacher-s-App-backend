@@ -20,7 +20,7 @@ In **Teacher-s-App-backend** → Settings → Secrets, add **one** of:
 
 | Secret | Purpose |
 |--------|---------|
-| `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY` | Workflow SSH pull + pm2 restart |
+| `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY` | Workflow SSH pull + pm2 restart (`SSH_HOST` = `93.127.186.217` only — not `ssh root@…`) |
 | `DEPLOY_HOOK_SECRET` | Same value in server `.env` — workflow calls `POST /api/hooks/redeploy` |
 | `FRONTEND_DEPLOY_TOKEN` | GitHub PAT with push access to `Teacher-s-App-frontent` (updates student.umunsi.com) |
 | `VERCEL_TOKEN` + org/project IDs | Optional — `scripts/deploy-vercel-frontend.sh` |
@@ -36,10 +36,28 @@ curl -fsSL https://raw.githubusercontent.com/Kwizera250232/Teacher-s-App-backend
 This updates the API and **https://studentapi.umunsi.com/app/** (latest UI with Class Now + reactions).
 
 For **https://student.umunsi.com** (Vercel), also push `student-web` to `Teacher-s-App-frontent` or add `FRONTEND_DEPLOY_TOKEN` to GitHub secrets.
-| `FRONTEND_DEPLOY_TOKEN` | Push `student-web` → **Teacher-s-App-frontent** (Vercel) |
-| `VERCEL_TOKEN` + org/project ids | Direct Vercel deploy |
 
 Then run workflow **Finish deploy (API + Vercel)** on `main`.
+
+### SSH fingerprints (do not paste these into GitHub Secrets)
+
+A line like `SHA256:jYsWizDft9Sm+…` is a **fingerprint** (thumbprint) for checking identity — it is **not** the private key. GitHub secret `SSH_PRIVATE_KEY` must be the full PEM file (`-----BEGIN OPENSSH PRIVATE KEY-----` …).
+
+**VPS `93.127.186.217` host keys** (verify when SSH warns “authenticity of host”):
+
+| Type | SHA256 fingerprint |
+|------|-------------------|
+| ED25519 | `SHA256:xoSMmuoeTK+wi2q3t+s1Q3+xhfD8BCuMNn+E2xMgmyc` |
+| RSA | `SHA256:UKTrE1yKO7Q9KSj/wPuDP3Bm3pHcJy1advJtEy3LMgg` |
+
+If Hostinger shows `SHA256:jYsWizDft9Sm+hAuCTR9zWtpWeehF5XLunkPQPf/IBo`, it does **not** match this server today — confirm the IP is `93.127.186.217` or refresh keys in hPanel.
+
+**GitHub Actions deploy key** (installed on VPS `authorized_keys`):
+
+- Public key comment: `github-actions-uclass-deploy`
+- Fingerprint: `SHA256:QHVXtjaCd/iUdfnwna2gY2Tl0qC5HRwznbq8CLy8Y7s`
+
+Add the matching **private key** (entire file) to repo secret `SSH_PRIVATE_KEY`, plus `SSH_HOST=93.127.186.217`, `SSH_USER=root`. Regenerate locally with `bash scripts/create-github-deploy-key.sh` if you need a new pair.
 
 ### Update student.umunsi.com (Vercel) without PAT
 
