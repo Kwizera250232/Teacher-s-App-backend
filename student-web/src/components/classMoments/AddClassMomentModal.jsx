@@ -95,10 +95,13 @@ export default function AddClassMomentModal({
 
   return (
     <div className="cm-modal-overlay" onClick={busy ? undefined : onClose}>
-      <div className="cm-modal" onClick={(ev) => ev.stopPropagation()}>
-        <h2 style={{ margin: '0 0 4px', fontSize: '1.25rem' }}>Add Class Moment</h2>
+      <div className="cm-modal cm-modal--moment" onClick={(ev) => ev.stopPropagation()}>
+        <h2 style={{ margin: '0 0 4px', fontSize: '1.25rem', color: '#075e54' }}>
+          📸 Share Class Moment
+        </h2>
         <p style={{ margin: '0 0 16px', color: '#64748b', fontSize: 14 }}>
-          Share photos from today&apos;s lesson — saved when upload finishes.
+          Photos appear in a beautiful feed for parents and students — like WhatsApp images in a
+          Facebook-style post.
         </p>
         {error && <div className="alert alert-error">{error}</div>}
         {preparing && (

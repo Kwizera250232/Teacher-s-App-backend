@@ -442,11 +442,16 @@
 }
 
 .cm-staff-panel {
-  background-color: #e5ddd5;
-  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23d4cdc4' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
-  border-radius: 16px;
-  padding: 16px;
+  background: linear-gradient(180deg, #f0f2f5 0%, #e8eaed 100%);
+  border-radius: 20px;
+  padding: 18px 16px 20px;
   margin-top: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.08);
+}
+
+.cm-staff-panel .cm-staff-panel-head h2 {
+  color: #075e54 !important;
 }
 
 .cm-staff-panel-head {
@@ -459,12 +464,17 @@
 }
 
 .cm-staff-card-wrap {
-  margin-bottom: 1rem;
+  margin-bottom: 0;
 }
 
 .cm-delete-btn {
-  margin-top: 8px;
+  margin-top: 10px;
+  max-width: 480px;
+  margin-left: auto;
+  margin-right: auto;
   width: 100%;
+  border-radius: 10px;
+  font-size: 13px;
 }
 
 .cm-upload-status {
@@ -488,16 +498,10 @@
   }
 }
 
-.cm-card--pending {
-  opacity: 0.92;
-  outline: 2px dashed rgba(79, 70, 229, 0.35);
-}
-
+/* Legacy card layout — disabled; use .cm-soc-post */
+.cm-card--pending,
 .cm-pending-badge {
-  margin: 0 0 10px;
-  font-size: 12px;
-  font-weight: 700;
-  color: #4f46e5;
+  display: none !important;
 }
 
 .cm-gallery-video,
@@ -526,13 +530,6 @@
     padding: 0 20px 12px;
   }
 }
-}
-
-@media (min-width: 768px) {
-  .phub-moments-hero-wrap {
-    padding: 0 20px 12px;
-  }
-}
 
 /* WhatsApp-style class moments feed */
 @keyframes cmWaFade {
@@ -540,10 +537,11 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-.cm-wa-page.dashboard {
+.cm-wa-page.dashboard,
+.cm-soc-page.dashboard {
   min-height: 100dvh;
-  background-color: #e5ddd5;
-  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23d4cdc4' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  background: #f0f2f5;
+  padding-bottom: 5rem;
 }
 .cm-wa-header-sub {
   margin: 6px 0 0;
@@ -703,4 +701,318 @@
 }
 .cm-fold-tabs button.active {
   background: #4f46e5; color: #fff; border-color: #4f46e5;
+}
+
+/* —— Facebook feed + WhatsApp photo hybrid —— */
+.cm-soc-feed-wrap,
+.cm-wa-feed-wrap {
+  max-width: 480px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 4px 0 12px;
+}
+
+.cm-soc-feed,
+.cm-wa-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+@keyframes cmSocIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.cm-soc-post {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 4px 16px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+  animation: cmSocIn 0.4s ease both;
+  max-width: 100%;
+}
+
+.cm-soc-post--pending {
+  position: relative;
+}
+
+.cm-soc-post--pending::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    rgba(37, 211, 102, 0.08) 50%,
+    transparent 60%
+  );
+  animation: cmSocShimmer 1.4s ease-in-out infinite;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+@keyframes cmSocShimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.cm-soc-post__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 14px 10px;
+}
+
+.cm-soc-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.cm-soc-post__meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.cm-soc-post__name {
+  display: block;
+  font-size: 15px;
+  font-weight: 700;
+  color: #050505;
+  line-height: 1.25;
+}
+
+.cm-soc-post__sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.cm-soc-pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #dcf8c6, #b8e994);
+  color: #075e54;
+  letter-spacing: 0.02em;
+}
+
+.cm-soc-time {
+  font-size: 12px;
+  color: #65676b;
+  font-weight: 500;
+}
+
+.cm-soc-sending {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #075e54;
+  color: #fff;
+}
+
+.cm-soc-post__media-wrap {
+  padding: 0 12px 12px;
+}
+
+.cm-soc-post__media {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #0b141a;
+  max-width: 100%;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.cm-soc-media-el {
+  display: block;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+  max-height: min(320px, 50vh) !important;
+  object-fit: cover;
+  vertical-align: top;
+}
+
+.cm-soc-media-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  backdrop-filter: blur(6px);
+}
+
+.cm-soc-dots {
+  position: absolute;
+  bottom: 12px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+.cm-soc-dots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.45);
+  transition: width 0.2s ease, background 0.2s ease;
+}
+
+.cm-soc-dots span.active {
+  background: #fff;
+  width: 20px;
+  border-radius: 6px;
+}
+
+.cm-soc-post__caption {
+  margin: 0;
+  padding: 0 16px 14px;
+  font-size: 15px;
+  line-height: 1.45;
+  color: #050505;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cm-soc-post__footer {
+  border-top: 1px solid #e4e6eb;
+  padding: 6px 10px 10px;
+  background: #fafbfc;
+}
+
+.cm-soc-reactions {
+  width: 100%;
+}
+
+.cm-soc-reaction-tally {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 8px;
+  font-size: 13px;
+  color: #65676b;
+}
+
+.cm-soc-reaction-tally__icons {
+  font-size: 15px;
+  letter-spacing: -3px;
+}
+
+.cm-soc-reaction-tally__count {
+  font-weight: 600;
+}
+
+.cm-soc-action-bar {
+  display: flex;
+  gap: 4px;
+}
+
+.cm-soc-action {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 8px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #65676b;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.cm-soc-action:hover:not(:disabled) {
+  background: #f0f2f5;
+}
+
+.cm-soc-action--active {
+  color: #e0245e;
+  background: #fff0f3;
+}
+
+.cm-soc-action__icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.cm-soc-emoji-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid #e4e6eb;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+}
+
+.cm-soc-emoji-tray button {
+  width: 42px;
+  height: 42px;
+  border: none;
+  border-radius: 50%;
+  background: #f0f2f5;
+  font-size: 22px;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.cm-soc-emoji-tray button:hover {
+  transform: scale(1.12);
+  background: #e4e6eb;
+}
+
+.cm-soc-emoji-tray button.active {
+  background: #dcf8c6;
+  box-shadow: 0 0 0 2px #25d366;
+}
+
+/* Safety: never let moment photos blow up full screen */
+.cm-staff-panel img.cm-soc-media-el,
+.cm-soc-feed-wrap img.cm-soc-media-el,
+.cm-wa-page img.cm-soc-media-el {
+  max-height: min(320px, 50vh) !important;
+}
+
+.app-wa-shell .dash-main .cm-soc-post {
+  max-width: 480px;
+  margin-left: auto;
+  margin-right: auto;
 }

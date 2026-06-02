@@ -21,6 +21,7 @@ export default function ClassMomentCard({
   const src = current ? momentImageUrl(current.file_path) : '';
   const isVideo = current && isMomentVideo(current.file_path);
   const canReact = showReactions && token && canReactToMoment(moment);
+  const pending = Boolean(moment._pending);
 
   const handleReactions = (reactions) => {
     onReactionsChange?.(moment.id, reactions);
@@ -28,69 +29,78 @@ export default function ClassMomentCard({
 
   return (
     <article
-      className={`cm-wa-row${moment._pending ? ' cm-wa-row--pending' : ''}`}
+      className={`cm-soc-post${pending ? ' cm-soc-post--pending' : ''}`}
       style={style}
     >
-      <img
-        className="cm-wa-avatar"
-        src={teacherAvatarUrl(moment.teacher_avatar_path)}
-        alt=""
-      />
-      <div className="cm-wa-col">
-        <div className="cm-wa-bubble">
-          {moment._pending && (
-            <span className="cm-wa-pending-chip" role="status">
-              Uploading…
-            </span>
-          )}
-          <header className="cm-wa-bubble-head">
-            <span className="cm-wa-name">{moment.teacher_name}</span>
-            <span className="cm-wa-meta">
-              {moment.class_name} · {formatMomentWhen(moment.published_at)}
-            </span>
-          </header>
-
-          {current && (
-            <div
-              className="cm-wa-media"
-              onClick={() => images.length > 1 && setIdx((i) => (i + 1) % images.length)}
-              role={images.length > 1 ? 'button' : undefined}
-              tabIndex={images.length > 1 ? 0 : undefined}
-            >
-              {isVideo ? (
-                <video
-                  src={src}
-                  controls
-                  playsInline
-                  preload="metadata"
-                  className="cm-wa-video"
-                />
-              ) : (
-                <img src={src} alt="" loading="lazy" />
-              )}
-              {images.length > 1 && (
-                <div className="cm-wa-dots">
-                  {images.map((_, i) => (
-                    <span key={i} className={i === idx ? 'active' : ''} />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {moment.description ? (
-            <p className="cm-wa-caption">{moment.description}</p>
-          ) : null}
+      <header className="cm-soc-post__head">
+        <img
+          className="cm-soc-avatar"
+          src={teacherAvatarUrl(moment.teacher_avatar_path)}
+          alt=""
+        />
+        <div className="cm-soc-post__meta">
+          <strong className="cm-soc-post__name">{moment.teacher_name}</strong>
+          <div className="cm-soc-post__sub">
+            {moment.class_name ? (
+              <span className="cm-soc-pill">{moment.class_name}</span>
+            ) : null}
+            <time className="cm-soc-time">{formatMomentWhen(moment.published_at)}</time>
+          </div>
         </div>
+        {pending && (
+          <span className="cm-soc-sending" role="status">
+            Sending…
+          </span>
+        )}
+      </header>
 
-        {canReact && (
+      {current && (
+        <div className="cm-soc-post__media-wrap">
+          <div
+            className="cm-soc-post__media"
+            onClick={() => images.length > 1 && setIdx((i) => (i + 1) % images.length)}
+            role={images.length > 1 ? 'button' : undefined}
+            tabIndex={images.length > 1 ? 0 : undefined}
+            aria-label={images.length > 1 ? 'Next photo' : undefined}
+          >
+            {isVideo ? (
+              <video
+                src={src}
+                controls
+                playsInline
+                preload="metadata"
+                className="cm-soc-media-el"
+              />
+            ) : (
+              <img src={src} alt="" loading="lazy" decoding="async" className="cm-soc-media-el" />
+            )}
+            {images.length > 1 && (
+              <div className="cm-soc-dots" aria-hidden>
+                {images.map((_, i) => (
+                  <span key={i} className={i === idx ? 'active' : ''} />
+                ))}
+              </div>
+            )}
+            <span className="cm-soc-media-badge" aria-hidden>
+              📸 Class moment
+            </span>
+          </div>
+        </div>
+      )}
+
+      {moment.description ? (
+        <p className="cm-soc-post__caption">{moment.description}</p>
+      ) : null}
+
+      {canReact && (
+        <footer className="cm-soc-post__footer">
           <ClassMomentReactions
             moment={moment}
             token={token}
             onReactionsChange={handleReactions}
           />
-        )}
-      </div>
+        </footer>
+      )}
     </article>
   );
 }

@@ -108,8 +108,8 @@ export default function StaffClassNowPanel({ token, classes }) {
           <p>No moments yet. Tap &quot;Add Class Moment&quot; to share photos from today&apos;s lesson.</p>
         </div>
       ) : (
-        <div className="cm-wa-feed-wrap">
-          <div className="cm-wa-feed">
+        <div className="cm-soc-feed-wrap">
+          <div className="cm-soc-feed">
             {moments.map((m, i) => (
               <div key={m.id} className="cm-staff-card-wrap">
                 <ClassMomentCard
