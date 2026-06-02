@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import JoinClassModal from '../components/JoinClassModal';
@@ -10,6 +10,10 @@ import MobileStudentHeader from '../components/MobileStudentHeader';
 import MobileBottomBar from '../components/MobileBottomBar';
 import CompositionStatusPanel from '../components/CompositionStatusPanel';
 import CompositionStatusFeed from '../components/CompositionStatusFeed';
+import ClassMomentsHero from '../components/classMoments/ClassMomentsHero';
+import { useClassMomentAlerts } from '../hooks/useClassMomentAlerts';
+import { classMomentDetailPath } from '../utils/classMomentPaths';
+import '../components/classMoments/ClassMoments.css';
 import './Dashboard.css';
 import './MobileDashboard.css';
 
@@ -23,6 +27,9 @@ const QUICK_NAV = (handlers) => [
 
 export default function StudentDashboard() {
   const { user, token, logout, isImpersonating, stopImpersonation } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [momentPreview, setMomentPreview] = useState(null);
   const [classes, setClasses] = useState([]);
   const [showJoin, setShowJoin] = useState(false);
   const [error, setError] = useState('');
@@ -64,10 +71,15 @@ export default function StudentDashboard() {
     localStorage.setItem('dismissed_announcements', JSON.stringify(updated));
   };
 
+  useClassMomentAlerts(token, user?.role);
+
   useEffect(() => { loadClasses(); }, []);
   useEffect(() => {
     api.get('/admin/user-announcements', token).then(setAnnouncements).catch(() => {});
   }, []);
+  useEffect(() => {
+    api.get('/class-moments/preview', token).then(setMomentPreview).catch(() => {});
+  }, [token]);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('status') === '1') {
@@ -76,6 +88,12 @@ export default function StudentDashboard() {
       window.history.replaceState({}, '', '/student/dashboard');
     }
   }, []);
+  useEffect(() => {
+    const momentId = searchParams.get('moment');
+    if (momentId) {
+      navigate(classMomentDetailPath('student', momentId), { replace: true });
+    }
+  }, [searchParams, navigate]);
 
   const saveQuickNote = async () => {
     if (!quickNote?.text?.trim()) return;
@@ -165,6 +183,8 @@ export default function StudentDashboard() {
           <p>Share a link so they can see your quizzes, marks, and class work.</p>
           <button type="button" onClick={() => setShowParentInvite(true)}>Get parent invite link</button>
         </div>
+
+        <ClassMomentsHero preview={momentPreview} feedPath="/student/class-moments" />
 
         <CompositionStatusFeed token={token} />
 

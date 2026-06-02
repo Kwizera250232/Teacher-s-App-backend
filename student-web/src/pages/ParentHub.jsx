@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, UPLOADS_BASE } from '../api';
 import { ParentChildFeed } from './ParentDashboard';
 import { useAuth } from '../context/AuthContext';
@@ -7,6 +7,10 @@ import DonateButton from '../components/DonateButton';
 import MessageContextBanner from '../components/MessageContextBanner';
 import '../pages/Messages.css';
 import { downloadWord, downloadCatSheetWord } from '../utils/downloadResult';
+import ClassMomentsHero from '../components/classMoments/ClassMomentsHero';
+import { useClassMomentAlerts } from '../hooks/useClassMomentAlerts';
+import { classMomentDetailPath } from '../utils/classMomentPaths';
+import '../components/classMoments/ClassMoments.css';
 import './ParentHub.css';
 
 const DEFAULT_AVATAR = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%234285f4'/%3E%3Ctext y='.9em' font-size='50' x='25' fill='white'%3E%F0%9F%91%A4%3C/text%3E%3C/svg%3E";
@@ -36,6 +40,9 @@ function dedupeTeachers(list) {
 
 export default function ParentHub() {
   const { user, token, logout } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [momentPreview, setMomentPreview] = useState(null);
   const [tab, setTab] = useState('chats');
   const [hub, setHub] = useState(null);
   const [selectedChild, setSelectedChild] = useState(null);
@@ -60,7 +67,18 @@ export default function ParentHub() {
     }).catch(() => {});
   };
 
+  useClassMomentAlerts(token, user?.role);
+
   useEffect(() => { loadHub(); }, [token]);
+  useEffect(() => {
+    api.get('/class-moments/preview', token).then(setMomentPreview).catch(() => {});
+  }, [token]);
+  useEffect(() => {
+    const momentId = searchParams.get('moment');
+    if (momentId) {
+      navigate(classMomentDetailPath('parent', momentId), { replace: true });
+    }
+  }, [searchParams, navigate]);
 
   useEffect(() => {
     if (!hub?.teachers?.length) return;
@@ -89,13 +107,20 @@ export default function ParentHub() {
       const latest = hub.notifications?.find((n) => !n.is_read);
       if (latest) {
         try {
-          new Notification(latest.title, { body: latest.body, tag: `parent-${latest.id}` });
+          const n = new Notification(latest.title, { body: latest.body, tag: `parent-${latest.id}` });
+          if (latest.type === 'class_moment' && latest.payload?.moment_id) {
+            const momentId = latest.payload.moment_id;
+            n.onclick = () => {
+              window.focus();
+              navigate(classMomentDetailPath('parent', momentId));
+            };
+          }
         } catch {
           /* ignore */
         }
       }
     }
-  }, [hub?.unread_notifications_count]);
+  }, [hub?.unread_notifications_count, hub?.notifications, navigate]);
   useEffect(() => {
     Promise.all([
       api.get('/profile/contacts/list', token).catch(() => []),
@@ -123,6 +148,13 @@ export default function ParentHub() {
     if (!n.is_read) {
       await api.put(`/parent/notifications/${n.id}/read`, {}, token).catch(() => {});
       loadHub();
+    }
+    if (n.type === 'class_moment') {
+      const momentId = n.payload?.moment_id;
+      if (momentId) {
+        navigate(classMomentDetailPath('parent', momentId));
+        return;
+      }
     }
     if (n.sender_id) {
       setTab('chats');
@@ -289,6 +321,10 @@ export default function ParentHub() {
           </button>
         ))}
       </nav>
+
+      <div className="phub-moments-hero-wrap">
+        <ClassMomentsHero preview={momentPreview} feedPath="/parent/class-moments" />
+      </div>
 
       {hasLinkedChild && (
         <section className="phub-teachers-strip" aria-label="School teachers">

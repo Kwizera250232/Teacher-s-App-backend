@@ -20,6 +20,8 @@ import './Dashboard.css';
 import './ParentHub.css';
 import './MobileDashboard.css';
 import CompositionStatusList from '../components/CompositionStatusList';
+import StaffClassNowPanel from '../components/staff/StaffClassNowPanel';
+import '../components/classMoments/ClassMoments.css';
 
 export default function StaffDashboard({ roleLabel, basePath }) {
   const { user, token, logout, isImpersonating, stopImpersonation } = useAuth();
@@ -72,6 +74,7 @@ export default function StaffDashboard({ roleLabel, basePath }) {
     { id: 'classes', label: '📚 Classes' },
     ...(isHeadTeacher ? [{ id: 'school', label: '🏫 School' }] : []),
     ...(hasSchool ? [{ id: 'chats', label: '💬 Chats' }] : []),
+    { id: 'classnow', label: '📸 Class Now' },
     { id: 'tools', label: '⚡ Tools' },
   ];
 
@@ -150,6 +153,10 @@ export default function StaffDashboard({ roleLabel, basePath }) {
         {hubTab === 'chats' && hasSchool && <StaffChatsPanel token={token} />}
         {hubTab === 'chats' && !hasSchool && (
           <p className="phub-muted">Link to a school to message parents.</p>
+        )}
+
+        {hubTab === 'classnow' && (
+          <StaffClassNowPanel token={token} classes={classes} />
         )}
 
         {hubTab === 'tools' && (
@@ -267,6 +274,9 @@ export default function StaffDashboard({ roleLabel, basePath }) {
       <div className="mobile-staff-quick-bar">
         <button type="button" onClick={() => { setHubTab('classes'); setShowAddStudents(true); }}>
           👥 View students
+        </button>
+        <button type="button" onClick={() => setHubTab('classnow')}>
+          📸 Class Now
         </button>
         <button type="button" onClick={() => setHubTab('tools')}>
           ✍️ C. Status

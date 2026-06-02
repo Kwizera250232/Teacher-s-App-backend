@@ -17,6 +17,7 @@ import QuizResults from './pages/QuizResults';
 import AdminDashboard from './pages/AdminDashboard';
 import JoinClass from './pages/JoinClass';
 import StudentNotes from './pages/StudentNotes';
+import ClassMomentsPage from './pages/ClassMomentsPage';
 import InviteSignup from './pages/InviteSignup';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
@@ -97,6 +98,12 @@ function AppShell() {
                 <Route path="/parent/legacy" element={
                   <ProtectedRoute role="parent"><ParentDashboard /></ProtectedRoute>
                 } />
+                <Route path="/parent/class-moments" element={
+                  <ProtectedRoute role="parent"><ClassMomentsPage backPath="/parent/dashboard" /></ProtectedRoute>
+                } />
+                <Route path="/parent/class-moments/:id" element={
+                  <ProtectedRoute role="parent"><ClassMomentsPage backPath="/parent/dashboard" /></ProtectedRoute>
+                } />
 
                 <Route path="/student/dashboard" element={
                   <ProtectedRoute role="student"><StudentDashboard /></ProtectedRoute>
@@ -109,6 +116,25 @@ function AppShell() {
                 } />
                 <Route path="/student/notes" element={
                   <ProtectedRoute role="student"><StudentNotes /></ProtectedRoute>
+                } />
+                <Route path="/student/class-moments" element={
+                  <ProtectedRoute role="student"><ClassMomentsPage backPath="/student/dashboard" /></ProtectedRoute>
+                } />
+                <Route path="/student/class-moments/:id" element={
+                  <ProtectedRoute role="student"><ClassMomentsPage backPath="/student/dashboard" /></ProtectedRoute>
+                } />
+
+                <Route path="/teacher/class-moments" element={
+                  <ProtectedRoute role="teacher"><ClassMomentsPage backPath="/teacher/dashboard" /></ProtectedRoute>
+                } />
+                <Route path="/teacher/class-moments/:id" element={
+                  <ProtectedRoute role="teacher"><ClassMomentsPage backPath="/teacher/dashboard" /></ProtectedRoute>
+                } />
+                <Route path="/head-teacher/class-moments" element={
+                  <ProtectedRoute role="head_teacher"><ClassMomentsPage backPath="/head-teacher/dashboard" /></ProtectedRoute>
+                } />
+                <Route path="/head-teacher/class-moments/:id" element={
+                  <ProtectedRoute role="head_teacher"><ClassMomentsPage backPath="/head-teacher/dashboard" /></ProtectedRoute>
                 } />
 
                 <Route path="/forgot-password" element={<ForgotPassword />} />

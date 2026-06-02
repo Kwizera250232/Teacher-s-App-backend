@@ -56,6 +56,14 @@ After deploy, these must return **401** without a token (not **404**): `POST /ap
 
 `npm test` runs a small smoke script. Manual API testing or frontend UI testing is used for verification.
 
+### Today's Class Moments (Class Now)
+
+- Teachers/HT: dashboard tab **Class Now** — post 1–10 photos + description per class (`POST /api/class-moments`, multipart `photos`).
+- Parents/students: home hero card + feed (`GET /api/class-moments/feed`, `GET /api/class-moments/preview`).
+- Notifications: `parent_notifications` (type `class_moment`) + `user_notifications` for students; browser alerts via polling preview.
+- Tables: `class_moments`, `class_moment_images`, `class_moment_reads`, `user_notifications` (`lib/classMomentsSchema.js`).
+- Mark parent notifs read: `PUT /api/parent/notifications/read-by-moment/:momentId`.
+
 ### Parent hub API (mounted at `/api/parent` alongside `parent_portal`)
 
 - `routes/parent_hub.js` — hub overview, child summary, school announcements, parent notify, HT add teacher.

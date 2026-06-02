@@ -12,6 +12,7 @@ const modules = [
   '../lib/schoolEmailCapabilities',
   '../lib/emailValidate',
   '../lib/schoolMail',
+  '../lib/classMomentsSchema',
   '../routes/parent_hub',
 ];
 

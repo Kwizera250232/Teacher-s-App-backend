@@ -144,6 +144,22 @@ router.get('/notifications', authenticateToken, requireRole('parent'), async (re
   }
 });
 
+router.put('/notifications/read-by-moment/:momentId', authenticateToken, requireRole('parent'), async (req, res) => {
+  const momentId = parseInt(req.params.momentId, 10);
+  if (!momentId) return res.status(400).json({ error: 'Invalid moment.' });
+  try {
+    await pool.query(
+      `UPDATE parent_notifications SET is_read = TRUE
+       WHERE parent_id = $1 AND type = 'class_moment'
+         AND (payload->>'moment_id')::int = $2`,
+      [req.user.id, momentId]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 router.put('/notifications/:id/read', authenticateToken, requireRole('parent'), async (req, res) => {
   try {
     await pool.query(
