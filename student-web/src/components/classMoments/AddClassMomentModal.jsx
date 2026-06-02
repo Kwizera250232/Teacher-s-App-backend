@@ -9,10 +9,26 @@ export default function AddClassMomentModal({ token, classes, onClose, onPublish
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const MAX_FILE_BYTES = 8 * 1024 * 1024;
+  const MAX_TOTAL_BYTES = 48 * 1024 * 1024;
+
   const onPickFiles = (e) => {
     const picked = Array.from(e.target.files || []).slice(0, 10);
     if (!picked.length) return;
+    const tooBig = picked.find((f) => f.size > MAX_FILE_BYTES);
+    if (tooBig) {
+      setError(`Each photo must be under 8MB. "${tooBig.name}" is too large.`);
+      e.target.value = '';
+      return;
+    }
     const merged = [...files, ...picked].slice(0, 10);
+    const total = merged.reduce((n, f) => n + f.size, 0);
+    if (total > MAX_TOTAL_BYTES) {
+      setError('Total size is too large. Use at most 10 photos, about 48MB combined.');
+      e.target.value = '';
+      return;
+    }
+    setError('');
     setFiles(merged);
     setPreviews(merged.map((f) => URL.createObjectURL(f)));
     e.target.value = '';

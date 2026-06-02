@@ -74,6 +74,7 @@ const uploadsRoot = ensureUploadsRoot();
 ensureDirectory(path.join(uploadsRoot, 'avatars'));
 ensureDirectory(path.join(uploadsRoot, 'msg_images'));
 ensureDirectory(path.join(uploadsRoot, 'feed'));
+ensureDirectory(path.join(uploadsRoot, 'moments'));
 
 app.use('/uploads', express.static(uploadsRoot));
 app.use('/uploads/avatars', express.static(path.join(uploadsRoot, 'avatars')));

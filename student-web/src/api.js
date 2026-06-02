@@ -58,18 +58,32 @@ export const api = {
 export async function uploadFile(endpoint, formData, token) {
   const headers = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const res = await fetch(`${API_BASE}${endpoint}`, {
-    method: 'POST',
-    headers,
-    body: formData,
-  });
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${endpoint}`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+  } catch (err) {
+    const msg = String(err?.message || err);
+    if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+      throw new Error(
+        'Upload could not reach the server. Try fewer or smaller photos (under 5MB each), or use Wi‑Fi.'
+      );
+    }
+    throw err;
+  }
   const contentType = res.headers.get('content-type') || '';
   let data = {};
   if (contentType.includes('application/json')) {
     data = await res.json();
   } else {
     const text = await res.text();
-    throw new Error(text || `Upload failed (${res.status})`);
+    if (res.status === 413) {
+      throw new Error('Photos are too large for one post. Try fewer images or smaller files (under 5MB each).');
+    }
+    throw new Error(text?.slice(0, 200) || `Upload failed (${res.status})`);
   }
   if (!res.ok) throw new Error(normalizeLegacySchoolDomainError(data.error || 'Upload failed'));
   return data;

@@ -208,12 +208,17 @@ router.post('/', authenticateToken, momentPhotosMiddleware, async (req, res) => 
     }
 
     const cls = await pool.query('SELECT name FROM classes WHERE id = $1', [classId]);
-    const notify = await notifyClassMomentPublished({
-      momentId: moment.id,
-      classId,
-      teacherId: req.user.id,
-      className: cls.rows[0]?.name,
-    });
+    let notify = { parents: 0, students: 0 };
+    try {
+      notify = await notifyClassMomentPublished({
+        momentId: moment.id,
+        classId,
+        teacherId: req.user.id,
+        className: cls.rows[0]?.name,
+      });
+    } catch (notifyErr) {
+      console.error('[class_moments/notify]', notifyErr);
+    }
 
     const full = momentSelectSql('WHERE m.id = $1', [moment.id]);
     const out = await pool.query(full.sql, [moment.id]);
