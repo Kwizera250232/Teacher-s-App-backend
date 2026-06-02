@@ -150,7 +150,10 @@ router.put('/school-requests/:id/approve', authenticateToken, requireRole('admin
     const reqRow = await pool.query('SELECT * FROM school_join_requests WHERE id = $1 AND status = $2', [id, 'pending']);
     if (reqRow.rows.length === 0) return res.status(404).json({ error: 'Request not found or already processed.' });
     const request = reqRow.rows[0];
-    await pool.query('UPDATE users SET school_id = $1 WHERE id = $2', [request.school_id, request.teacher_id]);
+    await pool.query(
+      'UPDATE users SET school_id = $1, is_approved = TRUE WHERE id = $2',
+      [request.school_id, request.teacher_id]
+    );
     await pool.query(
       'UPDATE school_join_requests SET status = $1, reviewed_by = $2, reviewed_at = NOW() WHERE id = $3',
       ['approved', req.user.id, id]

@@ -1,9 +1,9 @@
-/** Copy for UClass school (professional) emails vs personal Gmail. */
-export const SCHOOL_EMAIL_IN_APP_HELP =
-  'Real school email (e.g. you@yourschool.mail.umunsi.com): use on UClass and on other sites like Cursor. We forward mail to your verified Gmail/Yahoo/Outlook.';
+/** Signup copy — Gmail-only for teachers, students, and head teachers. */
+export const GMAIL_SIGNUP_HELP =
+  'Koresha aderesi ya Gmail yawe (urugero: amazina@gmail.com). Uyu ni uwo uzakoresha winjira.';
 
-export const SCHOOL_EMAIL_FORWARD_HELP =
-  'Enter the personal inbox where you want copies (Gmail, Yahoo, or Outlook). We email you a code to confirm.';
+export const STUDENT_EMAIL_HELP = GMAIL_SIGNUP_HELP;
 
-export const STUDENT_EMAIL_HELP =
-  'Gmail: use anywhere (Cursor, password reset, UClass). School email from your school: same as staff when real mail is enabled.';
+export const SCHOOL_EMAIL_IN_APP_HELP = GMAIL_SIGNUP_HELP;
+
+export const SCHOOL_EMAIL_FORWARD_HELP = GMAIL_SIGNUP_HELP;
