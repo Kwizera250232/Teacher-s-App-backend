@@ -80,7 +80,7 @@ export default function StaffClassNowPanel({ token, classes }) {
   };
 
   return (
-    <section className="cm-staff-panel">
+    <section className="cm-staff-panel cm-wa-panel">
       <div className="cm-staff-panel-head">
         <div>
           <h2 style={{ margin: 0, fontSize: '1.15rem', color: '#075e54' }}>📸 Class Now</h2>

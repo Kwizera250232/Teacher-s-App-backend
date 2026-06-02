@@ -77,10 +77,17 @@ export default function ClassMomentsClassFold({ classId, token, className }) {
             <p className="cm-empty">No photo updates for this class yet.</p>
           )}
           {!loading && moments.length > 0 && (
-            <div className="cm-feed cm-feed--compact">
-              {moments.map((m) => (
-                <ClassMomentCard key={m.id} moment={m} />
-              ))}
+            <div className="cm-wa-feed-wrap">
+              <div className="cm-wa-feed">
+                {moments.map((m, i) => (
+                  <ClassMomentCard
+                    key={m.id}
+                    moment={m}
+                    token={token}
+                    style={{ animationDelay: `${i * 0.05}s` }}
+                  />
+                ))}
+              </div>
             </div>
           )}
           <button
