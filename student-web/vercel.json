@@ -18,6 +18,6 @@
       ],
       "destination": "https://studentapi.umunsi.com/share/moment/:token"
     },
-    { "source": "/((?!assets|uploads|favicon.ico|api|download|share).*)", "destination": "/index.html" }
+    { "source": "/((?!assets|uploads|favicon.ico|api|download).*)", "destination": "/index.html" }
   ]
 }

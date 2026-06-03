@@ -6,7 +6,15 @@ import { pickFirstMomentPhoto } from '../utils/momentPreviewImage';
 import '../components/classMoments/ClassMoments.css';
 import './ShareMomentPage.css';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+function shareMomentApiBase() {
+  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
+  if (typeof window === 'undefined') return 'https://studentapi.umunsi.com/api';
+  const host = window.location.hostname;
+  if (host === 'student.umunsi.com' || host.endsWith('.vercel.app')) {
+    return 'https://studentapi.umunsi.com/api';
+  }
+  return `${window.location.origin.replace(/\/$/, '')}/api`;
+}
 
 export default function ShareMomentPage() {
   const { token } = useParams();
@@ -20,7 +28,7 @@ export default function ShareMomentPage() {
       setLoading(false);
       return;
     }
-    fetch(`${API_BASE}/public/moments/${encodeURIComponent(token)}`)
+    fetch(`${shareMomentApiBase()}/public/moments/${encodeURIComponent(token)}`)
       .then(async (res) => {
         const body = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(body.error || 'Could not load this moment.');
