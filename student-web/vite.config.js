@@ -8,5 +8,11 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
+    proxy: {
+      '/share': {
+        target: process.env.VITE_DEV_API_ORIGIN || 'http://localhost:5000',
+        changeOrigin: true,
+      },
+    },
   },
 });

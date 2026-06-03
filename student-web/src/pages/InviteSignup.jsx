@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { dashboardPath } from '../utils/roles';
 import AuthAppShell from '../components/AuthAppShell';
 import { SCHOOL_EMAIL_IN_APP_HELP } from '../utils/schoolEmailHelp';
+import { signupEmailDomain } from '../utils/schoolDomain';
 import './Auth.css';
 
 export default function InviteSignup() {
@@ -52,7 +53,7 @@ export default function InviteSignup() {
   const staffInvite =
     !isParentInvite && (preview?.role === 'teacher' || preview?.role === 'head_teacher');
   const inviteSchoolDomain =
-    preview?.email_domain ||
+    signupEmailDomain(preview) ||
     (preview?.can_create_school && form.new_school_name
       ? `${form.new_school_name.toLowerCase().replace(/[^a-z0-9]/g, '')}.edu`
       : null);

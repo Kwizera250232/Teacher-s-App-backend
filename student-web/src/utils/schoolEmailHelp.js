@@ -1,9 +1,6 @@
-/** Copy for UClass school (professional) emails vs personal Gmail. */
+/** Copy for UClass school login emails (@schoolname.edu). */
 export const SCHOOL_EMAIL_IN_APP_HELP =
-  'Real school email (e.g. you@yourschool.mail.umunsi.com): use on UClass and on other sites like Cursor. We forward mail to your verified Gmail/Yahoo/Outlook.';
+  'Create your login as name@schoolname.edu — from your name and school (e.g. john@greenhills.edu).';
 
-export const SCHOOL_EMAIL_FORWARD_HELP =
-  'Enter the personal inbox where you want copies (Gmail, Yahoo, or Outlook). We email you a code to confirm.';
-
-export const STUDENT_EMAIL_HELP =
-  'Gmail: use anywhere (Cursor, password reset, UClass). School email from your school: same as staff when real mail is enabled.';
+export const STUDENT_SCHOOL_EMAIL_HELP =
+  'Choose your school, then pick a username. Your login will be name@schoolname.edu.';

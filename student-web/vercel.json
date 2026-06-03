@@ -3,6 +3,21 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/((?!assets|uploads|favicon.ico|api|download).*)", "destination": "/index.html" }
+    {
+      "source": "/share/moment/:token/preview.jpg",
+      "destination": "https://studentapi.umunsi.com/share/moment/:token/preview.jpg"
+    },
+    {
+      "source": "/share/moment/:token",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(facebookexternalhit|Facebot|Twitterbot|WhatsApp|LinkedInBot|Slackbot|TelegramBot|Discordbot).*"
+        }
+      ],
+      "destination": "https://studentapi.umunsi.com/share/moment/:token"
+    },
+    { "source": "/((?!assets|uploads|favicon.ico|api|download|share).*)", "destination": "/index.html" }
   ]
 }

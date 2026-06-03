@@ -48,14 +48,18 @@ export default function Login() {
         {error && <div className="alert alert-error">{error}</div>}
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label>Imeyili</label>
+            <label>Imeyili y&apos;ishuri</label>
             <input
-              type="email"
+              type="text"
+              autoComplete="username"
               value={form.email}
-              onChange={e => setForm({ ...form, email: e.target.value })}
-              placeholder="you@example.com"
+              onChange={e => setForm({ ...form, email: e.target.value.trim().toLowerCase() })}
+              placeholder="amazina@schoolname.edu"
               required
             />
+            <p style={{ fontSize: 12, color: '#64748b', marginTop: 6, lineHeight: 1.4 }}>
+              Umwarimu, Umunyeshuri, cyangwa Umuyobozi w&apos;ishuri — injira ukoresheje imeyili yawe @schoolname.edu.
+            </p>
           </div>
           <div className="form-group">
             <label>Ijambo Banga</label>
