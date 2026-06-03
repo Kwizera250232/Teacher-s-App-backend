@@ -252,16 +252,17 @@ router.get('/children/:studentId/summary', authenticateToken, requireRole('paren
       [studentId]
     );
 
-    const marksPeriod = periodClause(period, 'cm.test_date');
+    const marksDateCol = 'COALESCE(cm.test_date, cm.created_at::date)';
+    const marksPeriod = periodClause(period, marksDateCol);
     const marks = await pool.query(
       `SELECT cm.test_number, cm.marks_obtained, cm.total_marks, cm.test_date, c.name AS class_name
        FROM cat_marks cm
        JOIN classes c ON c.id = cm.class_id
        JOIN class_members mem ON mem.class_id = c.id AND mem.student_id = $1
        WHERE cm.student_id = $1 ${marksPeriod.sql}
-       ORDER BY cm.test_date DESC NULLS LAST LIMIT 40`,
+       ORDER BY ${marksDateCol} DESC NULLS LAST LIMIT 40`,
       [studentId]
-    ).catch(() => ({ rows: [] }));
+    );
 
     const digests = await pool.query(
       `SELECT digest_json, created_at FROM parent_weekly_digests

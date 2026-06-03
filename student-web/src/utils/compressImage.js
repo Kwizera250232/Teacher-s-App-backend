@@ -1,7 +1,13 @@
 function isImageFile(file) {
   if (!file) return false;
-  if (file.type?.startsWith('image/')) return true;
+  const mime = (file.type || '').toLowerCase();
+  if (mime.startsWith('image/')) return true;
   return /\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i.test(file.name || '');
+}
+
+function isHeicLike(file) {
+  const mime = (file.type || '').toLowerCase();
+  return mime.includes('heic') || mime.includes('heif') || /\.heic$/i.test(file.name || '') || /\.heif$/i.test(file.name || '');
 }
 
 function reencodeImage(file, { maxW, maxBytes, outName }) {
@@ -28,14 +34,15 @@ function reencodeImage(file, { maxW, maxBytes, outName }) {
         canvas.toBlob(
           (blob) => {
             if (!blob) {
-              reject(new Error('Could not process image. Try another photo.'));
+              resolve(file);
               return;
             }
             if (blob.size > maxBytes && q > 0.4) {
               tryQuality(q - 0.1);
               return;
             }
-            resolve(new File([blob], outName, { type: 'image/jpeg' }));
+            const base = (file.name || outName || 'photo').replace(/\.[^.]+$/, '');
+            resolve(new File([blob], `${base}.jpg`, { type: 'image/jpeg' }));
           },
           'image/jpeg',
           q
@@ -45,6 +52,10 @@ function reencodeImage(file, { maxW, maxBytes, outName }) {
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
+      if (isImageFile(file)) {
+        resolve(file);
+        return;
+      }
       reject(new Error('Could not read this image. Try JPG or PNG.'));
     };
     img.src = url;
@@ -54,6 +65,7 @@ function reencodeImage(file, { maxW, maxBytes, outName }) {
 /** Classroom feed — smaller files for quick posts */
 export async function prepareFeedImageFile(file) {
   if (!isImageFile(file)) return file;
+  if (isHeicLike(file)) return file;
   return reencodeImage(file, {
     maxW: 1200,
     maxBytes: 900 * 1024,
@@ -64,7 +76,11 @@ export async function prepareFeedImageFile(file) {
 /** Class Moments — balanced quality + fast upload (still sharp in feed) */
 export async function prepareMomentImageFile(file, index = 0) {
   if (!isImageFile(file)) return file;
+  if (isHeicLike(file)) return file;
   if (file.type === 'image/jpeg' && file.size < 400 * 1024) return file;
+  if (file.type === 'image/png' && file.size < 500 * 1024) {
+    return file;
+  }
   return reencodeImage(file, {
     maxW: 1600,
     maxBytes: 650 * 1024,
@@ -83,7 +99,12 @@ export async function prepareMomentMediaFiles(files) {
   return Promise.all(
     files.map(async (f, i) => {
       if (isVideoFile(f)) return f;
-      return prepareMomentImageFile(f, i);
+      try {
+        return await prepareMomentImageFile(f, i);
+      } catch {
+        if (isImageFile(f)) return f;
+        throw new Error('Could not prepare this photo. Try JPG or PNG.');
+      }
     })
   );
 }

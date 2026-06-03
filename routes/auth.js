@@ -705,11 +705,8 @@ router.post('/register', authLimiter, async (req, res) => {
     }
 
     if (parentInviteRow) {
-      await pool.query('UPDATE parent_invite_tokens SET used=TRUE WHERE id=$1', [parentInviteRow.id]);
-      await pool.query(
-        'INSERT INTO parent_children (parent_id, student_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
-        [user.id, parentInviteRow.student_id]
-      );
+      const { linkParentFromInviteToken } = require('../lib/parentInvite');
+      await linkParentFromInviteToken(user.id, parentInviteRow.token);
     }
 
     let guestShareRedirect = null;
@@ -835,6 +832,13 @@ router.post('/login', authLimiter, async (req, res) => {
     const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
     audit('login_ok', { email, role: user.role });
 
+    let parentInviteLinked = null;
+    const parentTok = String(req.body.parent_token || '').trim();
+    if (parentTok && user.role === 'parent') {
+      const { linkParentFromInviteToken } = require('../lib/parentInvite');
+      parentInviteLinked = await linkParentFromInviteToken(user.id, parentTok);
+    }
+
     let quizShareRedirect = null;
     const shareTok = String(req.body.quiz_share_token || '').trim();
     if (shareTok) {
@@ -860,6 +864,7 @@ router.post('/login', authLimiter, async (req, res) => {
       token,
       user: userPayload(user),
       quiz_share_redirect: quizShareRedirect,
+      parent_invite_linked: parentInviteLinked,
     });
   } catch (err) {
     console.error('[login]', err);

@@ -19,6 +19,7 @@ pool.query(`
   );
   CREATE INDEX IF NOT EXISTS idx_cat_marks_class ON cat_marks(class_id);
   CREATE INDEX IF NOT EXISTS idx_cat_marks_student ON cat_marks(student_id);
+  ALTER TABLE cat_marks ADD COLUMN IF NOT EXISTS test_date DATE DEFAULT CURRENT_DATE;
 `).catch(e => console.error('[cat_marks] migration error:', e.message));
 
 router.get('/:classId/overview', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
