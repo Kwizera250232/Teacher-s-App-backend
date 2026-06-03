@@ -382,15 +382,17 @@ router.get('/:classId/quizzes/:quizId/my-result', authenticateToken, requireRole
   }
 });
 
-// GET quiz results for teacher
-router.get('/:classId/quizzes/:quizId/results', authenticateToken, requireRole('teacher'), async (req, res) => {
+// GET quiz results for teacher / HT
+router.get('/:classId/quizzes/:quizId/results', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT qa.*, u.name AS student_name, qz.title AS quiz_title
+      `SELECT qa.*, u.name AS student_name, u.role AS user_role,
+              COALESCE(qa.is_guest, FALSE) AS is_guest,
+              qz.title AS quiz_title
        FROM quiz_attempts qa
        JOIN users u ON qa.student_id = u.id
        JOIN quizzes qz ON qz.id = qa.quiz_id
-       WHERE qa.quiz_id = $1 ORDER BY qa.score DESC`,
+       WHERE qa.quiz_id = $1 ORDER BY qa.is_guest ASC, qa.score DESC`,
       [req.params.quizId]
     );
     res.json(result.rows);

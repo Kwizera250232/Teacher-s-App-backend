@@ -975,5 +975,37 @@ router.delete('/guests/:id', ...adminOnly, async (req, res) => {
   }
 });
 
+router.get('/guests/:id/marks', ...adminOnly, async (req, res) => {
+  try {
+    await ensureQuizShareSchema();
+    const guestId = parseInt(req.params.id, 10);
+    if (Number.isNaN(guestId)) return res.status(400).json({ error: 'Invalid guest id.' });
+
+    const guest = await pool.query(
+      "SELECT id, name, email FROM users WHERE id = $1 AND role = 'guest'",
+      [guestId]
+    );
+    if (!guest.rows.length) return res.status(404).json({ error: 'Guest not found.' });
+
+    const attempts = await pool.query(
+      `SELECT qa.id AS attempt_id, qa.score, qa.total, qa.attempted_at,
+              qz.id AS quiz_id, qz.title AS quiz_title,
+              c.id AS class_id, c.name AS class_name,
+              t.name AS teacher_name
+       FROM quiz_attempts qa
+       JOIN quizzes qz ON qz.id = qa.quiz_id
+       JOIN classes c ON c.id = qz.class_id
+       JOIN users t ON t.id = c.teacher_id
+       WHERE qa.student_id = $1 AND COALESCE(qa.is_guest, FALSE) = TRUE
+       ORDER BY qa.attempted_at DESC`,
+      [guestId]
+    );
+    res.json({ guest: guest.rows[0], attempts: attempts.rows });
+  } catch (err) {
+    console.error('[admin/guests/:id/marks]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 module.exports = router;
 module.exports.createSchoolAccount = createSchoolAccount;

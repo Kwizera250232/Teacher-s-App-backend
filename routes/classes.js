@@ -81,6 +81,76 @@ router.get('/', authenticateToken, requireRole('teacher', 'head_teacher'), async
   }
 });
 
+async function teacherGuestMarksQuery(user, classId = null) {
+  const params = [user.id];
+  let classFilter = '';
+  if (classId) {
+    params.push(classId);
+    classFilter = ` AND c.id = $${params.length}`;
+  }
+
+  let scopeSql;
+  if (user.role === 'head_teacher' && user.school_id) {
+    params.push(user.school_id);
+    scopeSql = `(c.teacher_id = $1 OR t.school_id = $${params.length})`;
+  } else {
+    scopeSql = `(c.teacher_id = $1 OR EXISTS (
+      SELECT 1 FROM class_co_teachers ct WHERE ct.class_id = c.id AND ct.teacher_id = $1
+    ))`;
+  }
+
+  const result = await pool.query(
+    `SELECT qa.id AS attempt_id, qa.score, qa.total, qa.attempted_at,
+            u.id AS guest_id, u.name AS guest_name, u.email AS guest_email,
+            qz.id AS quiz_id, qz.title AS quiz_title,
+            c.id AS class_id, c.name AS class_name, c.subject AS class_subject,
+            t.name AS teacher_name,
+            gca.granted_via_quiz_id,
+            (SELECT qs.share_token FROM quiz_shares qs
+             WHERE qs.quiz_id = qz.id AND qs.sharer_id = c.teacher_id
+             ORDER BY qs.created_at DESC LIMIT 1) AS share_token
+     FROM quiz_attempts qa
+     JOIN users u ON u.id = qa.student_id
+     JOIN quizzes qz ON qz.id = qa.quiz_id
+     JOIN classes c ON c.id = qz.class_id
+     JOIN users t ON t.id = c.teacher_id
+     LEFT JOIN guest_class_access gca ON gca.user_id = u.id AND gca.class_id = c.id
+     WHERE COALESCE(qa.is_guest, FALSE) = TRUE
+       AND u.role = 'guest'
+       AND ${scopeSql}
+       ${classFilter}
+     ORDER BY qa.attempted_at DESC
+     LIMIT 500`,
+    params
+  );
+  return result.rows;
+}
+
+// GET guest quiz marks for teacher / HT (from share-link guests)
+router.get('/guest-marks', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  try {
+    const rows = await teacherGuestMarksQuery(req.user);
+    res.json(rows);
+  } catch (err) {
+    console.error('[classes/guest-marks]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.get('/:classId/guest-marks', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = parseInt(req.params.classId, 10);
+  if (Number.isNaN(classId)) return res.status(400).json({ error: 'Invalid class ID.' });
+  const manage = await userCanManageClass(req.user, classId);
+  if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
+  try {
+    const rows = await teacherGuestMarksQuery(req.user, classId);
+    res.json(rows);
+  } catch (err) {
+    console.error('[classes/:id/guest-marks]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // GET classes joined by student
 router.get('/my', authenticateToken, requireRole('student'), async (req, res) => {
   try {
