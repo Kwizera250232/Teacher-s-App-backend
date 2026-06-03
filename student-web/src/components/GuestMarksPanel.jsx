@@ -13,8 +13,17 @@ export default function GuestMarksPanel({ token, classId, compact = false }) {
     const path = classId ? `/classes/${classId}/guest-marks` : '/classes/guest-marks';
     api
       .get(path, token)
-      .then(setMarks)
-      .catch((e) => setError(e.message))
+      .then((rows) => setMarks(Array.isArray(rows) ? rows : []))
+      .catch((e) => {
+        const msg = String(e.message || '');
+        if (/404/.test(msg) || /not found/i.test(msg)) {
+          setError(
+            'Guest marks need the latest API on studentapi.umunsi.com. Ask your host to run: git pull origin main && npm ci --omit=dev && pm2 restart studentapi'
+          );
+        } else {
+          setError(msg);
+        }
+      })
       .finally(() => setLoading(false));
   }, [token, classId]);
 

@@ -40,6 +40,11 @@ async function request(method, endpoint, body, token) {
   });
   const contentType = res.headers.get('content-type') || '';
   if (!contentType.includes('application/json')) {
+    if (res.status === 404) {
+      throw new Error(
+        `This feature is not on the server yet (${res.status}). Update studentapi.umunsi.com from the latest main branch.`
+      );
+    }
     throw new Error(`Server returned ${res.status} — check that the API URL is correct.`);
   }
   const data = await res.json();

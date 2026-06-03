@@ -4,6 +4,7 @@ const rateLimit = require('express-rate-limit');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { userCanAccessClass, userCanManageClass } = require('../lib/classAccess');
+const { ensureQuizShareSchema } = require('../lib/quizShares');
 
 const router = express.Router();
 
@@ -129,6 +130,7 @@ async function teacherGuestMarksQuery(user, classId = null) {
 // GET guest quiz marks for teacher / HT (from share-link guests)
 router.get('/guest-marks', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   try {
+    await ensureQuizShareSchema();
     const rows = await teacherGuestMarksQuery(req.user);
     res.json(rows);
   } catch (err) {
@@ -143,6 +145,7 @@ router.get('/:classId/guest-marks', authenticateToken, requireRole('teacher', 'h
   const manage = await userCanManageClass(req.user, classId);
   if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
   try {
+    await ensureQuizShareSchema();
     const rows = await teacherGuestMarksQuery(req.user, classId);
     res.json(rows);
   } catch (err) {
