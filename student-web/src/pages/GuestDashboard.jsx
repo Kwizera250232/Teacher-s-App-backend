@@ -9,42 +9,104 @@ import './GuestDashboard.css';
 import '../components/GuestUpgradeModal.css';
 import TutorialVideo from '../components/TutorialVideo';
 
-function quizzesForClass(cls) {
-  if (Array.isArray(cls.quizzes) && cls.quizzes.length > 0) return cls.quizzes;
-  return [];
+function attemptsByQuizId(attempts) {
+  const map = new Map();
+  for (const a of attempts || []) {
+    const id = Number(a.quiz_id);
+    if (!Number.isFinite(id)) continue;
+    if (!map.has(id)) map.set(id, a);
+  }
+  return map;
+}
+
+/** Merge hub + per-class fetches; dedupe by quiz id. */
+function normalizeQuizzes(rawList, classId, attemptMap) {
+  const byId = new Map();
+  for (const q of rawList || []) {
+    if (q?.id == null) continue;
+    const id = Number(q.id);
+    if (!Number.isFinite(id)) continue;
+    if (Number(q.class_id) !== Number(classId)) continue;
+    const att = attemptMap.get(id);
+    const attempted = Boolean(q.attempted || att);
+    byId.set(id, {
+      ...q,
+      id,
+      class_id: Number(classId),
+      attempted,
+      score: q.score ?? q.last_score ?? att?.score,
+      total: q.total ?? q.last_total ?? att?.total,
+      attempted_at: q.attempted_at ?? q.last_attempted_at ?? att?.attempted_at,
+    });
+  }
+  return [...byId.values()].sort((a, b) => {
+    if (a.attempted !== b.attempted) return a.attempted ? 1 : -1;
+    return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+  });
 }
 
 function guestQuizGroups(hub) {
-  const fromClasses = (hub?.classes || [])
-    .map((cls) => ({
-      class_id: cls.class_id,
+  const attemptMap = attemptsByQuizId(hub?.attempts);
+  const classMap = new Map();
+
+  for (const cls of hub?.classes || []) {
+    const classId = Number(cls.class_id);
+    if (!Number.isFinite(classId)) continue;
+
+    const raw = [
+      ...(cls.quizzes || []),
+      ...(hub?.all_quizzes || []).filter((q) => Number(q.class_id) === classId),
+      ...(hub?.quizzes_pending || []).filter((q) => Number(q.class_id) === classId),
+      ...(hub?.quizzes_completed || []).filter((q) => Number(q.class_id) === classId),
+    ];
+
+    const quizzes = normalizeQuizzes(raw, classId, attemptMap);
+    if (quizzes.length === 0) continue;
+
+    classMap.set(classId, {
+      class_id: classId,
       class_name: cls.class_name,
       subject: cls.subject,
       teacher_name: cls.teacher_name,
-      quizzes: quizzesForClass(cls),
-    }))
-    .filter((g) => g.quizzes.length > 0);
-
-  if (fromClasses.length > 0) return fromClasses;
-
-  const flat = [...(hub?.quizzes_pending || []), ...(hub?.quizzes_completed || [])];
-  if (flat.length === 0) return [];
-
-  const byClass = new Map();
-  for (const q of flat) {
-    const key = q.class_id;
-    if (!byClass.has(key)) {
-      byClass.set(key, {
-        class_id: q.class_id,
-        class_name: q.class_name,
-        subject: null,
-        teacher_name: q.teacher_name,
-        quizzes: [],
-      });
-    }
-    byClass.get(key).quizzes.push(q);
+      quizzes,
+    });
   }
-  return [...byClass.values()];
+
+  return [...classMap.values()];
+}
+
+function QuizCard({ quiz, classId, onOpen }) {
+  return (
+    <div key={`${classId}-${quiz.id}`} className="item-card guest-quiz-card">
+      <div className="item-card-body">
+        <h3>❓ {quiz.title}</h3>
+        {quiz.description && <p>{quiz.description}</p>}
+        <div className="meta">
+          {quiz.created_at ? `${new Date(quiz.created_at).toLocaleDateString()} · ` : ''}
+          {quiz.attempted ? (
+            <>
+              <span className="guest-quiz-status guest-quiz-status--done">✓ Taken</span>
+              {quiz.score != null && quiz.total != null && (
+                <span className="guest-quiz-score">
+                  {' '}
+                  · Score {quiz.score}/{quiz.total}
+                </span>
+              )}
+            </>
+          ) : (
+            <span className="guest-quiz-status guest-quiz-status--pending">Not taken yet</span>
+          )}
+        </div>
+      </div>
+      <button
+        type="button"
+        className="btn btn-primary btn-sm"
+        onClick={() => onOpen(classId, quiz.id)}
+      >
+        {quiz.attempted ? 'View result' : 'Take Quiz'}
+      </button>
+    </div>
+  );
 }
 
 export default function GuestDashboard() {
@@ -58,31 +120,30 @@ export default function GuestDashboard() {
   useEffect(() => {
     if (!token) return;
     setLoading(true);
-    api
-      .get('/guest/hub', token)
-      .then(async (data) => {
-        const needsQuizFetch = (data.classes || []).some(
-          (cls) => !cls.quizzes?.length && (cls.counts?.quizzes || 0) > 0
-        );
-        if (!needsQuizFetch) {
-          setHub(data);
-          return;
-        }
+    (async () => {
+      try {
+        const data = await api.get('/guest/hub', token);
         const classes = await Promise.all(
           (data.classes || []).map(async (cls) => {
-            if (cls.quizzes?.length) return cls;
+            const expected = cls.counts?.quizzes || 0;
+            const have = cls.quizzes?.length || 0;
+            const needsFetch = expected === 0 ? have === 0 : have < expected;
+            if (!needsFetch && have > 0) return cls;
             try {
-              const quizzes = await api.get(`/guest/classes/${cls.class_id}/quizzes`, token);
-              return { ...cls, quizzes };
+              const fetched = await api.get(`/guest/classes/${cls.class_id}/quizzes`, token);
+              return { ...cls, quizzes: fetched };
             } catch {
               return cls;
             }
           })
         );
         setHub({ ...data, classes });
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      } catch (e) {
+        setError(e.message);
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, [token]);
 
   const openQuiz = (classId, quizId) => {
@@ -90,7 +151,10 @@ export default function GuestDashboard() {
   };
 
   const quizGroups = guestQuizGroups(hub);
-  const totalQuizzes = quizGroups.reduce((n, g) => n + g.quizzes.length, 0);
+  const allQuizzes = quizGroups.flatMap((g) => g.quizzes);
+  const pendingCount = allQuizzes.filter((q) => !q.attempted).length;
+  const doneCount = allQuizzes.filter((q) => q.attempted).length;
+  const totalQuizzes = allQuizzes.length;
 
   return (
     <GuestShell title="Guest home">
@@ -134,39 +198,47 @@ export default function GuestDashboard() {
             <section className="guest-quiz-section guest-quiz-section--cards">
               <h2>❓ Quizzes ({totalQuizzes})</h2>
               <p className="guest-quiz-section__hint">
-                Same list as in each class — tap Take Quiz to start without opening the class first.
+                {pendingCount > 0 && `${pendingCount} to take`}
+                {pendingCount > 0 && doneCount > 0 && ' · '}
+                {doneCount > 0 && `${doneCount} completed`}
+                {pendingCount === 0 && doneCount === 0 ? 'All quizzes for your shared classes' : ''}
               </p>
-              {quizGroups.map((cls) => (
-                <div key={cls.class_id} className="guest-class-quizzes">
-                  <h3 className="guest-class-quizzes__title">
-                    {cls.class_name}
-                    {cls.subject ? ` · ${cls.subject}` : ''}
-                    <span className="guest-class-quizzes__teacher">{cls.teacher_name}</span>
-                  </h3>
-                  {cls.quizzes.map((q) => (
-                    <div key={q.id} className="item-card">
-                      <div className="item-card-body">
-                        <h3>❓ {q.title}</h3>
-                        {q.description && <p>{q.description}</p>}
-                        <div className="meta">
-                          {q.created_at
-                            ? new Date(q.created_at).toLocaleDateString()
-                            : null}
-                          {q.created_at ? ' · ' : ''}
-                          {q.attempted ? '✓ Already taken' : 'Not taken yet'}
+
+              {quizGroups.map((cls) => {
+                const pending = cls.quizzes.filter((q) => !q.attempted);
+                const done = cls.quizzes.filter((q) => q.attempted);
+                return (
+                  <div key={cls.class_id} className="guest-class-quizzes">
+                    <h3 className="guest-class-quizzes__title">
+                      {cls.class_name}
+                      {cls.subject ? ` · ${cls.subject}` : ''}
+                      <span className="guest-class-quizzes__teacher">{cls.teacher_name}</span>
+                    </h3>
+
+                    {pending.length > 0 && (
+                      <div className="guest-quiz-subsection">
+                        <h4 className="guest-quiz-subsection__title">To take ({pending.length})</h4>
+                        <div className="guest-quiz-card-list">
+                          {pending.map((q) => (
+                            <QuizCard key={`${cls.class_id}-${q.id}`} quiz={q} classId={cls.class_id} onOpen={openQuiz} />
+                          ))}
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        onClick={() => openQuiz(cls.class_id, q.id)}
-                      >
-                        {q.attempted ? 'View result' : 'Take Quiz'}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ))}
+                    )}
+
+                    {done.length > 0 && (
+                      <div className="guest-quiz-subsection">
+                        <h4 className="guest-quiz-subsection__title">Completed ({done.length})</h4>
+                        <div className="guest-quiz-card-list">
+                          {done.map((q) => (
+                            <QuizCard key={`${cls.class_id}-${q.id}`} quiz={q} classId={cls.class_id} onOpen={openQuiz} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </section>
           )}
 
