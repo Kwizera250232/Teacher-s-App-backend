@@ -57,7 +57,6 @@ export default function TutorialVideo({
   src = DEFAULT_SRC,
   poster = DEFAULT_POSTER,
   compact = false,
-  wideFull = false,
   className = '',
 }) {
   const [open, setOpen] = useState(false);
@@ -118,10 +117,7 @@ export default function TutorialVideo({
   }
 
   return (
-    <section
-      className={`tutorial-video${wideFull ? ' tutorial-video--widefull' : ''} ${className}`.trim()}
-      aria-labelledby="tutorial-video-heading"
-    >
+    <section className={`tutorial-video ${className}`.trim()} aria-labelledby="tutorial-video-heading">
       <div className="tutorial-video__header">
         <h2 id="tutorial-video-heading">{title}</h2>
         {subtitle && <p className="tutorial-video__subtitle">{subtitle}</p>}

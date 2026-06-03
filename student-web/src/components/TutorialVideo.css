@@ -37,7 +37,7 @@
 .tutorial-video__player {
   display: block;
   width: 100%;
-  max-height: min(56vw, 520px);
+  max-height: min(56vw, 420px);
   background: #000;
 }
 
@@ -162,26 +162,8 @@
 
 .tutorial-video__modal-body {
   position: relative;
-  width: min(100%, 100vw);
+  width: min(960px, 100%);
   z-index: 1;
-}
-
-.tutorial-video__modal:not(.tutorial-video__modal--fullscreen) .tutorial-video__modal-body {
-  width: min(96vw, 1400px);
-}
-
-.tutorial-video__modal:not(.tutorial-video__modal--fullscreen) .tutorial-video__player-wrap {
-  aspect-ratio: 16 / 9;
-  width: 100%;
-  background: #000;
-}
-
-.tutorial-video__modal-body .tutorial-video__player {
-  max-height: none;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: 12px;
 }
 
 .tutorial-video__modal-toolbar {
@@ -203,6 +185,11 @@
   border-radius: 50%;
   cursor: pointer;
   font-size: 1rem;
+}
+
+.tutorial-video__modal-body .tutorial-video__player {
+  max-height: min(80vh, 540px);
+  border-radius: 12px;
 }
 
 .tutorial-video__modal--fullscreen .tutorial-video__modal-body {
@@ -240,60 +227,6 @@
 
 .landing-page .tutorial-video {
   margin-top: 2.5rem;
-}
-
-/* Homepage: edge-to-edge wide player (no side black bars) */
-.tutorial-video--widefull {
-  width: 100vw;
-  max-width: 100vw;
-  position: relative;
-  left: 50%;
-  right: 50%;
-  margin-left: -50vw;
-  margin-right: -50vw;
-  margin-bottom: 2rem;
-  padding: 1.25rem clamp(1rem, 3vw, 2.5rem) 1rem;
-  box-sizing: border-box;
-  border-radius: 0;
-  border-left: none;
-  border-right: none;
-}
-
-.tutorial-video--widefull .tutorial-video__header,
-.tutorial-video--widefull .tutorial-video__hint {
-  max-width: 1400px;
-  margin-left: auto;
-  margin-right: auto;
-}
-
-.tutorial-video--widefull .tutorial-video__frame {
-  width: 100%;
-  max-width: none;
-  border-radius: 10px;
-  background: #000;
-}
-
-.tutorial-video--widefull .tutorial-video__player-wrap {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  min-height: 220px;
-  background: #000;
-  overflow: hidden;
-}
-
-.tutorial-video--widefull .tutorial-video__player {
-  display: block;
-  width: 100%;
-  height: 100%;
-  max-height: none;
-  object-fit: cover;
-  object-position: center center;
-}
-
-.tutorial-video--widefull + .tutorial-video__download {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 1.5rem;
 }
 
 .staff-hub-page .tutorial-video--compact,
