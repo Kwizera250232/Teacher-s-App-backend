@@ -31,8 +31,11 @@ const previewLimiter = rateLimit({
 router.get('/preview/:code', previewLimiter, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT c.id, c.name, c.subject, u.name AS teacher_name
-       FROM classes c JOIN users u ON c.teacher_id = u.id
+      `SELECT c.id, c.name, c.subject, u.name AS teacher_name,
+              u.school_id, s.name AS school_name, s.email_domain
+       FROM classes c
+       JOIN users u ON c.teacher_id = u.id
+       LEFT JOIN schools s ON s.id = u.school_id
        WHERE c.class_code = $1`,
       [req.params.code.toUpperCase()]
     );

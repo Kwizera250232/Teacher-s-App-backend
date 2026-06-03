@@ -232,12 +232,13 @@ router.post('/:id/share', authenticateToken, async (req, res) => {
     const { apiPublicBase, frontendBase } = require('../lib/classMomentSharePage');
     const apiBase = apiPublicBase();
     const frontend = frontendBase();
-    const shareUrl = `${apiBase}/share/moment/${token}`;
     const appUrl = `${frontend}/share/moment/${token}`;
+    const crawlerUrl = `${apiBase}/share/moment/${token}`;
     const preview = sharePreviewFromMoment(moment, apiBase, token);
     res.status(201).json({
-      share_url: shareUrl,
+      share_url: appUrl,
       app_url: appUrl,
+      crawler_url: crawlerUrl,
       share_token: token,
       preview: {
         ...preview,
