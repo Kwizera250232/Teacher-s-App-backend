@@ -3,9 +3,7 @@
 set -euo pipefail
 APP_DIR="${BACKEND_APP_DIR:-/home/umunsi/htdocs/studentapi.umunsi.com}"
 cd "$APP_DIR"
-git fetch origin main
-git checkout main
-git pull origin main
+bash "$(dirname "$0")/git-sync-main.sh"
 npm ci --omit=dev
 bash "$(dirname "$0")/restart-production-api.sh" "$APP_DIR"
 pm2 save

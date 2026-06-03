@@ -3,13 +3,11 @@
 set -euo pipefail
 APP_DIR="${BACKEND_APP_DIR:-/home/umunsi/htdocs/studentapi.umunsi.com}"
 cd "$APP_DIR"
-echo "==> Pulling latest main..."
-git fetch origin main
-git checkout main
-git pull origin main
+echo "==> Syncing to origin/main (discards local student-web-dist/VERSION drift)..."
+bash scripts/git-sync-main.sh
 echo "==> Installing & restarting API (kills old processes on port 3005)..."
 npm ci --omit=dev
-bash scripts/restart-production-api.sh "$APP_DIR"
+SKIP_GIT_SYNC=1 bash scripts/restart-production-api.sh "$APP_DIR"
 sleep 4
 echo ""
 echo "==> Local health on VPS:"
