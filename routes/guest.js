@@ -27,14 +27,15 @@ router.post('/claim-share', authenticateToken, requireRole('guest'), async (req,
 async function loadGuestClasses(userId) {
   const classes = await pool.query(
     `SELECT gca.class_id, c.name AS class_name, c.subject,
-            u.name AS teacher_name,
+            u.id AS teacher_id, u.name AS teacher_name,
             gca.granted_via_quiz_id,
+            gca.granted_via_teacher_id,
             gca.created_at AS access_granted_at
      FROM guest_class_access gca
      JOIN classes c ON c.id = gca.class_id
      JOIN users u ON u.id = c.teacher_id
      WHERE gca.user_id = $1
-     ORDER BY gca.created_at DESC`,
+     ORDER BY u.name, c.name, gca.created_at DESC`,
     [userId]
   );
   return classes.rows;
@@ -105,6 +106,8 @@ router.get('/hub', authenticateToken, requireRole('guest'), async (req, res) => 
     const notesMap = countMap(noteCounts);
     const hwMap = countMap(homeworkCounts);
 
+    const teacherNames = [...new Set(classRows.map((c) => c.teacher_name).filter(Boolean))];
+
     res.json({
       user: {
         id: req.user.id,
@@ -112,6 +115,11 @@ router.get('/hub', authenticateToken, requireRole('guest'), async (req, res) => 
         email: req.user.email,
         role: 'guest',
       },
+      sharing_teachers: teacherNames,
+      quiz_access_note:
+        teacherNames.length > 0
+          ? `You can take all quizzes in classes taught by ${teacherNames.join(', ')} (unlocked via share link).`
+          : null,
       classes: classRows.map((c) => ({
         ...c,
         quizzes: quizzesByClass.filter((q) => q.class_id === c.class_id),

@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { ensureStudentSharesModerationColumns } = require('../lib/studentSharesSchema');
+const { ensureQuizShareSchema } = require('../lib/quizShares');
 
 function schoolDomainFromName(name) {
   const slug = String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -218,10 +219,11 @@ router.post('/impersonate', ...adminOnly, async (req, res) => {
 // ─── DASHBOARD STATS ──────────────────────────────────────────────────────────
 router.get('/stats', ...adminOnly, async (req, res) => {
   try {
-    const [schools, teachers, students, classes, quizzes, homework, pending, installs, pendingArticles] = await Promise.all([
+    const [schools, teachers, students, guests, classes, quizzes, homework, pending, installs, pendingArticles] = await Promise.all([
       pool.query('SELECT COUNT(*) FROM schools'),
       pool.query("SELECT COUNT(*) FROM users WHERE role='teacher' AND is_approved=TRUE"),
       pool.query("SELECT COUNT(*) FROM users WHERE role='student'"),
+      pool.query("SELECT COUNT(*) FROM users WHERE role='guest'"),
       pool.query('SELECT COUNT(*) FROM classes'),
       pool.query('SELECT COUNT(*) FROM quizzes'),
       pool.query('SELECT COUNT(*) FROM homework'),
@@ -233,6 +235,7 @@ router.get('/stats', ...adminOnly, async (req, res) => {
       schools: parseInt(schools.rows[0].count, 10),
       teachers: parseInt(teachers.rows[0].count, 10),
       students: parseInt(students.rows[0].count, 10),
+      guests: parseInt(guests.rows[0].count, 10),
       classes: parseInt(classes.rows[0].count, 10),
       quizzes: parseInt(quizzes.rows[0].count, 10),
       homework: parseInt(homework.rows[0].count, 10),
@@ -885,6 +888,88 @@ router.put('/settings', ...teacherOrAbove, async (req, res) => {
       [platform_name, logo_url || null]
     );
     res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ─── GUESTS (quiz share signups) ─────────────────────────────────────────────
+router.get('/guests', ...adminOnly, async (req, res) => {
+  try {
+    await ensureQuizShareSchema();
+    const guests = await pool.query(
+      `SELECT u.id, u.name, u.email, u.phone, u.is_suspended, u.created_at,
+              COUNT(DISTINCT gca.class_id)::int AS classes_unlocked,
+              COUNT(DISTINCT qa.id)::int AS quizzes_taken,
+              MAX(gca.created_at) AS last_access_at
+       FROM users u
+       LEFT JOIN guest_class_access gca ON gca.user_id = u.id
+       LEFT JOIN quiz_attempts qa ON qa.student_id = u.id AND qa.is_guest = TRUE
+       WHERE u.role = 'guest'
+       GROUP BY u.id
+       ORDER BY u.created_at DESC`
+    );
+
+    const access = await pool.query(
+      `SELECT gca.user_id, gca.class_id, gca.created_at AS access_granted_at,
+              c.name AS class_name, c.subject,
+              t.id AS teacher_id, t.name AS teacher_name,
+              qz.title AS via_quiz_title
+       FROM guest_class_access gca
+       JOIN classes c ON c.id = gca.class_id
+       JOIN users t ON t.id = c.teacher_id
+       LEFT JOIN quizzes qz ON qz.id = gca.granted_via_quiz_id
+       ORDER BY gca.created_at DESC`
+    );
+
+    const accessByUser = {};
+    for (const row of access.rows) {
+      if (!accessByUser[row.user_id]) accessByUser[row.user_id] = [];
+      accessByUser[row.user_id].push({
+        class_id: row.class_id,
+        class_name: row.class_name,
+        subject: row.subject,
+        teacher_id: row.teacher_id,
+        teacher_name: row.teacher_name,
+        via_quiz_title: row.via_quiz_title,
+        access_granted_at: row.access_granted_at,
+      });
+    }
+
+    res.json(
+      guests.rows.map((g) => ({
+        ...g,
+        access: accessByUser[g.id] || [],
+        teachers: [...new Set((accessByUser[g.id] || []).map((a) => a.teacher_name))],
+      }))
+    );
+  } catch (err) {
+    console.error('[admin/guests]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.put('/guests/:id/suspend', ...adminOnly, async (req, res) => {
+  try {
+    const result = await pool.query(
+      "UPDATE users SET is_suspended=$1 WHERE id=$2 AND role='guest' RETURNING id, name, is_suspended",
+      [req.body.suspended, req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Guest not found.' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.delete('/guests/:id', ...adminOnly, async (req, res) => {
+  try {
+    const result = await pool.query(
+      "DELETE FROM users WHERE id=$1 AND role='guest' RETURNING id",
+      [req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Guest not found.' });
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
   }

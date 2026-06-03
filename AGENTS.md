@@ -63,6 +63,7 @@ After deploy, these must return **401** without a token (not **404**): `POST /ap
 - Public preview: `GET /api/public/quizzes/:token`.
 - Guest signup: `role: guest`, `guest_email_local` → `name@guest.umunsi.com`; optional `quiz_share_token` grants `guest_class_access`.
 - Guest API: `/api/guest/hub`, `/api/guest/profile`, `/api/guest/classes/:classId/{announcements,notes,homework,quizzes}`, `/api/guest/claim-share`; take quiz via class quiz routes; `is_guest` attempts excluded from leaderboards.
+- Claiming a share unlocks **all classes** owned by that class’s teacher (all their quizzes). Admin: `GET /admin/guests`, suspend/delete guests.
 
 ### No test suite
 
