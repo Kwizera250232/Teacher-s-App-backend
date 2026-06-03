@@ -2,6 +2,17 @@
 
 Production: **https://studentapi.umunsi.com**
 
+## Deploy everything (Git + Vercel + VPS)
+
+| Target | URL | How |
+|--------|-----|-----|
+| **API** | studentapi.umunsi.com | VPS: `curl -fsSL .../vps-emergency-deploy.sh \| bash` |
+| **Vercel UI** | student.umunsi.com | Push `Teacher-s-App-frontent` `main` (Vercel Git) |
+| **/app/ UI** | studentapi.umunsi.com/app/ | Pulled with backend `main` (`student-web-dist/`) |
+
+From backend repo (with git push access): `bash scripts/deploy-all.sh`  
+Requires **GitHub** `SSH_PRIVATE_KEY` for automatic VPS, or run the emergency curl on Hostinger SSH.
+
 ## On your server (PM2)
 
 **Do not use only `pm2 restart studentapi`.** Production runs **`studentapi-main`** on port **3005**; an old Node process can keep serving traffic after a plain restart. Use the Hostinger one-liner below or `bash scripts/restart-production-api.sh`.
