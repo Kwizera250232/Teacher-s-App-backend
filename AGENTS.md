@@ -39,9 +39,13 @@ ALTER TABLE schools ADD COLUMN IF NOT EXISTS welcome_message TEXT;
 - `GET /api/composition-status/class/:classId` — teachers; `GET /api/composition-status/school` — staff with `school_id`.
 - `POST /api/composition-status/:id/view` — record view (not owner).
 
+### Production API deploy (VPS)
+
+**Guest marks / Class Now / parent invite** need current `main` on the VPS. If `GET /api/classes/1/guest-marks` returns **404**, run `scripts/hostinger-terminal-deploy.sh` on the server — **not** only `pm2 restart studentapi` (see `scripts/restart-production-api.sh`).
+
 ### Production API deploy (no GitHub SSH secrets)
 
-Manual on VPS (`93.127.186.217`): `cd` app dir → `git pull origin main` → `npm ci --omit=dev` → `pm2 restart studentapi`. See `scripts/deploy-production.sh` and `DEPLOY.md`. One-liner on Hostinger SSH: `curl -fsSL https://raw.githubusercontent.com/Kwizera250232/Teacher-s-App-backend/main/scripts/hostinger-terminal-deploy.sh | bash`
+Manual on VPS (`93.127.186.217`): Hostinger one-liner (pull + `restart-production-api.sh` + verify): `curl -fsSL https://raw.githubusercontent.com/Kwizera250232/Teacher-s-App-backend/main/scripts/hostinger-terminal-deploy.sh | bash`. See `scripts/deploy-production.sh` and `DEPLOY.md`. Do **not** use only `pm2 restart studentapi`.
 
 **Vercel** (`student.umunsi.com`): deploys from `Teacher-s-App-frontent` `main` (or `bash scripts/sync-student-web-to-frontend.sh` from backend repo). **API VPS** must be updated separately; GitHub Actions needs `SSH_PRIVATE_KEY` or run the Hostinger script above.
 

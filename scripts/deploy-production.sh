@@ -17,4 +17,6 @@ echo ""
 curl -s -o /dev/null -w "auth/parent-invite (no token): HTTP %{http_code}\n" -X POST https://studentapi.umunsi.com/api/auth/parent-invite -H "Content-Type: application/json"
 curl -s -o /dev/null -w "student-shares/dashboard (no token): HTTP %{http_code}\n" https://studentapi.umunsi.com/api/student-shares/dashboard
 curl -s -o /dev/null -w "class-moments/react (no token): HTTP %{http_code}\n" -X POST https://studentapi.umunsi.com/api/class-moments/1/react -H "Content-Type: application/json" -d '{"emoji":"like"}'
-echo "Done. Expect parent-invite=401, dashboard=401, class-moments/react=401 (not 404)."
+curl -s -o /dev/null -w "guest-marks (no token): HTTP %{http_code}\n" https://studentapi.umunsi.com/api/classes/1/guest-marks
+curl -s -o /dev/null -w "parent/accept-invite (no token): HTTP %{http_code}\n" -X POST https://studentapi.umunsi.com/api/parent/accept-invite -H 'Content-Type: application/json' -d '{}'
+bash "$(dirname "$0")/verify-production-api.sh"
