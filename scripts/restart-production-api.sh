@@ -3,7 +3,10 @@
 set -euo pipefail
 APP_DIR="${1:-/home/umunsi/htdocs/studentapi.umunsi.com}"
 cd "$APP_DIR"
-git pull origin main
+# Skip second pull when hostinger-terminal-deploy.sh already synced.
+if [[ "${SKIP_GIT_SYNC:-}" != "1" ]]; then
+  bash scripts/git-sync-main.sh
+fi
 npm ci --omit=dev
 
 PORT="${PORT:-3005}"
