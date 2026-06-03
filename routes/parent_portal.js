@@ -126,6 +126,31 @@ async function myParentInviteHandler(req, res) {
 router.get('/my/parent-invite', authenticateToken, requireRole('student'), myParentInviteHandler);
 router.post('/my/parent-invite', authenticateToken, requireRole('student'), myParentInviteHandler);
 
+// Logged-in parent accepts invite (link child) — e.g. after "Already have an account? Sign in"
+router.post('/accept-invite', authenticateToken, requireRole('parent'), async (req, res) => {
+  const parentToken = String(req.body.parent_token || req.body.token || '').trim();
+  if (!parentToken) return res.status(400).json({ error: 'Invitation token required.' });
+  try {
+    const { linkParentFromInviteToken } = require('../lib/parentInvite');
+    const result = await linkParentFromInviteToken(req.user.id, parentToken);
+    if (!result.linked) {
+      const msg =
+        result.reason === 'invalid_or_expired'
+          ? 'Invalid or expired parent invitation.'
+          : 'Could not link this invitation.';
+      return res.status(400).json({ error: msg });
+    }
+    res.json({
+      ok: true,
+      student_id: result.student_id,
+      student_name: result.student_name,
+    });
+  } catch (err) {
+    console.error('[parent/accept-invite]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // Public preview for parent invite
 router.get('/invite-preview', async (req, res) => {
   const token = String(req.query.token || '').trim();

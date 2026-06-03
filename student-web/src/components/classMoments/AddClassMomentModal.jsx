@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { uploadFile } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { prepareMomentMediaFiles } from '../../utils/compressImage';
+
+const PHOTO_ACCEPT =
+  'image/jpeg,image/jpg,image/png,image/webp,image/gif,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif,video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm';
 
 export default function AddClassMomentModal({
   token,
@@ -10,6 +13,7 @@ export default function AddClassMomentModal({
   onPublished,
 }) {
   const { user: me } = useAuth();
+  const fileInputRef = useRef(null);
   const [classId, setClassId] = useState(classes[0]?.id ? String(classes[0].id) : '');
   const [description, setDescription] = useState('');
   const [files, setFiles] = useState([]);
@@ -35,7 +39,7 @@ export default function AddClassMomentModal({
       setFiles(merged);
       setPreviews(merged.map((f) => URL.createObjectURL(f)));
     } catch (err) {
-      setError(err.message || 'Could not prepare files.');
+      setError(err.message || 'Could not prepare files. JPG and PNG are supported.');
     } finally {
       setPreparing(false);
     }
@@ -67,7 +71,7 @@ export default function AddClassMomentModal({
     const fd = new FormData();
     fd.append('class_id', classId);
     fd.append('description', description.trim());
-    files.forEach((f) => fd.append('photos', f));
+    files.forEach((f) => fd.append('photos', f, f.name || 'photo.jpg'));
 
     setUploading(true);
     setError('');
@@ -131,16 +135,27 @@ export default function AddClassMomentModal({
               ))}
             </select>
           </label>
-          <label className="form-group">
-            Photos or videos (1–10)
+          <div className="form-group">
+            <span className="cm-file-label">Photos or videos (1–10)</span>
+            <p className="cm-file-hint">JPG, PNG, WEBP, GIF, or short videos (MP4, MOV).</p>
             <input
+              ref={fileInputRef}
               type="file"
-              accept="image/*,video/*"
+              accept={PHOTO_ACCEPT}
               multiple
+              className="cm-file-input-hidden"
               onChange={onPickFiles}
               disabled={busy}
             />
-          </label>
+            <button
+              type="button"
+              className="btn btn-secondary cm-file-picker-btn"
+              disabled={busy || files.length >= 10}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {files.length ? 'Add more photos' : 'Choose photos'}
+            </button>
+          </div>
           {previews.length > 0 && (
             <div className="cm-photo-grid">
               {previews.map((src, i) => (
