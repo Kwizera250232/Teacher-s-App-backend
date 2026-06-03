@@ -3,6 +3,8 @@ const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { claimShareForUser, guestHasClassAccess } = require('../lib/quizShares');
 const { assertGuestClassAccess } = require('../lib/guestClassAccess');
+const { convertGuestToTeacher, convertGuestToStudent } = require('../lib/guestConversion');
+const jwt = require('jsonwebtoken');
 
 const router = express.Router();
 
@@ -40,6 +42,47 @@ async function loadGuestClasses(userId) {
   );
   return classes.rows;
 }
+
+router.post('/convert-account', authenticateToken, requireRole('guest'), async (req, res) => {
+  const target = String(req.body.target_role || req.body.role || '').trim().toLowerCase();
+  try {
+    let result;
+    if (target === 'teacher') {
+      result = await convertGuestToTeacher(req.user.id, {
+        schoolEmailLocal: req.body.school_email_local,
+        staffSchoolName: req.body.staff_school_name || req.body.school_name,
+      });
+    } else if (target === 'student') {
+      result = await convertGuestToStudent(req.user.id, {
+        schoolEmailLocal: req.body.school_email_local,
+        classCode: req.body.class_code,
+        email: req.body.email,
+      });
+    } else {
+      return res.status(400).json({ error: 'Choose teacher or student account type.' });
+    }
+
+    const token = jwt.sign(
+      { id: result.user.id, role: result.user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+    res.json({
+      token,
+      user: result.user,
+      login_email: result.login_email,
+      joined_class: result.joined_class || null,
+      message:
+        target === 'teacher'
+          ? 'Your account is now a teacher. Quiz history is saved; create classes from your dashboard.'
+          : 'Your account is now a student. You joined your class and keep your guest quiz scores.',
+    });
+  } catch (err) {
+    const status = err.status || 500;
+    if (status >= 500) console.error('[guest/convert-account]', err);
+    res.status(status).json({ error: err.message || 'Conversion failed.' });
+  }
+});
 
 router.get('/hub', authenticateToken, requireRole('guest'), async (req, res) => {
   try {
@@ -99,6 +142,14 @@ router.get('/hub', authenticateToken, requireRole('guest'), async (req, res) => 
       [req.user.id]
     );
 
+    const allQuizzes = quizzesByClass.map((q) => ({
+      ...q,
+      class_name: classRows.find((c) => c.class_id === q.class_id)?.class_name,
+      teacher_name: classRows.find((c) => c.class_id === q.class_id)?.teacher_name,
+    }));
+    const pendingQuizzes = allQuizzes.filter((q) => !q.attempted);
+    const completedQuizzes = allQuizzes.filter((q) => q.attempted);
+
     const countMap = (rows) =>
       Object.fromEntries(rows.map((r) => [r.class_id, r.n]));
 
@@ -131,6 +182,8 @@ router.get('/hub', authenticateToken, requireRole('guest'), async (req, res) => 
         },
       })),
       attempts: attempts.rows,
+      quizzes_pending: pendingQuizzes,
+      quizzes_completed: completedQuizzes,
       features: {
         can_submit_homework: false,
         can_join_class: false,
