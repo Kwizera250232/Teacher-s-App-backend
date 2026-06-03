@@ -401,7 +401,12 @@ export default function TakeQuiz() {
                       if (!q[`option_${opt}`]) return null;
                       return (
                         <label key={opt} className={`quiz-option ${currentAnswer === opt ? 'selected' : ''}`} onClick={() => handleAnswer(q.id, opt)}>
-                          <strong>{opt.toUpperCase()}.</strong> {q[`option_${opt}`]}
+                          <span className="quiz-option-text">
+                            <strong>{opt.toUpperCase()}.</strong> {q[`option_${opt}`]}
+                          </span>
+                          {currentAnswer === opt && (
+                            <span className="quiz-option-check" aria-label="Selected">V</span>
+                          )}
                         </label>
                       );
                     })}
@@ -414,7 +419,10 @@ export default function TakeQuiz() {
                     {[{ val: 'a', label: '✓ True' }, { val: 'b', label: '✗ False' }].map(({ val, label }) => (
                       <label key={val} className={`quiz-option ${currentAnswer === val ? 'selected' : ''}`} onClick={() => handleAnswer(q.id, val)}
                         style={{ fontSize: 15, fontWeight: 600 }}>
-                        {label}
+                        <span className="quiz-option-text">{label}</span>
+                        {currentAnswer === val && (
+                          <span className="quiz-option-check" aria-label="Selected">V</span>
+                        )}
                       </label>
                     ))}
                   </div>
@@ -428,8 +436,14 @@ export default function TakeQuiz() {
                       value={currentAnswer}
                       onChange={e => handleTextAnswer(q.id, e.target.value)}
                       placeholder="Type your answer here…"
-                      style={{ width: '100%', boxSizing: 'border-box', padding: '10px 14px', border: `2px solid ${currentAnswer ? '#2563eb' : '#e2e8f0'}`, borderRadius: 9, fontSize: 15, outline: 'none', fontFamily: 'inherit' }}
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '10px 14px', border: `2px solid ${currentAnswer.trim() ? '#128c7e' : '#e2e8f0'}`, borderRadius: 9, fontSize: 15, outline: 'none', fontFamily: 'inherit' }}
                     />
+                    {currentAnswer.trim() && (
+                      <p className="quiz-answer-saved">
+                        <span className="quiz-option-check" aria-hidden>V</span>
+                        Igisubizo cyawe cyabitswe
+                      </p>
+                    )}
                     <small style={{ color: '#94a3b8', fontSize: 12, marginTop: 4, display: 'block' }}>Type your answer exactly (not case-sensitive)</small>
                   </div>
                 )}
@@ -446,18 +460,23 @@ export default function TakeQuiz() {
                             {pair.left}
                           </div>
                           <span style={{ color: '#2563eb', fontWeight: 700, fontSize: 18 }}>→</span>
-                          <input
-                            type="text"
-                            value={currentVal}
-                            onChange={e => {
-                              const parts = (answers[q.id] || '').split('|');
-                              while (parts.length <= pi) parts.push('');
-                              parts[pi] = e.target.value;
-                              handleTextAnswer(q.id, parts.join('|'));
-                            }}
-                            placeholder={`Match for "${pair.left}"…`}
-                            style={{ flex: 1, padding: '9px 14px', border: `2px solid ${currentVal ? '#2563eb' : '#e2e8f0'}`, borderRadius: 8, fontSize: 14, outline: 'none', fontFamily: 'inherit' }}
-                          />
+                          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <input
+                              type="text"
+                              value={currentVal}
+                              onChange={e => {
+                                const parts = (answers[q.id] || '').split('|');
+                                while (parts.length <= pi) parts.push('');
+                                parts[pi] = e.target.value;
+                                handleTextAnswer(q.id, parts.join('|'));
+                              }}
+                              placeholder={`Match for "${pair.left}"…`}
+                              style={{ flex: 1, padding: '9px 14px', border: `2px solid ${currentVal.trim() ? '#128c7e' : '#e2e8f0'}`, borderRadius: 8, fontSize: 14, outline: 'none', fontFamily: 'inherit' }}
+                            />
+                            {currentVal.trim() && (
+                              <span className="quiz-option-check" aria-label="Answer saved">V</span>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
