@@ -400,6 +400,12 @@ export default function Profile() {
   const [followingCount, setFollowingCount] = useState(0);
 
   useEffect(() => {
+    if (user?.role === 'guest') {
+      navigate('/guest/profile', { replace: true });
+    }
+  }, [user?.role, navigate]);
+
+  useEffect(() => {
     if (searchParams.get('compose') === 'composition' && user?.role === 'student') {
       const t = setTimeout(() => {
         document.querySelector('.profile-share-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });

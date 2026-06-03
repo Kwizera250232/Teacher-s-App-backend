@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import AdminSchools from '../components/admin/AdminSchools';
 import AdminTeachers from '../components/admin/AdminTeachers';
 import AdminStudents from '../components/admin/AdminStudents';
+import AdminGuests from '../components/admin/AdminGuests';
 import AdminClasses from '../components/admin/AdminClasses';
 import AdminContent from '../components/admin/AdminContent';
 import AdminAnnouncements from '../components/admin/AdminAnnouncements';
@@ -23,6 +24,7 @@ const NAV = [
   { key: 'schools', label: 'Schools', icon: '🏫' },
   { key: 'teachers', label: 'Teachers', icon: '👨‍🏫' },
   { key: 'students', label: 'Students', icon: '👩‍🎓' },
+  { key: 'guests', label: 'Guests', icon: '👤' },
   { key: 'classes', label: 'Classes', icon: '📚' },
   { key: 'content', label: 'Content', icon: '📝' },
   { key: 'announcements', label: 'Announcements', icon: '📢' },
@@ -155,6 +157,7 @@ export default function AdminDashboard() {
                   { label: 'Schools', value: stats?.schools, icon: '🏫', color: '#6366f1' },
                   { label: 'Teachers', value: stats?.teachers, icon: '👨‍🏫', color: '#0ea5e9' },
                   { label: 'Students', value: stats?.students, icon: '👩‍🎓', color: '#10b981' },
+                  { label: 'Guests', value: stats?.guests, icon: '👤', color: '#0d9488' },
                   { label: 'Classes', value: stats?.classes, icon: '📚', color: '#f59e0b' },
                   { label: 'Quizzes', value: stats?.quizzes, icon: '📝', color: '#ef4444' },
                   { label: 'Homework', value: stats?.homework, icon: '📋', color: '#8b5cf6' },
@@ -214,6 +217,7 @@ export default function AdminDashboard() {
           {page === 'schools' && <AdminSchools token={token} />}
           {page === 'teachers' && <AdminTeachers token={token} />}
           {page === 'students' && <AdminStudents token={token} />}
+          {page === 'guests' && <AdminGuests token={token} />}
           {page === 'classes' && <AdminClasses token={token} />}
           {page === 'content' && <AdminContent token={token} />}
           {page === 'announcements' && <AdminAnnouncements token={token} />}

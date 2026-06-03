@@ -10,6 +10,7 @@ export function dashboardPath(role) {
   if (role === 'teacher') return '/teacher/dashboard';
   if (role === 'parent') return '/parent/dashboard';
   if (role === 'student') return '/student/dashboard';
+  if (role === 'guest') return '/guest/dashboard';
   return '/welcome';
 }
 
@@ -24,6 +25,7 @@ export function roleLabel(role) {
     teacher: 'Teacher',
     student: 'Student',
     parent: 'Parent',
+    guest: 'Guest',
   };
   return map[role] || 'User';
 }

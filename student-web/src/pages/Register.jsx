@@ -5,17 +5,20 @@ import { useAuth } from '../context/AuthContext';
 import { dashboardPath } from '../utils/roles';
 import { schoolDomainFromName, signupEmailDomain, buildSchoolEmailPreview } from '../utils/schoolDomain';
 import { SCHOOL_EMAIL_IN_APP_HELP, STUDENT_SCHOOL_EMAIL_HELP } from '../utils/schoolEmailHelp';
+import AuthBackLink from '../components/AuthBackLink';
 import './Auth.css';
 
 export default function Register() {
   const [searchParams] = useSearchParams();
   const searchRole = searchParams.get('role');
   const classCode = searchParams.get('code') || '';
+  const quizShareToken = searchParams.get('quiz_share') || '';
+  const prefSchoolId = searchParams.get('school_id') || '';
 
   // step: 'role' → 'code' (if teacher/HT) → 'form'
   const [step, setStep] = useState('role');
   const [selectedRole, setSelectedRole] = useState(
-    ['head_teacher', 'teacher'].includes(searchRole) ? searchRole : 'student'
+    ['head_teacher', 'teacher', 'guest'].includes(searchRole) ? searchRole : 'student'
   );
   const [verifiedSchool, setVerifiedSchool] = useState(null);
 
@@ -24,6 +27,7 @@ export default function Register() {
     email: '',
     schoolEmailLocal: '',
     studentEmailLocal: '',
+    guestEmailLocal: '',
     staffSchoolName: '',
     staffSchoolId: '',
     password: '',
@@ -48,7 +52,26 @@ export default function Register() {
   }, []);
 
   useEffect(() => {
-    if (['head_teacher', 'teacher'].includes(searchRole)) {
+    if (prefSchoolId) {
+      setForm((f) => ({ ...f, school_id: prefSchoolId }));
+      setSelectedRole((r) => (r === 'student' ? r : 'student'));
+      setStep('form');
+    }
+  }, [prefSchoolId]);
+
+  useEffect(() => {
+    if (quizShareToken && ['student', 'teacher', 'head_teacher'].includes(searchRole)) {
+      setSelectedRole(searchRole);
+      setStep('form');
+    } else if (quizShareToken) {
+      setStep('form');
+      setSelectedRole('student');
+    }
+  }, [quizShareToken, searchRole]);
+
+  useEffect(() => {
+    if (['head_teacher', 'teacher', 'guest'].includes(searchRole)) {
+      setSelectedRole(searchRole);
       setStep('form');
     }
   }, [searchRole]);
@@ -93,6 +116,12 @@ export default function Register() {
           setLoading(false);
           return;
         }
+      } else if (selectedRole === 'guest') {
+        if (!form.guestEmailLocal.trim()) {
+          setError('Choose a guest username.');
+          setLoading(false);
+          return;
+        }
       }
 
       const payload = {
@@ -113,10 +142,15 @@ export default function Register() {
         }
       } else if (selectedRole === 'student') {
         payload.school_email_local = form.studentEmailLocal.trim();
+      } else if (selectedRole === 'guest') {
+        payload.guest_email_local = form.guestEmailLocal.trim();
       }
 
       if (verifiedSchool?.code) {
         payload.school_code = String(verifiedSchool.code).trim().toUpperCase();
+      }
+      if (quizShareToken) {
+        payload.quiz_share_token = quizShareToken;
       }
 
       const data = await api.post('/auth/register', payload);
@@ -128,6 +162,21 @@ export default function Register() {
       }
 
       login(data.token, data.user);
+      const shareRedir = data.guest_share_redirect;
+      if (shareRedir?.class_id && shareRedir?.quiz_id) {
+        if (data.user.role === 'guest') {
+          navigate(`/guest/classes/${shareRedir.class_id}/quizzes/${shareRedir.quiz_id}`, { replace: true });
+          return;
+        }
+        if (data.user.role === 'student') {
+          navigate(`/student/classes/${shareRedir.class_id}/quizzes/${shareRedir.quiz_id}`, { replace: true });
+          return;
+        }
+      }
+      if (data.user.role === 'guest') {
+        navigate('/guest/dashboard', { replace: true });
+        return;
+      }
       if (data.user.role === 'student' && classCode) {
         try {
           const joined = await api.post('/classes/join', { class_code: classCode }, data.token);
@@ -148,6 +197,7 @@ export default function Register() {
   return (
     <div className="auth-container">
       <div className="auth-card">
+        <AuthBackLink />
         <div className="auth-logo">🎓</div>
 
         {pending ? (
@@ -184,8 +234,9 @@ export default function Register() {
                 style={{ fontSize: '1rem', padding: '0.6rem' }}
               >
                 <option value="student">👨‍🎓 Umunyeshuri (Student)</option>
-                <option value="head_teacher">🏫 Umuyobozi w'Ishuri (Head Teacher)</option>
+                <option value="head_teacher">🏫 Umuyobozi w'Ikigo (Head Teacher)</option>
                 <option value="teacher">👨‍🏫 Umwarimu (Teacher)</option>
+                <option value="guest">🔗 Guest (quiz share link)</option>
               </select>
             </div>
 
@@ -197,6 +248,11 @@ export default function Register() {
             {(selectedRole === 'head_teacher' || selectedRole === 'teacher') && (
               <p style={{ color: '#64748b', fontSize: '0.875rem', marginTop: 4 }}>
                 Choose or type your school, then create your login as name@schoolname.edu.
+              </p>
+            )}
+            {selectedRole === 'guest' && (
+              <p style={{ color: '#64748b', fontSize: '0.875rem', marginTop: 4 }}>
+                Guest login uses <strong>@guest.umunsi.com</strong>. Open a teacher&apos;s quiz share link to unlock classes.
               </p>
             )}
 
@@ -215,6 +271,23 @@ export default function Register() {
           <>
             <h2>Fungura Konti</h2>
             <p className="auth-sub">Injira mu rubuga rw'inyigisho</p>
+            {quizShareToken && (
+              <div
+                style={{
+                  background: '#ecfdf5',
+                  border: '1px solid #a7f3d0',
+                  borderRadius: 10,
+                  padding: '10px 12px',
+                  marginBottom: 12,
+                  fontSize: 13,
+                  color: '#065f46',
+                  lineHeight: 1.45,
+                }}
+              >
+                You opened a <strong>shared quiz</strong> link. After signup you can take the quiz in your
+                dashboard (students join the class; guests use a separate guest account on the share page).
+              </div>
+            )}
             {error && <div className="alert alert-error">{error}</div>}
             <form onSubmit={handleSubmit}>
               <div className="form-group">
@@ -357,6 +430,26 @@ export default function Register() {
                     </p>
                   )}
                 </div>
+                </>
+              ) : selectedRole === 'guest' ? (
+                <>
+                  <div className="form-group">
+                    <label>Guest username (login)</label>
+                    <div className="auth-school-email-row">
+                      <input
+                        type="text"
+                        value={form.guestEmailLocal}
+                        onChange={(e) => setForm({ ...form, guestEmailLocal: e.target.value })}
+                        placeholder="yourname"
+                        required
+                        className="auth-school-email-local"
+                      />
+                      <span className="auth-school-email-domain">@guest.umunsi.com</span>
+                    </div>
+                    <p style={{ fontSize: 12, color: '#64748b', marginTop: 6, lineHeight: 1.4 }}>
+                      Use a quiz share link from your teacher to unlock classes after signup.
+                    </p>
+                  </div>
                 </>
               ) : (
                 <>

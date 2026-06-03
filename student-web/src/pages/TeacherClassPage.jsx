@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import CreateQuizModal from '../components/CreateQuizModal';
 import DocPreviewModal from '../components/DocPreviewModal';
 import ShareModal from '../components/ShareModal';
+import QuizShareModal from '../components/QuizShareModal';
 import { buildShareItem } from '../utils/shareLinks';
 import ClassLeaderboard from '../components/ClassLeaderboard';
 import VerifiedBadge from '../components/VerifiedBadge';
@@ -15,6 +16,7 @@ import WeeklyDigestModal from '../components/staff/WeeklyDigestModal';
 import ParentInviteModal from '../components/ParentInviteModal';
 import CompositionStatusList from '../components/CompositionStatusList';
 import ClassDeanHelp from '../components/ClassDeanHelp';
+import GuestMarksPanel from '../components/GuestMarksPanel';
 import '../pages/Dashboard.css';
 import '../pages/MobileDashboard.css';
 
@@ -46,6 +48,8 @@ export default function TeacherClassPage() {
   const [submissionsState, setSubmissionsState] = useState({});
   const [previewDoc, setPreviewDoc] = useState(null); // { viewerUrl, fileName }
   const [shareItem, setShareItem] = useState(null);   // { title, text, url }
+  const [quizShareModal, setQuizShareModal] = useState(null); // { quizTitle, className, shareUrl }
+  const [quizShareBusy, setQuizShareBusy] = useState(null);
   const [selectedStudent, setSelectedStudent] = useState(null); // popup
   const [showNotifyParents, setShowNotifyParents] = useState(false);
   const [showWeeklyDigest, setShowWeeklyDigest] = useState(false);
@@ -548,6 +552,14 @@ export default function TeacherClassPage() {
               <h2>Quizzes</h2>
               <button className="btn btn-primary" onClick={() => setShowQuizModal(true)}>+ Create Quiz</button>
             </div>
+            <details style={{ marginBottom: 16, background: '#f8fafc', borderRadius: 10, padding: '10px 14px' }}>
+              <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#075e54' }}>
+                👤 Guest marks from share links
+              </summary>
+              <div style={{ marginTop: 12 }}>
+                <GuestMarksPanel token={token} classId={id} compact />
+              </div>
+            </details>
             {data.map(q => (
               <div key={q.id} className="item-card">
                 <div className="item-card-body">
@@ -568,7 +580,32 @@ export default function TeacherClassPage() {
                     disabled={q.attempt_count > 0}
                     title={q.attempt_count > 0 ? 'Cannot edit after students have attempted' : 'Edit quiz questions'}
                   >Edit</button>
-                  <button className="btn btn-secondary btn-sm" onClick={() => navigate(`/teacher/classes/${id}/quizzes/${q.id}/results`)}>Results</button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={async () => {
+                      setQuizShareBusy(q.id);
+                      try {
+                        const data = await api.post(
+                          `/classes/${id}/quizzes/${q.id}/share`,
+                          { channel: 'social' },
+                          token
+                        );
+                        setQuizShareModal({
+                          quizTitle: q.title,
+                          className: cls?.name,
+                          shareUrl: data.share_url || data.app_url,
+                        });
+                      } catch (e) {
+                        setError(e.message || 'Could not create share link.');
+                      } finally {
+                        setQuizShareBusy(null);
+                      }
+                    }}
+                    disabled={quizShareBusy === q.id}
+                  >
+                    {quizShareBusy === q.id ? '…' : 'Share'}
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => navigate(`${basePath}/classes/${id}/quizzes/${q.id}/results`)}>Results</button>
                   <button className="btn btn-danger btn-sm" onClick={() => deleteItem(`/classes/${id}/quizzes/${q.id}`)}>Delete</button>
                 </div>
               </div>
@@ -779,6 +816,15 @@ export default function TeacherClassPage() {
           text={shareItem.text}
           url={shareItem.url}
           onClose={() => setShareItem(null)}
+        />
+      )}
+
+      {quizShareModal && (
+        <QuizShareModal
+          quizTitle={quizShareModal.quizTitle}
+          className={quizShareModal.className}
+          shareUrl={quizShareModal.shareUrl}
+          onClose={() => setQuizShareModal(null)}
         />
       )}
 

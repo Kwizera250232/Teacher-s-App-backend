@@ -19,6 +19,10 @@ import JoinClass from './pages/JoinClass';
 import StudentNotes from './pages/StudentNotes';
 import ClassMomentsPage from './pages/ClassMomentsPage';
 import ShareMomentPage from './pages/ShareMomentPage';
+import QuizShareLanding from './pages/QuizShareLanding';
+import GuestDashboard from './pages/GuestDashboard';
+import GuestClassPage from './pages/GuestClassPage';
+import GuestProfile from './pages/GuestProfile';
 import InviteSignup from './pages/InviteSignup';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
@@ -49,7 +53,7 @@ function HomeRedirect() {
 
 function AppShell() {
   const location = useLocation();
-  const hideFooter = /\/messages(\/|$)|\/parent\/dashboard/.test(location.pathname);
+  const hideFooter = /\/messages(\/|$)|\/parent\/dashboard|\/guest\//.test(location.pathname);
 
   return (
     <div className={`app-wa-shell${hideFooter ? ' app-wa-shell--chat-fullscreen' : ''}`} style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -63,6 +67,20 @@ function AppShell() {
                 <Route path="/register" element={<Register />} />
                 <Route path="/invite" element={<InviteSignup />} />
                 <Route path="/share/moment/:token" element={<ShareMomentPage />} />
+                <Route path="/quiz/share/:token" element={<QuizShareLanding />} />
+
+                <Route path="/guest/dashboard" element={
+                  <ProtectedRoute role="guest"><GuestDashboard /></ProtectedRoute>
+                } />
+                <Route path="/guest/profile" element={
+                  <ProtectedRoute role="guest"><GuestProfile /></ProtectedRoute>
+                } />
+                <Route path="/guest/classes/:classId" element={
+                  <ProtectedRoute role="guest"><GuestClassPage /></ProtectedRoute>
+                } />
+                <Route path="/guest/classes/:classId/quizzes/:quizId" element={
+                  <ProtectedRoute role="guest"><TakeQuiz /></ProtectedRoute>
+                } />
 
                 <Route path="/admin" element={
                   <ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>

@@ -7,8 +7,12 @@ import '../pages/Dashboard.css';
 
 export default function TakeQuiz() {
   const { classId, quizId } = useParams();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const navigate = useNavigate();
+  const goBack = () => {
+    if (user?.role === 'guest') navigate('/guest/dashboard');
+    else navigate(-1);
+  };
   const [questions, setQuestions] = useState([]);
   const [answers, setAnswers] = useState({});
   const [result, setResult] = useState(null);
@@ -87,7 +91,7 @@ export default function TakeQuiz() {
     return (
       <div className="class-page">
         <header className="dash-header">
-          <button className="btn btn-outline btn-sm" onClick={() => navigate(-1)}>← Back</button>
+          <button className="btn btn-outline btn-sm" onClick={goBack}>← Back</button>
           <div className="dash-brand">🎓 UClass</div>
         </header>
         <main className="class-main" style={{ maxWidth: 680 }}>
@@ -140,7 +144,7 @@ export default function TakeQuiz() {
               <button
                 className="btn btn-secondary"
                 style={{ flex: '1 1 140px', minWidth: 0, justifyContent: 'center' }}
-                onClick={() => navigate(-1)}
+                onClick={goBack}
               >
                 ← Subira mu Ishuri
               </button>
@@ -236,7 +240,7 @@ export default function TakeQuiz() {
       return (
         <div className="class-page">
           <header className="dash-header">
-            <button className="btn btn-outline btn-sm" onClick={() => navigate(-1)}>← Back</button>
+            <button className="btn btn-outline btn-sm" onClick={goBack}>← Back</button>
             <div className="dash-brand">🎓 UClass</div>
           </header>
           <main className="class-main" style={{ maxWidth: 600 }}>
@@ -246,7 +250,7 @@ export default function TakeQuiz() {
               <p style={{ color: '#475569', fontSize: 15, lineHeight: 1.6, marginTop: 12 }}>
                 Your answers have been saved on your device. They will be submitted automatically when you reconnect to the internet.
               </p>
-              <button className="btn btn-primary" style={{ marginTop: 20 }} onClick={() => navigate(-1)}>
+              <button className="btn btn-primary" style={{ marginTop: 20 }} onClick={goBack}>
                 ← Back to Class
               </button>
             </div>
@@ -258,7 +262,7 @@ export default function TakeQuiz() {
     return (
       <div className="class-page">
         <header className="dash-header">
-          <button className="btn btn-outline btn-sm" onClick={() => navigate(-1)}>← Back</button>
+          <button className="btn btn-outline btn-sm" onClick={goBack}>← Back</button>
           <div className="dash-brand">🎓 UClass</div>
         </header>
         <main className="class-main" style={{ maxWidth: 600 }}>
@@ -351,7 +355,7 @@ export default function TakeQuiz() {
             >
               {downloading ? 'Generating…' : '⬇ Download My Result'}
             </button>
-            <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => navigate(-1)}>
+            <button className="btn btn-primary" style={{ flex: 1 }} onClick={goBack}>
               Back to Class
             </button>
           </div>
@@ -363,7 +367,7 @@ export default function TakeQuiz() {
   return (
     <div className="class-page">
       <header className="dash-header">
-        <button className="btn btn-outline btn-sm" onClick={() => navigate(-1)}>← Back</button>
+        <button className="btn btn-outline btn-sm" onClick={goBack}>← Back</button>
         <div className="dash-brand">🎓 UClass</div>
       </header>
       <main className="class-main" style={{ maxWidth: 700 }}>

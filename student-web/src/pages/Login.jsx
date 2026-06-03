@@ -4,11 +4,13 @@ import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { dashboardPath } from '../utils/roles';
 import AuthAppShell from '../components/AuthAppShell';
+import AuthBackLink from '../components/AuthBackLink';
 import './Auth.css';
 
 export default function Login() {
   const [searchParams] = useSearchParams();
   const classCode = searchParams.get('code') || '';
+  const quizShare = searchParams.get('quiz_share') || '';
   const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -20,8 +22,21 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      const data = await api.post('/auth/login', form);
+      const payload = { ...form };
+      if (quizShare) payload.quiz_share_token = quizShare;
+      const data = await api.post('/auth/login', payload);
       login(data.token, data.user);
+      const shareRedir = data.quiz_share_redirect;
+      if (shareRedir?.class_id && shareRedir?.quiz_id) {
+        if (data.user.role === 'guest') {
+          navigate(`/guest/classes/${shareRedir.class_id}/quizzes/${shareRedir.quiz_id}`, { replace: true });
+          return;
+        }
+        if (data.user.role === 'student') {
+          navigate(`/student/classes/${shareRedir.class_id}/quizzes/${shareRedir.quiz_id}`, { replace: true });
+          return;
+        }
+      }
       if (data.user.role === 'student' && classCode) {
         try {
           const joined = await api.post('/classes/join', { class_code: classCode }, data.token);
@@ -45,6 +60,7 @@ export default function Login() {
       subtitle="Injira muri konti yawe — same look as inside the app"
       footer={<p>Nta konti ufite? <Link to="/register">Iyandikishe</Link></p>}
     >
+        <AuthBackLink />
         {error && <div className="alert alert-error">{error}</div>}
         <form onSubmit={handleSubmit}>
           <div className="form-group">
@@ -59,7 +75,13 @@ export default function Login() {
             />
             <p style={{ fontSize: 12, color: '#64748b', marginTop: 6, lineHeight: 1.4 }}>
               Umwarimu, Umunyeshuri, cyangwa Umuyobozi w&apos;ishuri — injira ukoresheje imeyili yawe @schoolname.edu.
+              Guests use <strong>@guest.umunsi.com</strong>.
             </p>
+            {quizShare && (
+              <p style={{ fontSize: 12, color: '#0f766e', marginTop: 8, lineHeight: 1.4 }}>
+                After sign-in you will continue to the shared quiz.
+              </p>
+            )}
           </div>
           <div className="form-group">
             <label>Ijambo Banga</label>

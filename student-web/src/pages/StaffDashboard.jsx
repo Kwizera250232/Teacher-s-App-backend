@@ -25,6 +25,8 @@ import ClassMomentsDashboardBlock from '../components/classMoments/ClassMomentsD
 import OnlineNowStrip from '../components/classMoments/OnlineNowStrip';
 import { usePresence } from '../hooks/usePresence';
 import '../components/classMoments/ClassMoments.css';
+import TutorialVideo from '../components/TutorialVideo';
+import GuestMarksPanel from '../components/GuestMarksPanel';
 
 export default function StaffDashboard({ roleLabel, basePath }) {
   const { user, token, logout, isImpersonating, stopImpersonation } = useAuth();
@@ -141,6 +143,11 @@ export default function StaffDashboard({ roleLabel, basePath }) {
       </nav>
 
       <main className={`dash-main${hubTab === 'chats' ? ' dash-main--chats-full' : ''}`}>
+        <TutorialVideo
+          compact
+          title="How to use UClass (video)"
+          subtitle="Signup, Dean AI, classes, notes, homework & feed"
+        />
         {hubTab !== 'chats' && <SchoolRequestBanner token={token} user={user} />}
         {isHeadTeacher && hubTab === 'school' && <SchoolRequestsPanel token={token} />}
 
@@ -195,6 +202,10 @@ export default function StaffDashboard({ roleLabel, basePath }) {
               onAddStudents={() => setShowAddStudents(true)}
               onParentInvites={() => setShowParentInvites(true)}
             />
+            <section style={{ marginTop: 20, marginBottom: 16 }}>
+              <h2 style={{ fontSize: 17, color: '#075e54', marginBottom: 10 }}>👤 Guest marks (share links)</h2>
+              <GuestMarksPanel token={token} />
+            </section>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowNotifyParents(true)}>
                 📢 Notify parents

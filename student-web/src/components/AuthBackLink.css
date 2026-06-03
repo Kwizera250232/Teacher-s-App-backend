@@ -1,0 +1,25 @@
+.auth-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 18px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #4f46e5;
+  text-decoration: none;
+  line-height: 1.35;
+}
+
+.auth-back-link:hover {
+  color: #4338ca;
+  text-decoration: underline;
+}
+
+.auth-back-link__en {
+  font-weight: 600;
+  color: #64748b;
+}
+
+.auth-app-shell .auth-back-link {
+  margin-bottom: 14px;
+}
