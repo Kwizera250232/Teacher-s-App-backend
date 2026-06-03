@@ -25,10 +25,10 @@ export default function ClassMomentShareButton({ moment, token }) {
       const url = data.app_url || data.share_url;
       const text = data.preview?.description || data.preview?.title || 'Class moment on UClass';
       const title = data.preview?.title || "Today's Class Moment";
-      const token = data.share_token;
+      const shareToken = data.share_token;
       const imageUrl =
-        (token && typeof window !== 'undefined'
-          ? `${window.location.origin}/share/moment/${encodeURIComponent(token)}/preview.jpg`
+        (shareToken && typeof window !== 'undefined'
+          ? `${window.location.origin}/share/moment/${encodeURIComponent(shareToken)}/preview.jpg`
           : null) ||
         data.preview?.preview_image_url ||
         data.preview?.image_url;
