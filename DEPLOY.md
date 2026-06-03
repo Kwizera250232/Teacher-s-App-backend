@@ -4,15 +4,17 @@ Production: **https://studentapi.umunsi.com**
 
 ## On your server (PM2)
 
+**Do not use only `pm2 restart studentapi`.** Production runs **`studentapi-main`** on port **3005**; an old Node process can keep serving traffic after a plain restart. Use the Hostinger one-liner below or `bash scripts/restart-production-api.sh`.
+
 ```bash
-cd /home/umunsi/htdocs/studentapi.umunsi.com   # or /var/www/Teacher-s-App-backend
+cd /home/umunsi/htdocs/studentapi.umunsi.com
 git pull origin main
 npm ci --omit=dev
-pm2 restart studentapi || pm2 restart student-app-api
-curl -s https://studentapi.umunsi.com/api/health
+bash scripts/restart-production-api.sh "$PWD"
+bash scripts/verify-production-api.sh
 ```
 
-Expect `"build":"414b474..."` (or newer) in health JSON after deploy.
+Expect a **new** `"build"` in `/api/health` (not `575e567…`). Guest marks: `GET /api/classes/1/guest-marks` must return **401**, not **404**.
 
 ### One-time: enable GitHub auto-deploy
 
