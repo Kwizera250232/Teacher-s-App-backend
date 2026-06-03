@@ -44,8 +44,8 @@ jobs:
 
       - name: Deploy via SSH
         id: ssh_deploy
+        if: ${{ secrets.SSH_PRIVATE_KEY != '' }}
         uses: appleboy/ssh-action@v1.2.0
-        continue-on-error: true
         with:
           host: ${{ steps.ssh.outputs.host }}
           username: ${{ steps.ssh.outputs.user }}
@@ -61,26 +61,31 @@ jobs:
             git pull origin main
             npm ci --omit=dev
             bash scripts/restart-production-api.sh "$APP_DIR"
+            bash scripts/verify-production-api.sh
 
       - name: Deploy via hook
-        continue-on-error: true
+        id: hook_deploy
+        if: ${{ secrets.DEPLOY_HOOK_SECRET != '' }}
         env:
           DEPLOY_HOOK_SECRET: ${{ secrets.DEPLOY_HOOK_SECRET }}
         run: |
-          if [ -z "$DEPLOY_HOOK_SECRET" ]; then
-            echo "DEPLOY_HOOK_SECRET not set — skip hook deploy"
-            exit 0
-          fi
           curl -fsS -X POST "https://studentapi.umunsi.com/api/hooks/redeploy" \
             -H "Content-Type: application/json" \
             -H "X-Deploy-Secret: $DEPLOY_HOOK_SECRET" \
             -d '{}'
 
-      - name: Deploy reminder
-        if: steps.ssh_deploy.outcome != 'success'
+      - name: Require deploy credentials
+        if: ${{ secrets.SSH_PRIVATE_KEY == '' && secrets.DEPLOY_HOOK_SECRET == '' }}
         run: |
-          echo "::error::VPS deploy did not succeed. Add GitHub secrets SSH_PRIVATE_KEY and SSH_USER (SSH_HOST optional)."
-          echo "Manual: SSH to VPS, then: cd /home/umunsi/htdocs/studentapi.umunsi.com && git pull origin main && npm ci --omit=dev && bash scripts/restart-production-api.sh"
+          echo "::error::No deploy credentials. Add GitHub secret SSH_PRIVATE_KEY (+ SSH_USER=root), or DEPLOY_HOOK_SECRET (must also be in server .env)."
+          echo "Manual (Hostinger SSH): curl -fsSL https://raw.githubusercontent.com/Kwizera250232/Teacher-s-App-backend/main/scripts/hostinger-terminal-deploy.sh | bash"
+          exit 1
+
+      - name: Deploy failed
+        if: steps.ssh_deploy.outcome == 'failure' || steps.hook_deploy.outcome == 'failure'
+        run: |
+          echo "::error::VPS deploy did not succeed. Fix SSH key or hook secret, or run hostinger-terminal-deploy.sh on the VPS."
+          exit 1
 
   deploy-vercel:
     needs: build
@@ -128,12 +133,10 @@ jobs:
     needs: [build, deploy-api]
     runs-on: ubuntu-latest
     steps:
-      - name: Health check
+      - uses: actions/checkout@v4
+
+      - name: Verify production API
         run: |
           sleep 8
-          BODY="$(curl -fsS "https://studentapi.umunsi.com/api/health")"
-          echo "$BODY"
-          echo "$BODY" | grep -q '6b65fed' || echo "::warning::API build still old — SSH deploy likely did not run."
-          FEED="$(curl -s -o /dev/null -w '%{http_code}' https://studentapi.umunsi.com/api/composition-status/feed)"
-          echo "composition-status/feed HTTP $FEED (want 401, not 404)"
+          bash scripts/verify-production-api.sh
           curl -fsS "https://studentapi.umunsi.com/app/" | grep -oE 'index-[A-Za-z0-9_-]+\.js' | head -1 || true
