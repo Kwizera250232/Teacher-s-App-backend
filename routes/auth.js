@@ -134,7 +134,7 @@ pool.query(`
 // Add head teacher role support at the DB constraint level
 pool.query(`
   ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
-  ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('teacher', 'student', 'admin', 'head_teacher', 'parent'));
+  ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('teacher', 'student', 'admin', 'head_teacher', 'parent', 'guest'));
 `).catch(console.error);
 
 // Add school metadata columns if missing for head teacher / school code flows
@@ -481,7 +481,7 @@ router.post('/register', authLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Role is required.' });
   }
 
-  if (!['student', 'teacher', 'head_teacher', 'parent'].includes(role)) {
+  if (!['student', 'teacher', 'head_teacher', 'parent', 'guest'].includes(role)) {
     return res.status(400).json({ error: 'Invalid role.' });
   }
   if (!isStrongPassword(password)) {
@@ -647,6 +647,19 @@ router.post('/register', authLimiter, async (req, res) => {
       if (!emailCheck.valid) {
         return res.status(400).json({ error: emailCheck.reason });
       }
+    } else if (role === 'guest') {
+      const { GUEST_EMAIL_DOMAIN } = require('../lib/quizShares');
+      const guestLocal = normalizeLocalPart(
+        req.body.guest_email_local || req.body.school_email_local || req.body.email_local
+      );
+      if (!guestLocal) {
+        return res.status(400).json({ error: 'Choose a username for your guest login.' });
+      }
+      email = buildSchoolEmail(guestLocal, GUEST_EMAIL_DOMAIN);
+      if (!email) {
+        return res.status(400).json({ error: 'Invalid guest username.' });
+      }
+      resolvedSchoolId = null;
     } else {
       if (!email) {
         return res.status(400).json({ error: 'Email is required.' });
@@ -699,6 +712,33 @@ router.post('/register', authLimiter, async (req, res) => {
       );
     }
 
+    let guestShareRedirect = null;
+    const shareTok = String(req.body.quiz_share_token || req.body.share_token || '').trim();
+    if (shareTok) {
+      const { claimShareForUser, loadShareByToken } = require('../lib/quizShares');
+      if (role === 'guest') {
+        const claimed = await claimShareForUser(user.id, shareTok);
+        if (claimed) {
+          guestShareRedirect = {
+            class_id: claimed.class_id,
+            quiz_id: claimed.quiz_id,
+          };
+        }
+      } else if (role === 'student') {
+        const share = await loadShareByToken(shareTok);
+        if (share) {
+          await pool.query(
+            'INSERT INTO class_members (class_id, student_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+            [share.class_id, user.id]
+          );
+          guestShareRedirect = {
+            class_id: share.class_id,
+            quiz_id: share.quiz_id,
+          };
+        }
+      }
+    }
+
     if (isStaffRole && isSchoolMailEnabled() && forwardTo && schoolRowForMail) {
       const mailboxEmail = await attachMailbox(pool, {
         userId: user.id,
@@ -715,13 +755,15 @@ router.post('/register', authLimiter, async (req, res) => {
     }
 
     const emailCapabilities =
-      isStaffRole && isSchoolMailEnabled()
-        ? mailboxCapabilities(true, Boolean(forwardTo))
-        : isStaffRole
-          ? schoolEmailCapabilities('staff')
-          : schoolDomainForEmail && isSchoolDomainEmail(email, schoolDomainForEmail)
-            ? schoolEmailCapabilities('school')
-            : schoolEmailCapabilities('personal');
+      role === 'guest'
+        ? schoolEmailCapabilities('personal')
+        : isStaffRole && isSchoolMailEnabled()
+          ? mailboxCapabilities(true, Boolean(forwardTo))
+          : isStaffRole
+            ? schoolEmailCapabilities('staff')
+            : schoolDomainForEmail && isSchoolDomainEmail(email, schoolDomainForEmail)
+              ? schoolEmailCapabilities('school')
+              : schoolEmailCapabilities('personal');
 
     if (!isApproved) {
       audit('register', { email, role, status: 'pending_approval' });
@@ -742,6 +784,7 @@ router.post('/register', authLimiter, async (req, res) => {
       user: userPayload(user),
       login_email: email,
       capabilities: emailCapabilities,
+      guest_share_redirect: guestShareRedirect,
     });
   } catch (err) {
     console.error('[register]', err);
@@ -791,9 +834,32 @@ router.post('/login', authLimiter, async (req, res) => {
     resetLoginAttempts(email);
     const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
     audit('login_ok', { email, role: user.role });
+
+    let quizShareRedirect = null;
+    const shareTok = String(req.body.quiz_share_token || '').trim();
+    if (shareTok) {
+      const { claimShareForUser, loadShareByToken } = require('../lib/quizShares');
+      if (user.role === 'guest') {
+        const claimed = await claimShareForUser(user.id, shareTok);
+        if (claimed) {
+          quizShareRedirect = { class_id: claimed.class_id, quiz_id: claimed.quiz_id };
+        }
+      } else if (user.role === 'student') {
+        const share = await loadShareByToken(shareTok);
+        if (share) {
+          await pool.query(
+            'INSERT INTO class_members (class_id, student_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+            [share.class_id, user.id]
+          );
+          quizShareRedirect = { class_id: share.class_id, quiz_id: share.quiz_id };
+        }
+      }
+    }
+
     res.json({
       token,
       user: userPayload(user),
+      quiz_share_redirect: quizShareRedirect,
     });
   } catch (err) {
     console.error('[login]', err);

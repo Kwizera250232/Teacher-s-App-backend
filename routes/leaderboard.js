@@ -170,11 +170,11 @@ router.get('/:classId/quizzes/:quizId/leaderboard', authenticateToken, async (re
     const quizInfo = await pool.query('SELECT title FROM quizzes WHERE id=$1', [req.params.quizId]);
     const result = await pool.query(
       `WITH best_attempts AS (
-         SELECT DISTINCT ON (student_id)
-           id AS attempt_id, student_id, score, total, attempted_at
-         FROM quiz_attempts
-         WHERE quiz_id = $1
-         ORDER BY student_id, score DESC, attempted_at ASC
+         SELECT DISTINCT ON (qa.student_id)
+           qa.id AS attempt_id, qa.student_id, qa.score, qa.total, qa.attempted_at
+         FROM quiz_attempts qa
+         WHERE qa.quiz_id = $1 AND COALESCE(qa.is_guest, FALSE) = FALSE
+         ORDER BY qa.student_id, qa.score DESC, qa.attempted_at ASC
        )
        SELECT
          ba.attempt_id, u.id AS student_id, u.name AS student_name,
@@ -183,7 +183,7 @@ router.get('/:classId/quizzes/:quizId/leaderboard', authenticateToken, async (re
          ba.attempted_at,
          ROW_NUMBER() OVER (ORDER BY ba.score DESC, ba.attempted_at ASC)::int AS rank
        FROM best_attempts ba
-       JOIN users u ON u.id = ba.student_id
+       JOIN users u ON u.id = ba.student_id AND u.role <> 'guest'
        ORDER BY ba.score DESC, ba.attempted_at ASC`,
       [req.params.quizId]
     );

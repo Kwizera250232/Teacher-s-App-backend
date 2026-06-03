@@ -104,6 +104,8 @@ app.use('/api/classroom-feed', classroomFeedRoutes);
 app.use('/api/class-moments', require('./routes/class_moments'));
 app.use('/api/presence', require('./routes/presence'));
 app.use('/api/public', require('./routes/public_moments'));
+app.use('/api/public/quizzes', require('./routes/public_quizzes'));
+app.use('/api/guest', require('./routes/guest'));
 app.use('/share', require('./routes/share_moment_page'));
 app.use('/api/parent', parentPortalRoutes);
 app.use('/api/parent', parentHubRoutes);

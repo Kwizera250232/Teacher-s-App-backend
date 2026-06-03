@@ -57,6 +57,13 @@ After deploy, these must return **401** without a token (not **404**): `POST /ap
 - `POST /api/parent/notify` and school announcements: in-app notify + chat (`context_json` with school/child); optional `also_email`.
 - Child summary: `GET /api/parent/children/:id/summary?period=today|week|term|all`.
 
+### Quiz share & guest accounts
+
+- Teachers/HT: `POST /api/classes/:classId/quizzes/:quizId/share` → `share_url` on `FRONTEND_URL` (`/quiz/share/:token`).
+- Public preview: `GET /api/public/quizzes/:token`.
+- Guest signup: `role: guest`, `guest_email_local` → `name@guest.umunsi.com`; optional `quiz_share_token` grants `guest_class_access`.
+- Guest API: `/api/guest/hub`, `/api/guest/claim-share`, take quiz via normal class quiz routes; attempts use `is_guest` and are excluded from leaderboards.
+
 ### No test suite
 
 `npm test` runs a small smoke script. Manual API testing or frontend UI testing is used for verification.
