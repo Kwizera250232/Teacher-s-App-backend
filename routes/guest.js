@@ -101,8 +101,18 @@ router.get('/hub', authenticateToken, requireRole('guest'), async (req, res) => 
                   EXISTS(
                     SELECT 1 FROM quiz_attempts qa
                     WHERE qa.quiz_id = q.id AND qa.student_id = $1
-                  ) AS attempted
+                  ) AS attempted,
+                  lat.score AS last_score,
+                  lat.total AS last_total,
+                  lat.attempted_at AS last_attempted_at
            FROM quizzes q
+           LEFT JOIN LATERAL (
+             SELECT qa.score, qa.total, qa.attempted_at
+             FROM quiz_attempts qa
+             WHERE qa.quiz_id = q.id AND qa.student_id = $1
+             ORDER BY qa.attempted_at DESC
+             LIMIT 1
+           ) lat ON TRUE
            WHERE q.class_id = ANY($2::int[])
            ORDER BY q.created_at DESC`,
           [req.user.id, classIds]
@@ -173,13 +183,26 @@ router.get('/hub', authenticateToken, requireRole('guest'), async (req, res) => 
           : null,
       classes: classRows.map((c) => ({
         ...c,
-        quizzes: quizzesByClass.filter((q) => q.class_id === c.class_id),
+        quizzes: quizzesByClass
+          .filter((q) => Number(q.class_id) === Number(c.class_id))
+          .map((q) => ({
+            ...q,
+            score: q.last_score,
+            total: q.last_total,
+            attempted_at: q.last_attempted_at,
+          })),
         counts: {
           announcements: annMap[c.class_id] || 0,
           notes: notesMap[c.class_id] || 0,
           homework: hwMap[c.class_id] || 0,
-          quizzes: quizzesByClass.filter((q) => q.class_id === c.class_id).length,
+          quizzes: quizzesByClass.filter((q) => Number(q.class_id) === Number(c.class_id)).length,
         },
+      })),
+      all_quizzes: allQuizzes.map((q) => ({
+        ...q,
+        score: q.last_score,
+        total: q.last_total,
+        attempted_at: q.last_attempted_at,
       })),
       attempts: attempts.rows,
       quizzes_pending: pendingQuizzes,
@@ -299,8 +322,18 @@ router.get('/classes/:classId/quizzes', authenticateToken, requireRole('guest'),
               EXISTS(
                 SELECT 1 FROM quiz_attempts qa
                 WHERE qa.quiz_id = q.id AND qa.student_id = $1
-              ) AS attempted
+              ) AS attempted,
+              lat.score AS score,
+              lat.total AS total,
+              lat.attempted_at
        FROM quizzes q
+       LEFT JOIN LATERAL (
+         SELECT qa.score, qa.total, qa.attempted_at
+         FROM quiz_attempts qa
+         WHERE qa.quiz_id = q.id AND qa.student_id = $1
+         ORDER BY qa.attempted_at DESC
+         LIMIT 1
+       ) lat ON TRUE
        WHERE q.class_id = $2
        ORDER BY q.created_at DESC`,
       [req.user.id, access.classId]
