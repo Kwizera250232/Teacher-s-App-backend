@@ -37,6 +37,7 @@ check_route() {
 }
 
 check_route "guest-marks" GET "/api/classes/1/guest-marks" "401"
+check_route "inyandiko-dashboard" GET "/api/classes/inyandiko/dashboard" "401"
 check_route "parent accept-invite" POST "/api/parent/accept-invite" "401" "-d '{}'"
 check_route "class-moments react" POST "/api/class-moments/1/react" "401" "-d '{\"emoji\":\"like\"}'"
 echo "OK: production API looks up to date (build ${BUILD:0:12}…)."

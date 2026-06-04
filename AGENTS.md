@@ -41,7 +41,9 @@ ALTER TABLE schools ADD COLUMN IF NOT EXISTS welcome_message TEXT;
 
 ### Production API deploy (VPS)
 
-**Guest marks / Class Now / parent invite** need current `main` on the VPS. If `GET /api/classes/1/guest-marks` returns **404**, run `scripts/hostinger-terminal-deploy.sh` on the server — **not** only `pm2 restart studentapi` (see `scripts/restart-production-api.sh`).
+**Guest marks / Class Now / parent invite / Inyandiko** need current `main` on the VPS. If `GET /api/classes/inyandiko/dashboard` or `GET /api/classes/1/guest-marks` returns **404**, run `scripts/hostinger-terminal-deploy.sh` on the server — **not** only `pm2 restart studentapi` (see `scripts/restart-production-api.sh`).
+
+**SSH host-key fingerprints:** Direct SSH to **`93.127.186.217`** should show `SHA256:xoSMmuoeTK+…` (ED25519) or `SHA256:UKTrE1yKO7…` (RSA). If Hostinger hPanel **Browser SSH** shows `SHA256:jYsWizDft9Sm+hAuCTR9zWtpWeehF5XLunkPQPf/IBo`, that is Hostinger’s gateway — run the deploy one-liner **inside that browser terminal**, not via the raw IP fingerprint. A fingerprint is **not** an SSH private key; GitHub `SSH_PRIVATE_KEY` must be a full PEM file.
 
 ### Production API deploy (no GitHub SSH secrets)
 
