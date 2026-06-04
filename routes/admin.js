@@ -6,6 +6,7 @@ const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { ensureStudentSharesModerationColumns } = require('../lib/studentSharesSchema');
 const { ensureQuizShareSchema } = require('../lib/quizShares');
+const { persistLoginEmailDomain } = require('../lib/schoolDomain');
 
 function schoolDomainFromName(name) {
   const slug = String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -760,18 +761,14 @@ async function createSchoolAccount(req, { name, email, role, school_id, password
     throw err;
   }
 
-  let schoolDomain = schoolResult.rows[0].email_domain;
-  if (!schoolDomain) {
-    schoolDomain = schoolDomainFromName(schoolResult.rows[0].name);
-    if (schoolDomain) {
-      await pool.query(
-        'UPDATE schools SET email_domain = $1 WHERE id = $2 AND (email_domain IS NULL OR email_domain = \'\')',
-        [schoolDomain, targetSchoolId]
-      );
-    }
-  }
+  const schoolRow = schoolResult.rows[0];
+  const schoolDomain = await persistLoginEmailDomain(pool, {
+    id: targetSchoolId,
+    name: schoolRow.name,
+    email_domain: schoolRow.email_domain,
+  });
 
-  let userEmail = email;
+  let userEmail = email ? String(email).trim().toLowerCase() : email;
   if (!userEmail) {
     if (!schoolDomain) {
       const err = new Error('School email domain is required for auto email generation.');

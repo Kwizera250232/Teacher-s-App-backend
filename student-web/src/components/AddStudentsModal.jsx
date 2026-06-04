@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
+import { signupEmailDomain } from '../utils/schoolDomain';
 
 export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
   const { user, updateUser } = useAuth();
@@ -29,6 +30,9 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
 
   const [results, setResults] = useState(null);
   const [error, setError] = useState('');
+
+  const selectedSchool = schools.find((s) => String(s.id) === String(schoolId));
+  const studentEmailDomain = signupEmailDomain(selectedSchool || (linkedSchoolName ? { name: linkedSchoolName } : null));
 
   useEffect(() => {
     let cancelled = false;
@@ -95,7 +99,7 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
         role: 'student',
         school_id: schoolId,
       };
-      if (email.trim()) body.email = email.trim();
+      if (email.trim()) body.email = email.trim().toLowerCase();
       if (password.trim()) body.password = password.trim();
       const res = await api.post('/admin/add-pupil', body, token);
       setResults({ type: 'single', data: res });
@@ -254,8 +258,13 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
                 style={{ width: '100%', padding: '10px 14px', border: '2px solid #e8e8e8', borderRadius: 8, fontSize: 14 }}
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                placeholder="name@school.edu (auto-generated if empty)"
+                placeholder={studentEmailDomain ? `name@${studentEmailDomain}` : 'name@schoolname.edu (auto-generated if empty)'}
               />
+              {studentEmailDomain && (
+                <small style={{ color: '#64748b', fontSize: 12, display: 'block', marginTop: 6 }}>
+                  Use <strong>@{studentEmailDomain}</strong> (school login). Not @mail.umunsi.com.
+                </small>
+              )}
             </div>
             <div className="form-group">
               <label style={{ fontSize: 14, fontWeight: 600 }}>Password (optional)</label>

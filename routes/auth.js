@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const pool = require('../db');
 const { authenticateToken } = require('../middleware/auth');
-const { schoolDomainFromName, normalizeLocalPart, buildSchoolEmail } = require('../lib/schoolDomain');
+const { schoolDomainFromName, normalizeLocalPart, buildSchoolEmail, persistLoginEmailDomain, loginEmailDomainForSchool } = require('../lib/schoolDomain');
 const { validateEmailForSignup, isSchoolDomainEmail } = require('../lib/emailValidate');
 const { schoolEmailCapabilities } = require('../lib/schoolEmailCapabilities');
 const {
@@ -38,7 +38,7 @@ function userPayload(row) {
 }
 
 async function ensureSchoolEmailDomain(pool, schoolRow) {
-  return resolveMailboxDomain(pool, schoolRow);
+  return persistLoginEmailDomain(pool, schoolRow);
 }
 
 const router = express.Router();
@@ -601,8 +601,7 @@ router.post('/register', authLimiter, async (req, res) => {
       }
       let domainForStaff = schoolDomainForEmail;
       if (!domainForStaff && schoolRowForMail) {
-        domainForStaff =
-          schoolRowForMail.email_domain || schoolDomainFromName(schoolRowForMail.name);
+        domainForStaff = loginEmailDomainForSchool(schoolRowForMail);
       }
       if (!domainForStaff && inviteRow?.can_create_school && newSchoolName) {
         domainForStaff = schoolDomainFromName(newSchoolName);
@@ -625,8 +624,7 @@ router.post('/register', authLimiter, async (req, res) => {
       if (studentLocal && resolvedSchoolId) {
         let domain = schoolDomainForEmail;
         if (!domain && schoolRowForMail) {
-          domain =
-            schoolRowForMail.email_domain || schoolDomainFromName(schoolRowForMail.name);
+          domain = loginEmailDomainForSchool(schoolRowForMail);
         }
         email = buildSchoolEmail(studentLocal, domain);
       }
