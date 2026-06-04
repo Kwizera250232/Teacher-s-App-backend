@@ -61,7 +61,7 @@ jobs:
           sleep 8
           BODY="$(curl -fsS https://studentapi.umunsi.com/api/health)"
           echo "$BODY"
-          echo "$BODY" | grep -q '6b65fed' || echo "::warning::Build hash may still be old — confirm VPS pulled latest main."
-          CODE="$(curl -s -o /dev/null -w '%{http_code}' https://studentapi.umunsi.com/api/composition-status/feed)"
-          echo "composition-status/feed HTTP $CODE (expect 401, not 404)"
+          echo "$BODY" | grep -qv '575e567' || echo "::warning::Build hash still 575e567 — confirm VPS pulled latest main."
+          CODE="$(curl -s -o /dev/null -w '%{http_code}' https://studentapi.umunsi.com/api/classes/inyandiko/dashboard)"
+          echo "inyandiko/dashboard HTTP $CODE (expect 401, not 404)"
           test "$CODE" != "404"

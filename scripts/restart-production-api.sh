@@ -5,7 +5,16 @@ APP_DIR="${1:-/home/umunsi/htdocs/studentapi.umunsi.com}"
 cd "$APP_DIR"
 # Skip second pull when hostinger-terminal-deploy.sh already synced.
 if [[ "${SKIP_GIT_SYNC:-}" != "1" ]]; then
-  bash scripts/git-sync-main.sh
+  if [[ -f scripts/git-sync-main.sh ]]; then
+    bash scripts/git-sync-main.sh
+  else
+    echo "==> git-sync-main.sh missing — syncing inline..."
+    git fetch origin main
+    git checkout main 2>/dev/null || git checkout -B main origin/main
+    git reset --hard origin/main
+    git clean -fd -- student-web-dist/ 2>/dev/null || true
+    echo "Synced to $(git rev-parse --short HEAD)"
+  fi
 fi
 npm ci --omit=dev
 
