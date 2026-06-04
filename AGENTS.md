@@ -39,6 +39,23 @@ ALTER TABLE schools ADD COLUMN IF NOT EXISTS welcome_message TEXT;
 - `GET /api/composition-status/class/:classId` — teachers; `GET /api/composition-status/school` — staff with `school_id`.
 - `POST /api/composition-status/:id/view` — record view (not owner).
 
+### Production deploy verification
+
+After Hostinger Browser SSH deploy, `curl -s https://studentapi.umunsi.com/api/health` must **not** show build `575e567…`. Inyandiko must return **401**, not **404**:
+
+```bash
+curl -s https://studentapi.umunsi.com/api/health
+curl -s -o /dev/null -w '%{http_code}\n' https://studentapi.umunsi.com/api/classes/inyandiko/dashboard
+```
+
+If the build hash is unchanged, re-run (paste full output when asking for help):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Kwizera250232/Teacher-s-App-backend/main/scripts/cloudpanel-deploy.sh | bash
+```
+
+Do **not** use only `pm2 restart studentapi` — orphan Node processes on port **3005** can keep serving old code.
+
 ### Production API deploy (VPS)
 
 **Guest marks / Class Now / parent invite / Inyandiko** need current `main` on the VPS. If `GET /api/classes/inyandiko/dashboard` or `GET /api/classes/1/guest-marks` returns **404**, run `scripts/hostinger-terminal-deploy.sh` on the server — **not** only `pm2 restart studentapi` (see `scripts/restart-production-api.sh`).
