@@ -1,7 +1,7 @@
 const express = require('express');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
-const { schoolDomainFromName, normalizeLocalPart, buildSchoolEmail } = require('../lib/schoolDomain');
+const { schoolDomainFromName, normalizeLocalPart, buildSchoolEmail, persistLoginEmailDomain, loginEmailDomainForSchool } = require('../lib/schoolDomain');
 const { createSchoolAccount } = require('./admin');
 const {
   ensureParentHubSchema,
@@ -751,13 +751,14 @@ router.get('/school/teachers/email-preview', authenticateToken, requireRole('hea
   try {
     const school = await pool.query('SELECT id, name, email_domain FROM schools WHERE id = $1', [schoolId]);
     if (!school.rows.length) return res.status(404).json({ error: 'School not found.' });
-    let domain = school.rows[0].email_domain || schoolDomainFromName(school.rows[0].name);
+    const schoolRow = school.rows[0];
+    const domain = await persistLoginEmailDomain(pool, schoolRow);
     const email = buildSchoolEmail(local, domain);
     const taken = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
     res.json({
       email,
       available: taken.rows.length === 0,
-      email_domain: domain,
+      email_domain: domain || loginEmailDomainForSchool(schoolRow),
       capabilities: schoolEmailCapabilities('staff'),
     });
   } catch (err) {

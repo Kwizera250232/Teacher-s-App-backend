@@ -6,7 +6,7 @@ const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { ensureStudentSharesModerationColumns } = require('../lib/studentSharesSchema');
 const { ensureQuizShareSchema } = require('../lib/quizShares');
-const { persistLoginEmailDomain } = require('../lib/schoolDomain');
+const { persistLoginEmailDomain, loginEmailDomainForSchool, isMailPlatformDomain } = require('../lib/schoolDomain');
 
 function schoolDomainFromName(name) {
   const slug = String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -289,28 +289,39 @@ router.get('/schools', ...adminOnly, async (req, res) => {
 });
 
 router.post('/schools', ...adminOnly, async (req, res) => {
-  const { name, location, code, email_domain } = req.body;
+  const { name, location, code, email_domain: rawDomain } = req.body;
   if (!name) return res.status(400).json({ error: 'School name is required.' });
+  let email_domain = (rawDomain || '').trim() || null;
+  if (email_domain && isMailPlatformDomain(email_domain)) email_domain = null;
+  if (!email_domain) email_domain = schoolDomainFromName(name);
   try {
     const result = await pool.query(
       'INSERT INTO schools (name, location, code, email_domain) VALUES ($1,$2,$3,$4) RETURNING *',
-      [name, location || null, code || null, email_domain || null]
+      [name, location || null, code || null, email_domain]
     );
-    res.status(201).json(result.rows[0]);
+    const row = result.rows[0];
+    const loginDomain = await persistLoginEmailDomain(pool, row);
+    res.status(201).json({ ...row, email_domain: loginDomain || loginEmailDomainForSchool(row) });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
 router.put('/schools/:id', ...adminOnly, async (req, res) => {
-  const { name, location, code, email_domain } = req.body;
+  const { name, location, code, email_domain: rawDomain } = req.body;
+  let email_domain = rawDomain != null ? String(rawDomain).trim() || null : null;
+  if (email_domain && isMailPlatformDomain(email_domain)) {
+    email_domain = schoolDomainFromName(name);
+  }
   try {
     const result = await pool.query(
       'UPDATE schools SET name=$1, location=$2, code=$3, email_domain=$4 WHERE id=$5 RETURNING *',
-      [name, location || null, code || null, email_domain || null, req.params.id]
+      [name, location || null, code || null, email_domain, req.params.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
-    res.json(result.rows[0]);
+    const row = result.rows[0];
+    const loginDomain = await persistLoginEmailDomain(pool, row);
+    res.json({ ...row, email_domain: loginDomain || loginEmailDomainForSchool(row) });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
   }
@@ -344,6 +355,7 @@ router.post('/ht-link', ...adminOnly, async (req, res) => {
       const schoolResult = await pool.query('SELECT id, name, email_domain, code FROM schools WHERE id=$1 LIMIT 1', [school_id]);
       if (schoolResult.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
       school = schoolResult.rows[0];
+      await persistLoginEmailDomain(pool, school);
     }
     const invite_link = await createInviteLink(
       'head_teacher',
@@ -354,7 +366,7 @@ router.post('/ht-link', ...adminOnly, async (req, res) => {
     res.json({
       invite_link,
       school_name: school?.name || null,
-      school_email_domain: school?.email_domain || null,
+      school_email_domain: school ? loginEmailDomainForSchool(school) : null,
       school_code: school?.code || null,
     });
   } catch (err) {
@@ -370,11 +382,12 @@ router.post('/teacher-link', ...adminOnly, async (req, res) => {
     const schoolResult = await pool.query('SELECT id, name, email_domain, code FROM schools WHERE id=$1 LIMIT 1', [school_id]);
     if (schoolResult.rows.length === 0) return res.status(404).json({ error: 'School not found.' });
     const school = schoolResult.rows[0];
+    await persistLoginEmailDomain(pool, school);
     const invite_link = await createInviteLink('teacher', school.id, req.user.id, false);
     res.json({
       invite_link,
       school_name: school.name,
-      school_email_domain: school.email_domain,
+      school_email_domain: loginEmailDomainForSchool(school),
       school_code: school.code,
     });
   } catch (err) {

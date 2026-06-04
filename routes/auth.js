@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const pool = require('../db');
 const { authenticateToken } = require('../middleware/auth');
-const { schoolDomainFromName, normalizeLocalPart, buildSchoolEmail, persistLoginEmailDomain, loginEmailDomainForSchool } = require('../lib/schoolDomain');
+const { schoolDomainFromName, normalizeLocalPart, buildSchoolEmail, persistLoginEmailDomain, loginEmailDomainForSchool, isMailPlatformDomain } = require('../lib/schoolDomain');
 const { validateEmailForSignup, isSchoolDomainEmail } = require('../lib/emailValidate');
 const { schoolEmailCapabilities } = require('../lib/schoolEmailCapabilities');
 const {
@@ -146,8 +146,17 @@ pool.query(`
 // GET all schools (for dropdown)
 router.get('/schools', async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, name FROM schools ORDER BY name');
-    res.json(result.rows);
+    const result = await pool.query('SELECT id, name, email_domain FROM schools ORDER BY name');
+    const rows = [];
+    for (const row of result.rows) {
+      const loginDomain = await persistLoginEmailDomain(pool, row);
+      rows.push({
+        id: row.id,
+        name: row.name,
+        email_domain: loginDomain || loginEmailDomainForSchool(row),
+      });
+    }
+    res.json(rows);
   } catch (err) {
     console.error('[schools GET]', err);
     res.status(500).json({ error: 'Internal server error.' });
@@ -291,7 +300,9 @@ router.get('/check-school-email', async (req, res) => {
       }
       schoolRow = schoolRes.rows[0];
       schoolName = schoolRow.name;
-      domain = schoolRow.email_domain || schoolDomainFromName(schoolRow.name);
+      domain = loginEmailDomainForSchool(schoolRow);
+      if (schoolRow.id) await persistLoginEmailDomain(pool, schoolRow);
+      domain = loginEmailDomainForSchool(schoolRow);
       if (!domain) {
         return res.status(400).json({ error: 'School email domain is not configured.' });
       }
@@ -305,7 +316,9 @@ router.get('/check-school-email', async (req, res) => {
       if (!schoolRes.rows.length) return res.status(404).json({ error: 'School not found.' });
       schoolRow = schoolRes.rows[0];
       schoolName = schoolRow.name;
-      domain = schoolRow.email_domain || schoolDomainFromName(schoolRow.name);
+      domain = loginEmailDomainForSchool(schoolRow);
+      if (schoolRow.id) await persistLoginEmailDomain(pool, schoolRow);
+      domain = loginEmailDomainForSchool(schoolRow);
     } else if (schoolNameInput) {
       schoolName = schoolNameInput;
       schoolRow = { name: schoolNameInput, mail_slug: null, email_domain: null };
@@ -416,6 +429,9 @@ router.post('/schools', async (req, res) => {
   if (!name) return res.status(400).json({ error: 'School name is required.' });
   if (name.length > 200) return res.status(400).json({ error: 'School name is too long.' });
   if (!email_domain) email_domain = schoolDomainFromName(name);
+  if (email_domain && isMailPlatformDomain(email_domain)) {
+    email_domain = schoolDomainFromName(name);
+  }
   try {
     const result = await pool.query(
       `INSERT INTO schools (name, code, email_domain, welcome_message)
@@ -427,7 +443,9 @@ router.post('/schools', async (req, res) => {
        RETURNING *`,
       [name, code, email_domain, welcome_message]
     );
-    res.status(201).json(result.rows[0]);
+    const row = result.rows[0];
+    const loginDomain = await persistLoginEmailDomain(pool, row);
+    res.status(201).json({ ...row, email_domain: loginDomain || loginEmailDomainForSchool(row) });
   } catch (err) {
     console.error('[schools POST]', err);
     res.status(500).json({ error: 'Internal server error.' });
