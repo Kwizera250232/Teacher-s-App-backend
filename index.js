@@ -76,7 +76,6 @@ ensureDirectory(path.join(uploadsRoot, 'avatars'));
 ensureDirectory(path.join(uploadsRoot, 'msg_images'));
 ensureDirectory(path.join(uploadsRoot, 'feed'));
 ensureDirectory(path.join(uploadsRoot, 'moments'));
-ensureDirectory(path.join(uploadsRoot, 'class_images'));
 
 app.use('/uploads', express.static(uploadsRoot));
 app.use('/uploads/avatars', express.static(path.join(uploadsRoot, 'avatars')));
@@ -149,7 +148,6 @@ app.get('/api/health', (req, res) => {
     features: {
       quiz_teacher_shares: true,
       note_teacher_shares: true,
-      class_images: true,
       student_leaderboard_privacy: true,
     },
   });

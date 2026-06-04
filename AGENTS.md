@@ -27,7 +27,6 @@ ALTER TABLE schools ADD COLUMN IF NOT EXISTS welcome_message TEXT;
 ### Quiz share & note share (colleagues)
 
 - Teachers/HT: `POST /api/quiz-teacher-shares/from-class/:classId/quizzes/:quizId` and `POST /api/note-teacher-shares/from-class/:classId/notes/:noteId` — same-school verified teachers only; recipient accepts via inbox (`GET /api/*/inbox`, `PUT /api/*/:id/accept`).
-- Class images: `POST /api/classes/:id/avatar` and `POST /api/classes/:id/cover` (multipart field `image`); columns `classes.avatar_path`, `classes.cover_path`.
 - Student leaderboard privacy: `GET /api/classes/:classId/leaderboard` returns `{ student_view, top_student, entries }` for students (only #1 + own row).
 
 ### Parent invites
