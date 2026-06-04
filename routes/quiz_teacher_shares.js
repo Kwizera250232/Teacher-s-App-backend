@@ -5,7 +5,9 @@ const { userCanManageClass } = require('../lib/classAccess');
 const {
   ensureQuizTeacherShareSchema,
   assertSameSchoolTeachers,
-  getTeacherSchoolId,
+  resolveSharerSchoolId,
+  findTeacherInAppByEmail,
+  teacherCanReceiveShare,
 } = require('../lib/quizTeacherShares');
 const { notifyQuizTeacherShare } = require('../lib/quizTeacherShareNotify');
 
@@ -19,43 +21,37 @@ function colleagueSelectSql() {
           LEFT JOIN user_profiles p ON p.user_id = u.id`;
 }
 
-async function findColleagueByEmail(sharerId, schoolId, email) {
-  const normalized = String(email || '').trim().toLowerCase();
-  if (!normalized) return null;
-  const result = await pool.query(
-    `${colleagueSelectSql()}
-     WHERE u.email = $1
-       AND u.school_id = $2
-       AND u.id != $3
-       AND u.role IN ('teacher', 'head_teacher')
-       AND u.is_approved = TRUE
-       AND COALESCE(u.is_suspended, FALSE) = FALSE
-     LIMIT 1`,
-    [normalized, schoolId, sharerId]
-  );
-  return result.rows[0] || null;
-}
-
-async function resolveRecipientId(sharerId, { recipient_teacher_id, recipient_email }) {
+async function resolveRecipientId(sharerId, classId, { recipient_teacher_id, recipient_email }) {
+  const schoolId = await resolveSharerSchoolId(sharerId, classId);
   const id = parseInt(recipient_teacher_id, 10);
-  if (id) return { recipientId: id };
 
-  const colleague = await findColleagueByEmail(
-    sharerId,
-    (await getTeacherSchoolId(sharerId))?.school_id,
-    recipient_email
-  );
-  if (!colleague) {
-    const schoolId = (await getTeacherSchoolId(sharerId))?.school_id;
-    if (!schoolId) {
-      return { error: 'Join a school before sharing quizzes with colleagues.', status: 400 };
-    }
+  if (id) {
+    const u = await pool.query(
+      `SELECT u.id, u.name, u.email, u.role, u.school_id, u.is_approved,
+              (u.is_approved = TRUE AND u.school_id IS NOT NULL) AS is_verified
+       FROM users u
+       WHERE u.id = $1
+         AND u.role IN ('teacher', 'head_teacher')
+         AND COALESCE(u.is_suspended, FALSE) = FALSE
+       LIMIT 1`,
+      [id]
+    );
+    if (!u.rows.length) return { error: 'Teacher not found on UClass.', status: 404 };
+    const check = teacherCanReceiveShare(u.rows[0], sharerId, schoolId);
+    if (!check.ok) return { error: check.error, status: 400 };
+    return { recipientId: id, colleague: u.rows[0] };
+  }
+
+  const teacher = await findTeacherInAppByEmail(recipient_email);
+  if (!teacher) {
     return {
-      error: 'No verified teacher at your school uses that email. Check the address or pick from the list.',
+      error: 'No teacher on UClass uses that email. Check spelling or ask them to register first.',
       status: 404,
     };
   }
-  return { recipientId: colleague.id, colleague };
+  const check = teacherCanReceiveShare(teacher, sharerId, schoolId);
+  if (!check.ok) return { error: check.error, status: 400 };
+  return { recipientId: teacher.id, colleague: teacher };
 }
 
 async function createQuizShareRequest(req, { classId, quizId, recipientId, message }) {
@@ -149,11 +145,20 @@ router.use(async (req, res, next) => {
   }
 });
 
-/** GET colleagues in the same verified school */
+/** GET colleagues in the same verified school (optional search + class context) */
 router.get('/colleagues', async (req, res) => {
   try {
-    if (!req.user.school_id) {
+    const classId = parseInt(req.query.class_id, 10) || null;
+    const schoolId = await resolveSharerSchoolId(req.user.id, classId) || req.user.school_id;
+    if (!schoolId) {
       return res.json([]);
+    }
+    const q = String(req.query.q || '').trim();
+    const params = [schoolId, req.user.id];
+    let searchSql = '';
+    if (q) {
+      params.push(`%${q}%`);
+      searchSql = ` AND (u.name ILIKE $3 OR u.email ILIKE $3)`;
     }
     const result = await pool.query(
       `${colleagueSelectSql()}
@@ -162,8 +167,9 @@ router.get('/colleagues', async (req, res) => {
          AND u.role IN ('teacher', 'head_teacher')
          AND u.is_approved = TRUE
          AND COALESCE(u.is_suspended, FALSE) = FALSE
+         ${searchSql}
        ORDER BY u.name`,
-      [req.user.school_id, req.user.id]
+      params
     );
     res.json(result.rows);
   } catch (err) {
@@ -172,22 +178,26 @@ router.get('/colleagues', async (req, res) => {
   }
 });
 
-/** GET lookup colleague by email (same school) */
+/** GET lookup teacher by email — finds anyone on UClass, validates same school */
 router.get('/lookup', async (req, res) => {
   try {
-    if (!req.user.school_id) {
-      return res.status(400).json({ error: 'Join a school before sharing quizzes with colleagues.' });
-    }
+    const classId = parseInt(req.query.class_id, 10) || null;
+    const schoolId = await resolveSharerSchoolId(req.user.id, classId) || req.user.school_id;
     const email = (req.query.email || '').trim();
     if (!email) return res.status(400).json({ error: 'Teacher email is required.' });
 
-    const colleague = await findColleagueByEmail(req.user.id, req.user.school_id, email);
-    if (!colleague) {
+    const teacher = await findTeacherInAppByEmail(email);
+    if (!teacher) {
       return res.status(404).json({
-        error: 'No verified teacher at your school uses that email. Check the address or pick from the list.',
+        error: 'No teacher on UClass uses that email. Check spelling or ask them to register.',
       });
     }
-    res.json({ teacher: colleague });
+    const check = teacherCanReceiveShare(teacher, req.user.id, schoolId);
+    res.json({
+      teacher,
+      can_invite: check.ok,
+      reason: check.ok ? null : check.error,
+    });
   } catch (err) {
     console.error('[quiz_teacher_shares/lookup]', err);
     res.status(500).json({ error: 'Internal server error.' });
@@ -232,7 +242,7 @@ router.post('/from-class/:classId/quizzes/:quizId', async (req, res) => {
   }
 
   try {
-    const resolved = await resolveRecipientId(req.user.id, req.body);
+    const resolved = await resolveRecipientId(req.user.id, classId, req.body);
     if (resolved.error) {
       return res.status(resolved.status || 400).json({ error: resolved.error });
     }
