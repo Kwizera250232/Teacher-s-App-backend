@@ -1,6 +1,7 @@
 const express = require('express');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { notifyClassAudiencePush } = require('../lib/classContentNotify');
 
 const router = express.Router();
 
@@ -28,6 +29,14 @@ router.post('/:classId/announcements', authenticateToken, requireRole('teacher')
       'INSERT INTO announcements (class_id, teacher_id, content) VALUES ($1,$2,$3) RETURNING *',
       [req.params.classId, req.user.id, content]
     );
+    notifyClassAudiencePush({
+      classId: req.params.classId,
+      excludeUserId: req.user.id,
+      title: '📢 New announcement',
+      body: String(content).slice(0, 200),
+      contentType: 'announcement',
+      tag: `announcement-${result.rows[0].id}`,
+    }).catch(() => {});
     res.status(201).json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });

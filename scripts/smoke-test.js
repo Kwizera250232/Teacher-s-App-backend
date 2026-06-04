@@ -14,6 +14,9 @@ const modules = [
   '../lib/schoolMail',
   '../lib/classMomentsSchema',
   '../lib/classMomentReactions',
+  '../lib/pushNotify',
+  '../lib/classContentNotify',
+  '../routes/pwa_push',
   '../routes/parent_hub',
 ];
 

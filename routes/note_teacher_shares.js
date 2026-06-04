@@ -6,6 +6,7 @@ const {
   ensureNoteTeacherShareSchema,
   assertSameSchoolTeachers,
 } = require('../lib/noteTeacherShares');
+const { notifyNoteTeacherShare } = require('../lib/noteTeacherShareNotify');
 
 const router = express.Router();
 
@@ -126,6 +127,17 @@ router.post('/from-class/:classId/notes/:noteId', async (req, res) => {
        RETURNING *`,
       [noteId, classId, req.user.id, recipientId, message]
     );
+
+    const classRow = await pool.query('SELECT name FROM classes WHERE id = $1', [classId]);
+    const sharerRow = await pool.query('SELECT name FROM users WHERE id = $1', [req.user.id]);
+    notifyNoteTeacherShare({
+      shareId: ins.rows[0].id,
+      recipientId,
+      sharerName: sharerRow.rows[0]?.name || 'A colleague',
+      noteTitle: noteRow.rows[0].title,
+      sourceClassName: classRow.rows[0]?.name || 'a class',
+      message,
+    }).catch(() => {});
 
     res.status(201).json({
       share: ins.rows[0],

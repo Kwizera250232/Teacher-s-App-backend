@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { notifyParentsOfStudent } = require('../lib/parentClassNotify');
+const { notifyClassAudiencePush } = require('../lib/classContentNotify');
 const { canTakeQuiz } = require('../lib/quizAccess');
 const {
   ensureQuizShareSchema,
@@ -108,6 +109,14 @@ router.post('/:classId/quizzes', authenticateToken, requireRole('teacher'), asyn
       );
     }
     await client.query('COMMIT');
+    notifyClassAudiencePush({
+      classId: req.params.classId,
+      excludeUserId: req.user.id,
+      title: '📝 New quiz',
+      body: `"${title}" is available in your class.`,
+      contentType: 'quiz',
+      tag: `quiz-${quiz.id}`,
+    }).catch(() => {});
     res.status(201).json({ ...quiz, question_count: questions.length });
   } catch (err) {
     await client.query('ROLLBACK');

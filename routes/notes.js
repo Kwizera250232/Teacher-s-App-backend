@@ -3,6 +3,7 @@ const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { createUpload } = require('../lib/uploads');
 const { ensureNoteTeacherShareSchema } = require('../lib/noteTeacherShares');
+const { notifyClassAudiencePush } = require('../lib/classContentNotify');
 
 const router = express.Router();
 const uploadNote = createUpload('file');
@@ -96,6 +97,14 @@ router.post('/:classId/notes', authenticateToken, requireRole('teacher', 'head_t
       'INSERT INTO notes (class_id, title, file_path, file_name) VALUES ($1,$2,$3,$4) RETURNING *',
       [classId, String(title).trim(), filePath, fileName]
     );
+    notifyClassAudiencePush({
+      classId,
+      excludeUserId: req.user.id,
+      title: '📄 New class notes',
+      body: `"${String(title).trim()}" was uploaded for your class.`,
+      contentType: 'notes',
+      tag: `note-${result.rows[0].id}`,
+    }).catch(() => {});
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('[notes POST] error:', err.message, err.code, err.detail);

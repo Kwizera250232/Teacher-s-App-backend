@@ -103,6 +103,13 @@ After deploy, these must return **401** without a token (not **404**): `POST /ap
 
 `npm test` runs a small smoke script. Manual API testing or frontend UI testing is used for verification.
 
+### Web Push (installed PWA)
+
+- Requires `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` in `.env` (generate: `npm run generate-vapid`).
+- Endpoints: `GET /api/pwa/vapid-public-key`, `POST /api/pwa/push-subscribe` (auth), `DELETE /api/pwa/push-subscribe`.
+- Push fires on class uploads (homework, notes, quizzes, announcements, feed media, class moments) and parent/teacher alerts.
+- Production: add the same VAPID vars on the VPS **and** restart pm2 after deploy.
+
 ### Today's Class Moments (Class Now)
 
 - Teachers/HT: dashboard tab **Class Now** — post 1–10 photos + description per class (`POST /api/class-moments`, multipart `photos`).

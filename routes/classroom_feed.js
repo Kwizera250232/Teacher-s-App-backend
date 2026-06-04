@@ -4,6 +4,7 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const { userCanAccessClass, userCanManageClass, isClassMember } = require('../lib/classAccess');
 const { feedUploadMiddleware } = require('../lib/feedUpload');
 const { ensureFeedTables } = require('../lib/feedSchema');
+const { notifyClassAudiencePush } = require('../lib/classContentNotify');
 
 const router = express.Router();
 
@@ -168,6 +169,19 @@ router.post('/:classId/posts', authenticateToken, feedUploadMiddleware('file'), 
     );
     const row = result.rows[0];
     const author = await pool.query('SELECT name, role FROM users WHERE id=$1', [req.user.id]);
+    const authorName = author.rows[0]?.name || 'Someone';
+    if (mediaUrl || req.user.role === 'teacher' || req.user.role === 'head_teacher') {
+      notifyClassAudiencePush({
+        classId,
+        excludeUserId: req.user.id,
+        title: mediaUrl ? '📎 New class upload' : '💬 New class post',
+        body: mediaUrl
+          ? `${authorName} shared something new in your class feed.`
+          : `${authorName}: ${(body || 'New post').slice(0, 120)}`,
+        contentType: 'feed',
+        tag: `feed-${row.id}`,
+      }).catch(() => {});
+    }
     res.status(201).json({
       ...row,
       author_name: author.rows[0]?.name,

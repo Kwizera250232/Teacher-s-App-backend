@@ -121,6 +121,8 @@ app.use('/api/mail', require('./routes/mail'));
 app.use('/uploads/avatars', express.static(require('path').join(__dirname, 'uploads/avatars')));
 app.use('/uploads/msg_images', express.static(require('path').join(__dirname, 'uploads/msg_images')));
 
+app.use('/api/pwa', require('./routes/pwa_push'));
+
 // PWA install tracking (public, no auth)
 app.post('/api/pwa/install', async (req, res) => {
   try {
@@ -150,6 +152,7 @@ app.get('/api/health', (req, res) => {
       note_teacher_shares: true,
       student_leaderboard_privacy: true,
       login_email_edu: true,
+      web_push: Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY),
     },
   });
 });
