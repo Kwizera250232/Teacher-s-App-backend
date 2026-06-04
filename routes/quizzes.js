@@ -8,8 +8,50 @@ const {
   newShareToken,
   sharePageUrl,
 } = require('../lib/quizShares');
+const { ensureQuizTeacherShareSchema } = require('../lib/quizTeacherShares');
 
 const router = express.Router();
+
+async function listQuizzesForClass(classId) {
+  await ensureQuizShareSchema();
+  await ensureQuizTeacherShareSchema();
+  const native = await pool.query(
+    `SELECT q.*, COUNT(qa.id)::int AS attempt_count,
+            FALSE AS is_shared,
+            NULL::text AS shared_from_teacher_name,
+            NULL::text AS shared_from_class_name,
+            NULL::text AS shared_from_class_subject,
+            NULL::int AS shared_from_teacher_id,
+            FALSE AS shared_from_teacher_verified,
+            NULL::int AS teacher_share_id
+     FROM quizzes q
+     LEFT JOIN quiz_attempts qa ON qa.quiz_id = q.id AND COALESCE(qa.is_guest, FALSE) = FALSE
+     WHERE q.class_id = $1
+     GROUP BY q.id`,
+    [classId]
+  );
+  const shared = await pool.query(
+    `SELECT q.*, COUNT(qa.id)::int AS attempt_count,
+            TRUE AS is_shared,
+            st.name AS shared_from_teacher_name,
+            sc.name AS shared_from_class_name,
+            sc.subject AS shared_from_class_subject,
+            st.id AS shared_from_teacher_id,
+            (st.is_approved = TRUE AND st.school_id IS NOT NULL) AS shared_from_teacher_verified,
+            ts.id AS teacher_share_id
+     FROM quiz_teacher_shares ts
+     JOIN quizzes q ON q.id = ts.source_quiz_id
+     JOIN users st ON st.id = ts.source_teacher_id
+     JOIN classes sc ON sc.id = ts.source_class_id
+     LEFT JOIN quiz_attempts qa ON qa.quiz_id = q.id AND COALESCE(qa.is_guest, FALSE) = FALSE
+     WHERE ts.target_class_id = $1 AND ts.status = 'accepted'
+     GROUP BY q.id, st.name, sc.name, sc.subject, st.id, st.is_approved, st.school_id, ts.id`,
+    [classId]
+  );
+  const merged = [...native.rows, ...shared.rows];
+  merged.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  return merged;
+}
 
 // Auto-migrate new columns
 pool.query(`
@@ -17,19 +59,26 @@ pool.query(`
   ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS passage TEXT;
 `).catch(e => console.error('[quizzes] migration error:', e.message));
 
-// GET quizzes for a class (includes attempt_count so teacher knows if editable)
+// GET quizzes for a class (includes colleague shares accepted into this class)
 router.get('/:classId/quizzes', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT q.*, COUNT(qa.id)::int AS attempt_count
-       FROM quizzes q
-       LEFT JOIN quiz_attempts qa ON qa.quiz_id = q.id AND COALESCE(qa.is_guest, FALSE) = FALSE
-       WHERE q.class_id = $1
-       GROUP BY q.id
-       ORDER BY q.created_at DESC`,
-      [req.params.classId]
-    );
-    res.json(result.rows);
+    const rows = await listQuizzesForClass(req.params.classId);
+    res.json(rows);
+  } catch (err) {
+    console.error('[quizzes/list]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// GET single quiz metadata (attribution for shared quizzes)
+router.get('/:classId/quizzes/:quizId', authenticateToken, async (req, res) => {
+  try {
+    const classId = parseInt(req.params.classId, 10);
+    const quizId = parseInt(req.params.quizId, 10);
+    const rows = await listQuizzesForClass(classId);
+    const quiz = rows.find((q) => Number(q.id) === quizId);
+    if (!quiz) return res.status(404).json({ error: 'Quiz not found.' });
+    res.json(quiz);
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
   }
