@@ -27,7 +27,7 @@ ensureSchoolMailSchema(pool).catch((e) => console.error('[auth] school mail sche
 const STRICT_EMAIL = process.env.STRICT_EMAIL_VALIDATE === 'true';
 
 function userPayload(row) {
-  return {
+  const payload = {
     id: row.id,
     name: row.name,
     email: row.email,
@@ -35,6 +35,8 @@ function userPayload(row) {
     school_id: row.school_id,
     is_approved: row.is_approved !== false,
   };
+  if (row.school_name) payload.school_name = row.school_name;
+  return payload;
 }
 
 async function ensureSchoolEmailDomain(pool, schoolRow) {
@@ -803,7 +805,13 @@ router.post('/login', authLimiter, async (req, res) => {
   }
 
   try {
-    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    const result = await pool.query(
+      `SELECT u.*, s.name AS school_name
+       FROM users u
+       LEFT JOIN schools s ON s.id = u.school_id
+       WHERE u.email = $1`,
+      [email]
+    );
     if (result.rows.length === 0) {
       recordFailedLogin(email);
       audit('login_fail', { email, reason: 'user_not_found' });
@@ -972,7 +980,13 @@ router.post('/parent-invite', authenticateToken, handleStudentParentInvite);
 // GET current user
 router.get('/me', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
+    const result = await pool.query(
+      `SELECT u.*, s.name AS school_name
+       FROM users u
+       LEFT JOIN schools s ON s.id = u.school_id
+       WHERE u.id = $1`,
+      [req.user.id]
+    );
     if (!result.rows.length) return res.status(404).json({ error: 'User not found.' });
     res.json({ user: userPayload(result.rows[0]) });
   } catch (err) {

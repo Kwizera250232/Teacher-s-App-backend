@@ -387,14 +387,16 @@ router.post('/teacher-link', ...adminOnly, async (req, res) => {
 router.get('/teachers', ...adminOnly, async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT u.id, u.name, u.email, u.phone, u.is_suspended, u.is_approved, u.created_at,
+      SELECT u.id, u.name, u.email, u.role, u.phone, u.school_id,
+             u.is_suspended, u.is_approved, u.created_at,
              s.name AS school_name,
              COUNT(DISTINCT c.id) AS class_count
       FROM users u
       LEFT JOIN schools s ON u.school_id = s.id
       LEFT JOIN classes c ON c.teacher_id = u.id
-      WHERE u.role = 'teacher'
-      GROUP BY u.id, s.name ORDER BY u.is_approved ASC, u.created_at DESC
+      WHERE u.role IN ('teacher', 'head_teacher')
+      GROUP BY u.id, u.school_id, s.name, u.role
+      ORDER BY u.is_approved ASC, u.created_at DESC
     `);
     res.json(result.rows);
   } catch (err) {
@@ -402,10 +404,63 @@ router.get('/teachers', ...adminOnly, async (req, res) => {
   }
 });
 
+/** Admin: create teacher/head teacher already linked to a school */
+router.post('/teachers', ...adminOnly, async (req, res) => {
+  const name = String(req.body.name || '').trim();
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const password = String(req.body.password || '').trim();
+  const role = req.body.role === 'head_teacher' ? 'head_teacher' : 'teacher';
+  const schoolId = parseInt(req.body.school_id, 10);
+
+  if (!name) return res.status(400).json({ error: 'Teacher name is required.' });
+  if (!email) return res.status(400).json({ error: 'Email is required.' });
+  if (!password || password.length < 4) {
+    return res.status(400).json({ error: 'Password must be at least 4 characters.' });
+  }
+  if (!schoolId) return res.status(400).json({ error: 'Select a school (Ishuri).' });
+
+  try {
+    const school = await pool.query('SELECT id, name FROM schools WHERE id = $1', [schoolId]);
+    if (!school.rows.length) return res.status(404).json({ error: 'School not found.' });
+
+    if (role === 'head_teacher') {
+      const existingHt = await pool.query(
+        "SELECT id FROM users WHERE school_id = $1 AND role = 'head_teacher' AND is_approved = TRUE LIMIT 1",
+        [schoolId]
+      );
+      if (existingHt.rows.length) {
+        return res.status(409).json({ error: 'This school already has an approved Head Teacher.' });
+      }
+    }
+
+    const dup = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+    if (dup.rows.length) {
+      return res.status(409).json({ error: 'Email already registered. Assign their school from the list below.' });
+    }
+
+    const hashed = await bcrypt.hash(password, 12);
+    const ins = await pool.query(
+      `INSERT INTO users (name, email, password, role, school_id, is_approved)
+       VALUES ($1, $2, $3, $4, $5, TRUE)
+       RETURNING id, name, email, role, school_id, is_approved, created_at`,
+      [name, email, hashed, role, schoolId]
+    );
+    res.status(201).json({
+      teacher: { ...ins.rows[0], school_name: school.rows[0].name, class_count: 0 },
+      message: `${name} added to ${school.rows[0].name}. They can log in with this email and password.`,
+    });
+  } catch (err) {
+    console.error('[admin teachers POST]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 router.put('/teachers/:id/suspend', ...adminOnly, async (req, res) => {
   try {
     const result = await pool.query(
-      'UPDATE users SET is_suspended=$1 WHERE id=$2 AND role=\'teacher\' RETURNING id, name, is_suspended',
+      `UPDATE users SET is_suspended=$1
+       WHERE id=$2 AND role IN ('teacher', 'head_teacher')
+       RETURNING id, name, is_suspended`,
       [req.body.suspended, req.params.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Teacher not found.' });
@@ -417,12 +472,28 @@ router.put('/teachers/:id/suspend', ...adminOnly, async (req, res) => {
 
 router.put('/teachers/:id/approve', ...adminOnly, async (req, res) => {
   try {
+    const schoolIdRaw = req.body.school_id;
+    const schoolId =
+      schoolIdRaw == null || schoolIdRaw === ''
+        ? null
+        : parseInt(schoolIdRaw, 10);
+
     const result = await pool.query(
-      "UPDATE users SET is_approved=TRUE WHERE id=$1 AND role='teacher' RETURNING id, name, email, is_approved",
-      [req.params.id]
+      `UPDATE users
+       SET is_approved = TRUE,
+           school_id = COALESCE($2, school_id)
+       WHERE id = $1 AND role IN ('teacher', 'head_teacher')
+       RETURNING id, name, email, is_approved, school_id`,
+      [req.params.id, schoolId || null]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Teacher not found.' });
-    res.json(result.rows[0]);
+    const row = result.rows[0];
+    let school_name = null;
+    if (row.school_id) {
+      const s = await pool.query('SELECT name FROM schools WHERE id = $1', [row.school_id]);
+      school_name = s.rows[0]?.name || null;
+    }
+    res.json({ ...row, school_name });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
   }
@@ -430,11 +501,26 @@ router.put('/teachers/:id/approve', ...adminOnly, async (req, res) => {
 
 router.put('/teachers/:id/school', ...adminOnly, async (req, res) => {
   try {
+    const schoolIdRaw = req.body.school_id;
+    const schoolId =
+      schoolIdRaw == null || schoolIdRaw === ''
+        ? null
+        : parseInt(schoolIdRaw, 10);
+
     const result = await pool.query(
-      'UPDATE users SET school_id=$1 WHERE id=$2 AND role=\'teacher\' RETURNING id, name, school_id',
-      [req.body.school_id, req.params.id]
+      `UPDATE users SET school_id = $1
+       WHERE id = $2 AND role IN ('teacher', 'head_teacher')
+       RETURNING id, name, school_id`,
+      [schoolId, req.params.id]
     );
-    res.json(result.rows[0]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Teacher not found.' });
+    const row = result.rows[0];
+    let school_name = null;
+    if (row.school_id) {
+      const s = await pool.query('SELECT name FROM schools WHERE id = $1', [row.school_id]);
+      school_name = s.rows[0]?.name || null;
+    }
+    res.json({ ...row, school_name });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
   }
@@ -442,7 +528,10 @@ router.put('/teachers/:id/school', ...adminOnly, async (req, res) => {
 
 router.delete('/teachers/:id', ...adminOnly, async (req, res) => {
   try {
-    await pool.query('DELETE FROM users WHERE id=$1 AND role=\'teacher\'', [req.params.id]);
+    await pool.query(
+      "DELETE FROM users WHERE id=$1 AND role IN ('teacher', 'head_teacher')",
+      [req.params.id]
+    );
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
