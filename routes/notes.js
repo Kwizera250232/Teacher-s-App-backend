@@ -2,9 +2,46 @@ const express = require('express');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { createUpload } = require('../lib/uploads');
+const { ensureNoteTeacherShareSchema } = require('../lib/noteTeacherShares');
 
 const router = express.Router();
 const uploadNote = createUpload('file');
+
+async function listNotesForClass(classId) {
+  await ensureNoteTeacherShareSchema();
+  const native = await pool.query(
+    `SELECT n.*,
+            FALSE AS is_shared,
+            NULL::text AS shared_from_teacher_name,
+            NULL::text AS shared_from_class_name,
+            NULL::text AS shared_from_class_subject,
+            NULL::int AS shared_from_teacher_id,
+            FALSE AS shared_from_teacher_verified,
+            NULL::int AS teacher_share_id
+     FROM notes n
+     WHERE n.class_id = $1`,
+    [classId]
+  );
+  const shared = await pool.query(
+    `SELECT n.*,
+            TRUE AS is_shared,
+            st.name AS shared_from_teacher_name,
+            sc.name AS shared_from_class_name,
+            sc.subject AS shared_from_class_subject,
+            st.id AS shared_from_teacher_id,
+            (st.is_approved = TRUE AND st.school_id IS NOT NULL) AS shared_from_teacher_verified,
+            ts.id AS teacher_share_id
+     FROM note_teacher_shares ts
+     JOIN notes n ON n.id = ts.source_note_id
+     JOIN users st ON st.id = ts.source_teacher_id
+     JOIN classes sc ON sc.id = ts.source_class_id
+     WHERE ts.target_class_id = $1 AND ts.status = 'accepted'`,
+    [classId]
+  );
+  const merged = [...native.rows, ...shared.rows];
+  merged.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  return merged;
+}
 
 async function teacherOwnsClass(classId, user) {
   const teacherId = user.id;
@@ -25,14 +62,11 @@ async function teacherOwnsClass(classId, user) {
   return false;
 }
 
-// GET notes for a class
+// GET notes for a class (includes colleague shares accepted into this class)
 router.get('/:classId/notes', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query(
-      'SELECT * FROM notes WHERE class_id = $1 ORDER BY created_at DESC',
-      [req.params.classId]
-    );
-    res.json(result.rows);
+    const rows = await listNotesForClass(req.params.classId);
+    res.json(rows);
   } catch (err) {
     console.error('[notes GET] error:', err.message);
     res.status(500).json({ error: 'Internal server error.' });
@@ -76,6 +110,13 @@ router.delete('/:classId/notes/:noteId', authenticateToken, requireRole('teacher
   try {
     if (!(await teacherOwnsClass(classId, req.user))) {
       return res.status(403).json({ error: 'You do not own this class.' });
+    }
+    const owned = await pool.query(
+      'SELECT id FROM notes WHERE id = $1 AND class_id = $2',
+      [req.params.noteId, classId]
+    );
+    if (!owned.rows.length) {
+      return res.status(403).json({ error: 'You can only delete notes uploaded to this class.' });
     }
     await pool.query('DELETE FROM notes WHERE id = $1 AND class_id = $2', [req.params.noteId, classId]);
     res.json({ message: 'Note deleted.' });

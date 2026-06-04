@@ -131,6 +131,24 @@ pool.query(`
   )
 `).catch(console.error);
 
+function filterLeaderboardForStudent(allRows, studentId) {
+  const ranked = allRows.map((r, i) => ({ ...r, rank: i + 1 }));
+  const topStudent = ranked[0] && Number(ranked[0].total_score) > 0 ? ranked[0] : null;
+  const mine = ranked.find((r) => Number(r.student_id) === Number(studentId));
+  const entries = [];
+  if (topStudent) entries.push({ ...topStudent, is_top_student: true });
+  if (mine && (!topStudent || Number(mine.student_id) !== Number(topStudent.student_id))) {
+    entries.push({ ...mine, is_self: true });
+  } else if (mine && topStudent && Number(mine.student_id) === Number(topStudent.student_id)) {
+    entries[0] = { ...entries[0], is_self: true };
+  }
+  return {
+    top_student: topStudent,
+    entries: mine && !topStudent ? [{ ...mine, rank: mine.rank, is_self: true }] : entries,
+    student_view: true,
+  };
+}
+
 // GET leaderboard for a class (best score per student per quiz, then summed)
 router.get('/:classId/leaderboard', authenticateToken, async (req, res) => {
   try {
@@ -158,8 +176,11 @@ router.get('/:classId/leaderboard', authenticateToken, async (req, res) => {
        ORDER BY total_score DESC NULLS LAST, avg_percentage DESC NULLS LAST`,
       [req.params.classId]
     );
-    // Add numeric rank (1-based)
     const rows = result.rows.map((r, i) => ({ ...r, rank: i + 1 }));
+
+    if (req.user.role === 'student') {
+      return res.json(filterLeaderboardForStudent(rows, req.user.id));
+    }
     res.json(rows);
   } catch (err) { console.error(err); res.status(500).json({ error: 'Internal server error.' }); }
 });
@@ -187,9 +208,23 @@ router.get('/:classId/quizzes/:quizId/leaderboard', authenticateToken, async (re
        ORDER BY ba.score DESC, ba.attempted_at ASC`,
       [req.params.quizId]
     );
+    let entries = result.rows;
+    if (req.user.role === 'student') {
+      const top = entries[0] || null;
+      const mine = entries.find((e) => Number(e.student_id) === Number(req.user.id));
+      entries = [];
+      if (top) entries.push({ ...top, is_top_student: true });
+      if (mine && (!top || Number(mine.student_id) !== Number(top.student_id))) {
+        entries.push({ ...mine, is_self: true });
+      } else if (mine && top && Number(mine.student_id) === Number(top.student_id)) {
+        entries[0] = { ...entries[0], is_self: true };
+      }
+    }
+
     res.json({
       quiz_title: quizInfo.rows[0]?.title || '',
-      entries: result.rows,
+      entries,
+      student_view: req.user.role === 'student',
     });
   } catch (err) { console.error(err); res.status(500).json({ error: 'Internal server error.' }); }
 });
@@ -227,6 +262,9 @@ router.get('/:classId/top-scorers', authenticateToken, async (req, res) => {
        ORDER BY q.id, qa.score DESC, qa.attempted_at ASC`,
       [req.params.classId]
     );
+    if (req.user.role === 'student') {
+      return res.json([]);
+    }
     res.json(result.rows);
   } catch (err) { console.error(err); res.status(500).json({ error: 'Internal server error.' }); }
 });
@@ -299,6 +337,19 @@ router.get('/:classId/composition-leaderboard', authenticateToken, async (req, r
     const termStart = new Date(now);
     termStart.setMonth(termStart.getMonth() - 3);
 
+    let entries = standings;
+    if (req.user.role === 'student') {
+      const winnerRow = winner;
+      const mine = standings.find((s) => Number(s.student_id) === Number(req.user.id));
+      entries = [];
+      if (winnerRow) entries.push({ ...winnerRow, is_top_student: true });
+      if (mine && (!winnerRow || Number(mine.student_id) !== Number(winnerRow.student_id))) {
+        entries.push({ ...mine, is_self: true });
+      } else if (mine && winnerRow && Number(mine.student_id) === Number(winnerRow.student_id)) {
+        entries[0] = { ...entries[0], is_self: true };
+      }
+    }
+
     res.json({
       term_months: 3,
       term_start: termStart.toISOString(),
@@ -310,7 +361,8 @@ router.get('/:classId/composition-leaderboard', authenticateToken, async (req, r
             reward: winner.reward_eligible ? 'Term notebooks' : 'No reward (minimum 500 words required)',
           }
         : null,
-      entries: standings,
+      entries,
+      student_view: req.user.role === 'student',
     });
   } catch (err) {
     console.error(err);

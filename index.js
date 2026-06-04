@@ -76,7 +76,7 @@ ensureDirectory(path.join(uploadsRoot, 'avatars'));
 ensureDirectory(path.join(uploadsRoot, 'msg_images'));
 ensureDirectory(path.join(uploadsRoot, 'feed'));
 ensureDirectory(path.join(uploadsRoot, 'moments'));
-ensureDirectory(path.join(uploadsRoot, 'student_docs'));
+ensureDirectory(path.join(uploadsRoot, 'class_images'));
 
 app.use('/uploads', express.static(uploadsRoot));
 app.use('/uploads/avatars', express.static(path.join(uploadsRoot, 'avatars')));
@@ -110,6 +110,7 @@ app.use('/api/public', require('./routes/public_moments'));
 app.use('/api/public/quizzes', require('./routes/public_quizzes'));
 app.use('/api/guest', require('./routes/guest'));
 app.use('/api/quiz-teacher-shares', require('./routes/quiz_teacher_shares'));
+app.use('/api/note-teacher-shares', require('./routes/note_teacher_shares'));
 app.use('/share', require('./routes/share_moment_page'));
 app.use('/api/parent', parentPortalRoutes);
 app.use('/api/parent', parentHubRoutes);

@@ -1,12 +1,38 @@
 const express = require('express');
 const crypto = require('crypto');
+const path = require('path');
+const fs = require('fs');
 const rateLimit = require('express-rate-limit');
+const multer = require('multer');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { userCanAccessClass, userCanManageClass } = require('../lib/classAccess');
 const { ensureQuizShareSchema } = require('../lib/quizShares');
+const { ensureClassImageSchema } = require('../lib/classImages');
+const { ensureUploadsRoot } = require('../lib/uploads');
 
 const router = express.Router();
+
+ensureClassImageSchema().catch((e) => console.error('[classes] image schema', e.message));
+
+const classImageLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, message: { error: 'Too many uploads, try again later.' } });
+const classImagesDir = path.join(ensureUploadsRoot(), 'class_images');
+if (!fs.existsSync(classImagesDir)) fs.mkdirSync(classImagesDir, { recursive: true });
+
+const classImageUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, classImagesDir),
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname || '').toLowerCase() || '.jpg';
+      cb(null, `class_${req.params.id}_${Date.now()}${ext}`);
+    },
+  }),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = /^image\/(jpeg|png|webp|gif)$/i.test(file.mimetype || '');
+    cb(ok ? null : new Error('Only image files are allowed.'), ok);
+  },
+}).single('image');
 
 // Secure 6-char alphanumeric class code using crypto
 function generateClassCode() {
@@ -354,6 +380,51 @@ router.post('/school/teacher-invite-link', authenticateToken, requireRole('teach
     console.error('[teacher-invite-link]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
+});
+
+async function uploadClassImage(req, res, column) {
+  const classId = parseInt(req.params.id, 10);
+  if (!classId) return res.status(400).json({ error: 'Invalid class id.' });
+  if (!req.file) return res.status(400).json({ error: 'Image file is required.' });
+
+  try {
+    await ensureClassImageSchema();
+    const manage = await userCanManageClass(req.user, classId);
+    if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
+
+    const imagePath = `/uploads/class_images/${req.file.filename}`;
+    const prev = await pool.query(`SELECT ${column} FROM classes WHERE id = $1`, [classId]);
+    if (!prev.rows.length) return res.status(404).json({ error: 'Class not found.' });
+
+    const oldPath = prev.rows[0][column];
+    if (oldPath) {
+      const oldFile = path.join(__dirname, '..', String(oldPath).replace(/^\//, ''));
+      if (fs.existsSync(oldFile)) fs.unlinkSync(oldFile);
+    }
+
+    const updated = await pool.query(
+      `UPDATE classes SET ${column} = $1 WHERE id = $2 RETURNING id, name, subject, class_code, avatar_path, cover_path, teacher_id, created_at`,
+      [imagePath, classId]
+    );
+    res.json(updated.rows[0]);
+  } catch (err) {
+    console.error(`[classes/${column}]`, err);
+    res.status(500).json({ error: 'Failed to upload image.' });
+  }
+}
+
+router.post('/:id/avatar', authenticateToken, requireRole('teacher', 'head_teacher'), classImageLimiter, (req, res) => {
+  classImageUpload(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'Upload failed.' });
+    uploadClassImage(req, res, 'avatar_path');
+  });
+});
+
+router.post('/:id/cover', authenticateToken, requireRole('teacher', 'head_teacher'), classImageLimiter, (req, res) => {
+  classImageUpload(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'Upload failed.' });
+    uploadClassImage(req, res, 'cover_path');
+  });
 });
 
 module.exports = router;
