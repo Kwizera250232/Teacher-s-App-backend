@@ -47,7 +47,13 @@ ALTER TABLE schools ADD COLUMN IF NOT EXISTS welcome_message TEXT;
 
 ### Production API deploy (no GitHub SSH secrets)
 
-Manual on VPS (`93.127.186.217`): Hostinger one-liner (pull + `restart-production-api.sh` + verify): `curl -fsSL https://raw.githubusercontent.com/Kwizera250232/Teacher-s-App-backend/main/scripts/hostinger-terminal-deploy.sh | bash`. See `scripts/deploy-production.sh` and `DEPLOY.md`. Do **not** use only `pm2 restart studentapi`.
+Manual on VPS (`93.127.186.217` / CloudPanel): Hostinger one-liner (pull + restart + verify):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Kwizera250232/Teacher-s-App-backend/main/scripts/cloudpanel-deploy.sh | bash
+```
+
+(Same as `hostinger-terminal-deploy.sh`.) Finds the API folder via port **3005** / pm2, hard-syncs `main`, restarts — no dependency on old `git-sync-main.sh`.
 
 **Vercel** (`student.umunsi.com`): deploys from `Teacher-s-App-frontent` `main` (or `bash scripts/sync-student-web-to-frontend.sh` from backend repo). **API VPS** must be updated separately; GitHub Actions needs `SSH_PRIVATE_KEY` or run the Hostinger script above.
 
