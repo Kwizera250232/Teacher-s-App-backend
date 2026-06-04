@@ -109,6 +109,7 @@ app.use('/api/presence', require('./routes/presence'));
 app.use('/api/public', require('./routes/public_moments'));
 app.use('/api/public/quizzes', require('./routes/public_quizzes'));
 app.use('/api/guest', require('./routes/guest'));
+app.use('/api/quiz-teacher-shares', require('./routes/quiz_teacher_shares'));
 app.use('/share', require('./routes/share_moment_page'));
 app.use('/api/parent', parentPortalRoutes);
 app.use('/api/parent', parentHubRoutes);
