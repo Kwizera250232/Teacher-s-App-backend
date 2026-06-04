@@ -9,7 +9,7 @@ export default function CoTeacherInvite({ classId, token }) {
 
   const load = () => {
     api.get(`/classroom-feed/${classId}/co-teachers`, token)
-      .then(setCoTeachers)
+      .then((res) => setCoTeachers(Array.isArray(res) ? res : []))
       .catch(() => setCoTeachers([]));
   };
 

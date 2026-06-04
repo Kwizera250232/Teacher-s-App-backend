@@ -6,6 +6,11 @@ import CreateQuizModal from '../components/CreateQuizModal';
 import DocPreviewModal from '../components/DocPreviewModal';
 import ShareModal from '../components/ShareModal';
 import QuizShareModal from '../components/QuizShareModal';
+import QuizColleagueShareModal from '../components/QuizColleagueShareModal';
+import NoteColleagueShareModal from '../components/NoteColleagueShareModal';
+import SharedNoteAttribution from '../components/SharedNoteAttribution';
+import SharedQuizAttribution from '../components/SharedQuizAttribution';
+import StaleApiBanner from '../components/StaleApiBanner';
 import { buildShareItem } from '../utils/shareLinks';
 import ClassLeaderboard from '../components/ClassLeaderboard';
 import VerifiedBadge from '../components/VerifiedBadge';
@@ -33,7 +38,7 @@ export default function TeacherClassPage() {
   const [pageLoading, setPageLoading] = useState(true);
   const [tab, setTab] = useState('Announcements');
   const [data, setData] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [tabLoading, setTabLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showQuizModal, setShowQuizModal] = useState(false);
@@ -50,6 +55,8 @@ export default function TeacherClassPage() {
   const [shareItem, setShareItem] = useState(null);   // { title, text, url }
   const [quizShareModal, setQuizShareModal] = useState(null); // { quizTitle, className, shareUrl }
   const [quizShareBusy, setQuizShareBusy] = useState(null);
+  const [colleagueShareQuiz, setColleagueShareQuiz] = useState(null); // { id, title }
+  const [colleagueShareNote, setColleagueShareNote] = useState(null); // { id, title }
   const [selectedStudent, setSelectedStudent] = useState(null); // popup
   const [showNotifyParents, setShowNotifyParents] = useState(false);
   const [showWeeklyDigest, setShowWeeklyDigest] = useState(false);
@@ -84,6 +91,8 @@ export default function TeacherClassPage() {
   const loadTab = async () => {
     setError('');
     if (tab === 'Leaderboard' || tab === 'Feed' || tab === 'C. Status') return;
+    setTabLoading(true);
+    setData([]);
     try {
       const endpointMap = {
         Announcements: `/classes/${id}/announcements`,
@@ -94,14 +103,20 @@ export default function TeacherClassPage() {
         Students: `/classes/${id}/students`,
       };
       const res = await api.get(endpointMap[tab], token);
-      setData(res);
-      try { localStorage.setItem(tCacheKey(tab), JSON.stringify(res)); } catch {}
+      const list = Array.isArray(res) ? res : [];
+      setData(list);
+      try { localStorage.setItem(tCacheKey(tab), JSON.stringify(list)); } catch {}
     } catch (e) {
       const cached = JSON.parse(localStorage.getItem(tCacheKey(tab)) || '[]');
-      if (cached.length) setData(cached);
+      const list = Array.isArray(cached) ? cached : [];
+      if (list.length) setData(list);
       else if (navigator.onLine) setError(e.message);
+    } finally {
+      setTabLoading(false);
     }
   };
+
+  const studentRows = Array.isArray(data) ? data : [];
 
   const showSuccess = (msg) => { setSuccess(msg); setTimeout(() => setSuccess(''), 3000); };
 
@@ -232,6 +247,7 @@ export default function TeacherClassPage() {
       </header>
 
       <main className="class-main wa-chat-screen">
+        <StaleApiBanner />
         {cls && (
           <div className="class-hero">
             <div>
@@ -342,6 +358,7 @@ export default function TeacherClassPage() {
               <div key={n.id} className="item-card">
                 <div className="item-card-body">
                   <h3>📄 {n.title}</h3>
+                  <SharedNoteAttribution note={n} />
                   {n.file_name && (
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 6,
                       background: '#f0f2ff', border: '1px solid #c7d2fe', borderRadius: 6,
@@ -375,7 +392,19 @@ export default function TeacherClassPage() {
                   )}
                   <div className="meta" style={{ marginTop: 6 }}>{new Date(n.created_at).toLocaleDateString()}</div>
                 </div>
-                <button className="btn btn-danger btn-sm" onClick={() => deleteItem(`/classes/${id}/notes/${n.id}`)}>Delete</button>
+                <div className="item-card-actions" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {!n.is_shared && (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setColleagueShareNote({ id: n.id, title: n.title })}
+                    >
+                      Share w/ teacher
+                    </button>
+                  )}
+                  {!n.is_shared && (
+                    <button className="btn btn-danger btn-sm" onClick={() => deleteItem(`/classes/${id}/notes/${n.id}`)}>Delete</button>
+                  )}
+                </div>
               </div>
             ))}
           </>
@@ -564,16 +593,22 @@ export default function TeacherClassPage() {
               <div key={q.id} className="item-card">
                 <div className="item-card-body">
                   <h3>❓ {q.title}</h3>
+                  <SharedQuizAttribution quiz={q} />
                   {q.description && <p>{q.description}</p>}
                   <div className="meta" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                     <span>{new Date(q.created_at).toLocaleDateString()}</span>
-                    {q.attempt_count > 0
-                      ? <span style={{ color: '#f59e0b', fontWeight: 600 }}>👁 {q.attempt_count} attempt{q.attempt_count > 1 ? 's' : ''} — locked</span>
-                      : <span style={{ color: '#22c55e', fontWeight: 600 }}>✏️ Editable</span>
-                    }
+                    {q.is_shared ? (
+                      <span style={{ color: '#0284c7', fontWeight: 600 }}>🔗 Shared into this class</span>
+                    ) : q.attempt_count > 0 ? (
+                      <span style={{ color: '#f59e0b', fontWeight: 600 }}>👁 {q.attempt_count} attempt{q.attempt_count > 1 ? 's' : ''} — locked</span>
+                    ) : (
+                      <span style={{ color: '#22c55e', fontWeight: 600 }}>✏️ Editable</span>
+                    )}
                   </div>
                 </div>
                 <div className="item-card-actions">
+                  {!q.is_shared && (
+                    <>
                   <button
                     className="btn btn-secondary btn-sm"
                     onClick={() => setEditQuiz(q)}
@@ -603,10 +638,19 @@ export default function TeacherClassPage() {
                     }}
                     disabled={quizShareBusy === q.id}
                   >
-                    {quizShareBusy === q.id ? '…' : 'Share'}
+                    {quizShareBusy === q.id ? '…' : 'Share link'}
                   </button>
-                  <button className="btn btn-secondary btn-sm" onClick={() => navigate(`${basePath}/classes/${id}/quizzes/${q.id}/results`)}>Results</button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setColleagueShareQuiz({ id: q.id, title: q.title })}
+                    title="Share with another teacher at your school"
+                  >
+                    Share w/ teacher
+                  </button>
                   <button className="btn btn-danger btn-sm" onClick={() => deleteItem(`/classes/${id}/quizzes/${q.id}`)}>Delete</button>
+                    </>
+                  )}
+                  <button className="btn btn-secondary btn-sm" onClick={() => navigate(`${basePath}/classes/${id}/quizzes/${q.id}/results`)}>Results</button>
                 </div>
               </div>
             ))}
@@ -666,10 +710,17 @@ export default function TeacherClassPage() {
               </p>
             </div>
             <CoTeacherInvite classId={id} token={token} />
-            {data.length === 0 && <p style={{ padding: 20, textAlign: 'center', color: '#888' }}>No students yet.</p>}
+            {tabLoading && <p style={{ padding: 20, textAlign: 'center', color: '#64748b' }}>Loading students…</p>}
+            {!tabLoading && studentRows.length === 0 && (
+              <p style={{ padding: 20, textAlign: 'center', color: '#888' }}>No students yet.</p>
+            )}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', justifyContent: 'flex-start' }}>
-              {data.map(s => {
-                const initials = s.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+              {!tabLoading && studentRows.map((s) => {
+                const displayName = String(s.name || 'Student').trim();
+                const initials = displayName.split(/\s+/).filter(Boolean).map((w) => w[0]).join('').toUpperCase().slice(0, 2) || '?';
+                const joinedLabel = s.joined_at
+                  ? new Date(s.joined_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+                  : '—';
                 const colors = ['#6366f1','#0ea5e9','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6'];
                 const bg = colors[s.id % colors.length];
                 return (
@@ -692,10 +743,10 @@ export default function TeacherClassPage() {
                       {initials}
                     </div>
                     <div style={{ fontSize: 11, color: '#374151', textAlign: 'center', lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <span style={{ maxWidth: 64, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>{s.name.split(' ')[0]}</span>
+                      <span style={{ maxWidth: 64, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>{displayName.split(/\s+/)[0]}</span>
                       <VerifiedBadge size={11} info={{ items: [
                         { icon: '📚', label: 'Class', value: cls?.name },
-                        { icon: '📅', label: 'Joined', value: new Date(s.joined_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) },
+                        { icon: '📅', label: 'Joined', value: joinedLabel },
                         { icon: '👨‍🏫', label: 'Teacher', value: cls?.teacher_name },
                       ] }} />
                     </div>
@@ -705,7 +756,7 @@ export default function TeacherClassPage() {
                       style={{ fontSize: 10, padding: '2px 6px', marginTop: 4 }}
                       onClick={(ev) => {
                         ev.stopPropagation();
-                        setParentInviteFor({ studentId: s.id, studentName: s.name });
+                        setParentInviteFor({ studentId: s.id, studentName: displayName });
                       }}
                     >
                       👪 Parent invite
@@ -718,7 +769,12 @@ export default function TeacherClassPage() {
         )}
 
         {/* Student profile popup */}
-        {selectedStudent && (
+        {selectedStudent && (() => {
+          const popName = String(selectedStudent.name || 'Student').trim();
+          const popJoined = selectedStudent.joined_at
+            ? new Date(selectedStudent.joined_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+            : '—';
+          return (
           <div
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             onClick={e => e.target === e.currentTarget && setSelectedStudent(null)}
@@ -731,17 +787,17 @@ export default function TeacherClassPage() {
                 color: 'white', fontWeight: 700, fontSize: 26, margin: '0 auto 1rem',
                 boxShadow: '0 4px 16px rgba(0,0,0,0.15)'
               }}>
-                {selectedStudent.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)}
+                {popName.split(/\s+/).filter(Boolean).map((w) => w[0]).join('').toUpperCase().slice(0, 2) || '?'}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 4 }}>
-                <strong style={{ fontSize: 18, color: '#1e293b' }}>{selectedStudent.name}</strong>
+                <strong style={{ fontSize: 18, color: '#1e293b' }}>{popName}</strong>
                 <VerifiedBadge size={16} info={{ items: [
                   { icon: '📚', label: 'Class', value: cls?.name },
-                  { icon: '📅', label: 'Joined', value: new Date(selectedStudent.joined_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) },
+                  { icon: '📅', label: 'Joined', value: popJoined },
                   { icon: '👨‍🏫', label: 'Teacher', value: cls?.teacher_name },
                 ] }} />
               </div>
-              <p style={{ color: '#64748b', fontSize: 13, marginBottom: '1.25rem' }}>{selectedStudent.email}</p>
+              <p style={{ color: '#64748b', fontSize: 13, marginBottom: '1.25rem' }}>{selectedStudent.email || '—'}</p>
               <div style={{ background: '#f8fafc', borderRadius: 12, padding: '1rem', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span style={{ fontSize: 18 }}>📚</span>
@@ -761,7 +817,11 @@ export default function TeacherClassPage() {
                   <span style={{ fontSize: 18 }}>📅</span>
                   <div>
                     <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>Yinjiriye</div>
-                    <div style={{ fontSize: 14, color: '#1e293b', fontWeight: 500 }}>{new Date(selectedStudent.joined_at).toLocaleDateString('fr-RW', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+                    <div style={{ fontSize: 14, color: '#1e293b', fontWeight: 500 }}>
+                      {selectedStudent.joined_at
+                        ? new Date(selectedStudent.joined_at).toLocaleDateString('fr-RW', { year: 'numeric', month: 'long', day: 'numeric' })
+                        : '—'}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -772,7 +832,7 @@ export default function TeacherClassPage() {
                 onClick={() => {
                   setParentInviteFor({
                     studentId: selectedStudent.id,
-                    studentName: selectedStudent.name,
+                    studentName: popName,
                   });
                 }}
               >
@@ -781,7 +841,8 @@ export default function TeacherClassPage() {
               <button onClick={() => setSelectedStudent(null)} style={{ marginTop: '0.75rem', background: '#6366f1', color: 'white', border: 'none', borderRadius: 10, padding: '0.6rem 2rem', cursor: 'pointer', fontWeight: 600 }}>Funga</button>
             </div>
           </div>
-        )}
+          );
+        })()}
       </main>
 
       {showQuizModal && (
@@ -825,6 +886,28 @@ export default function TeacherClassPage() {
           className={quizShareModal.className}
           shareUrl={quizShareModal.shareUrl}
           onClose={() => setQuizShareModal(null)}
+        />
+      )}
+
+      {colleagueShareQuiz && (
+        <QuizColleagueShareModal
+          classId={id}
+          quizId={colleagueShareQuiz.id}
+          quizTitle={colleagueShareQuiz.title}
+          token={token}
+          onClose={() => setColleagueShareQuiz(null)}
+          onSent={() => showSuccess('Share request sent to your colleague.')}
+        />
+      )}
+
+      {colleagueShareNote && (
+        <NoteColleagueShareModal
+          classId={id}
+          noteId={colleagueShareNote.id}
+          noteTitle={colleagueShareNote.title}
+          token={token}
+          onClose={() => setColleagueShareNote(null)}
+          onSent={() => showSuccess('Note share request sent to your colleague.')}
         />
       )}
 
