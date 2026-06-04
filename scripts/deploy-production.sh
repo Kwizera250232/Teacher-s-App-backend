@@ -2,10 +2,24 @@
 # Run ON the VPS (or via: ssh user@host 'bash -s' < scripts/deploy-production.sh)
 set -euo pipefail
 APP_DIR="${BACKEND_APP_DIR:-/home/umunsi/htdocs/studentapi.umunsi.com}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$APP_DIR"
-bash "$(dirname "$0")/git-sync-main.sh"
+if [[ -f "$SCRIPT_DIR/cloudpanel-deploy.sh" ]]; then
+  exec bash "$SCRIPT_DIR/cloudpanel-deploy.sh"
+fi
+if [[ -f "$SCRIPT_DIR/hostinger-terminal-deploy.sh" ]]; then
+  exec bash "$SCRIPT_DIR/hostinger-terminal-deploy.sh"
+fi
+if [[ -f scripts/git-sync-main.sh ]]; then
+  bash scripts/git-sync-main.sh
+else
+  git fetch origin main
+  git checkout main 2>/dev/null || git checkout -B main origin/main
+  git reset --hard origin/main
+  git clean -fd -- student-web-dist/ 2>/dev/null || true
+fi
 npm ci --omit=dev
-bash "$(dirname "$0")/restart-production-api.sh" "$APP_DIR"
+SKIP_GIT_SYNC=1 bash "$SCRIPT_DIR/restart-production-api.sh" "$APP_DIR"
 pm2 save
 sleep 2
 curl -fsS https://studentapi.umunsi.com/api/health
