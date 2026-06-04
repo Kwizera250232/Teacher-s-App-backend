@@ -143,7 +143,16 @@ app.get('/api/health', (req, res) => {
       build = null;
     }
   }
-  res.json({ status: 'ok', build });
+  res.json({
+    status: 'ok',
+    build,
+    features: {
+      quiz_teacher_shares: true,
+      note_teacher_shares: true,
+      class_images: true,
+      student_leaderboard_privacy: true,
+    },
+  });
 });
 
 // Student web UI (built React app) — https://studentapi.umunsi.com/app/
