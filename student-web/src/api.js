@@ -27,6 +27,12 @@ function normalizeLegacySchoolDomainError(message) {
   if (/school email domain is not configured/i.test(text)) {
     return 'School email is now auto-generated from school name as schoolname.edu. Please try creating the account again.';
   }
+  if (/mail\.umunsi\.com/i.test(text) && /email must end with/i.test(text)) {
+    return 'Student login uses @schoolname.edu (e.g. name@brightschool.edu), not @mail.umunsi.com. Update the API server, or leave email empty to auto-generate.';
+  }
+  if (/mail\.umunsi\.com/i.test(text)) {
+    return text.replace(/@[\w.-]*mail\.umunsi\.com/gi, '@schoolname.edu');
+  }
   return text;
 }
 

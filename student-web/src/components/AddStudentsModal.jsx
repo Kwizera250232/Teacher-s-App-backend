@@ -91,6 +91,15 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
   const handleAddSingle = async () => {
     if (!name.trim()) return setError('Student name is required.');
     if (!schoolId) return setError('Please select a school.');
+    const trimmedEmail = email.trim().toLowerCase();
+    if (trimmedEmail && studentEmailDomain) {
+      if (trimmedEmail.includes('mail.umunsi.com')) {
+        return setError(`Use @${studentEmailDomain} for students (e.g. name@${studentEmailDomain}), not @mail.umunsi.com.`);
+      }
+      if (!trimmedEmail.endsWith(`@${studentEmailDomain}`)) {
+        return setError(`Email must end with @${studentEmailDomain}.`);
+      }
+    }
     setLoading(true);
     setError('');
     try {
@@ -99,7 +108,7 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
         role: 'student',
         school_id: schoolId,
       };
-      if (email.trim()) body.email = email.trim().toLowerCase();
+      if (trimmedEmail) body.email = trimmedEmail;
       if (password.trim()) body.password = password.trim();
       const res = await api.post('/admin/add-pupil', body, token);
       setResults({ type: 'single', data: res });
