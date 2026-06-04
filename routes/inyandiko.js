@@ -91,8 +91,148 @@ function mapDocumentRow(row) {
     uploaded_at: row.uploaded_at,
     student_id: row.student_id,
     student_name: row.student_name,
+    class_id: row.class_id,
   };
 }
+
+async function getManageableClasses(user) {
+  if (user.role === 'head_teacher' && user.school_id) {
+    const result = await pool.query(
+      `SELECT c.id, c.name, c.subject, c.class_code
+       FROM classes c
+       JOIN users t ON t.id = c.teacher_id
+       WHERE t.school_id = $1
+          OR c.teacher_id = $2
+          OR EXISTS (
+            SELECT 1 FROM class_co_teachers ct
+            WHERE ct.class_id = c.id AND ct.teacher_id = $2
+          )
+       ORDER BY c.name ASC`,
+      [user.school_id, user.id]
+    );
+    return result.rows;
+  }
+  const result = await pool.query(
+    `SELECT c.id, c.name, c.subject, c.class_code
+     FROM classes c
+     WHERE c.teacher_id = $1
+        OR EXISTS (
+          SELECT 1 FROM class_co_teachers ct
+          WHERE ct.class_id = c.id AND ct.teacher_id = $1
+        )
+     ORDER BY c.name ASC`,
+    [user.id]
+  );
+  return result.rows;
+}
+
+// GET all students' Inyandiko across teacher/HT classes (dashboard)
+router.get('/inyandiko/dashboard', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  try {
+    const classes = await getManageableClasses(req.user);
+    if (!classes.length) return res.json({ classes: [] });
+
+    const classIds = classes.map((c) => c.id);
+
+    const [membersRes, docsRes, marksRes] = await Promise.all([
+      pool.query(
+        `SELECT cm.class_id, u.id AS student_id, u.name AS student_name
+         FROM class_members cm
+         JOIN users u ON u.id = cm.student_id
+         WHERE cm.class_id = ANY($1::int[])
+         ORDER BY u.name ASC`,
+        [classIds]
+      ),
+      pool.query(
+        `SELECT d.id, d.class_id, d.doc_type, d.title, d.file_path, d.file_name,
+                d.uploaded_at, d.student_id, u.name AS student_name
+         FROM student_class_documents d
+         JOIN users u ON u.id = d.student_id
+         WHERE d.class_id = ANY($1::int[])
+         ORDER BY d.uploaded_at DESC`,
+        [classIds]
+      ),
+      pool.query(
+        `SELECT DISTINCT ON (q.class_id, qa.student_id, q.id)
+           q.class_id,
+           qa.student_id,
+           q.id AS quiz_id,
+           q.title AS quiz_title,
+           qa.score,
+           qa.total,
+           qa.attempted_at,
+           ROUND(qa.score::numeric / NULLIF(qa.total, 0) * 100) AS percentage
+         FROM quiz_attempts qa
+         JOIN quizzes q ON q.id = qa.quiz_id
+         WHERE q.class_id = ANY($1::int[])
+         ORDER BY q.class_id, qa.student_id, q.id, qa.score DESC, qa.attempted_at ASC`,
+        [classIds]
+      ),
+    ]);
+
+    const docsByClassStudent = new Map();
+    for (const doc of docsRes.rows) {
+      const key = `${doc.class_id}:${doc.student_id}`;
+      if (!docsByClassStudent.has(key)) {
+        docsByClassStudent.set(key, { commitment: null, school_reports: [] });
+      }
+      const bucket = docsByClassStudent.get(key);
+      if (doc.doc_type === 'commitment') {
+        if (!bucket.commitment) bucket.commitment = mapDocumentRow(doc);
+      } else {
+        bucket.school_reports.push(mapDocumentRow(doc));
+      }
+    }
+
+    const marksByClassStudent = new Map();
+    for (const mark of marksRes.rows) {
+      const key = `${mark.class_id}:${mark.student_id}`;
+      if (!marksByClassStudent.has(key)) marksByClassStudent.set(key, []);
+      marksByClassStudent.get(key).push({
+        quiz_id: mark.quiz_id,
+        quiz_title: mark.quiz_title,
+        score: mark.score,
+        total: mark.total,
+        percentage: mark.percentage,
+        attempted_at: mark.attempted_at,
+        taken: true,
+      });
+    }
+
+    const membersByClass = new Map();
+    for (const m of membersRes.rows) {
+      if (!membersByClass.has(m.class_id)) membersByClass.set(m.class_id, []);
+      membersByClass.get(m.class_id).push(m);
+    }
+
+    const payload = classes.map((cls) => {
+      const members = membersByClass.get(cls.id) || [];
+      const students = members.map((m) => {
+        const key = `${cls.id}:${m.student_id}`;
+        const docs = docsByClassStudent.get(key) || { commitment: null, school_reports: [] };
+        return {
+          student_id: m.student_id,
+          student_name: m.student_name,
+          commitment: docs.commitment,
+          school_reports: docs.school_reports,
+          quiz_marks: marksByClassStudent.get(key) || [],
+        };
+      });
+      return {
+        id: cls.id,
+        name: cls.name,
+        subject: cls.subject,
+        class_code: cls.class_code,
+        students,
+      };
+    });
+
+    res.json({ classes: payload });
+  } catch (err) {
+    console.error('[inyandiko dashboard]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
 
 // GET student's commitment, school reports, and quiz marks (Inyandiko hub)
 router.get('/:classId/inyandiko/mine', authenticateToken, requireRole('student'), async (req, res) => {
