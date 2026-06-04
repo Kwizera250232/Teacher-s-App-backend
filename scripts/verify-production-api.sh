@@ -9,9 +9,16 @@ if [[ -z "$BUILD" ]]; then
   echo "ERROR: health has no build id" >&2
   exit 1
 fi
-if [[ "$BUILD" == "575e5671f949be836b9dcba325fdb38174bfe59e" ]]; then
-  echo "ERROR: API still on pre-June 2026 build. Run scripts/restart-production-api.sh on the VPS (not only pm2 restart studentapi)." >&2
+STALE_BUILD="575e5671f949be836b9dcba325fdb38174bfe59e"
+EXPECTED="$(git rev-parse HEAD 2>/dev/null || true)"
+if [[ "$BUILD" == "$STALE_BUILD" ]]; then
+  echo "ERROR: API still on pre-June 2026 build ($STALE_BUILD)." >&2
+  echo "Run on Hostinger Browser SSH:" >&2
+  echo "  curl -fsSL https://raw.githubusercontent.com/Kwizera250232/Teacher-s-App-backend/main/scripts/cloudpanel-deploy.sh | bash" >&2
   exit 1
+fi
+if [[ -n "$EXPECTED" && "$BUILD" != "$EXPECTED" ]]; then
+  echo "WARNING: live build ${BUILD:0:12}… differs from local main ${EXPECTED:0:12}… (VPS may need another pull)." >&2
 fi
 
 check_route() {
