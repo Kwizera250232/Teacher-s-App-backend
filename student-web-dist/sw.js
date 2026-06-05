@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'uclass-v5';
+const CACHE_VERSION = 'uclass-v7';
 const API_CACHE = 'uclass-api-v2';
 const STATIC_ASSETS = ['/', '/index.html', '/manifest.json', '/icon.svg'];
 
@@ -211,3 +211,51 @@ async function syncPendingQuizzes() {
     notifyClients({ type: 'ALL_QUIZZES_SYNCED' });
   }
 }
+
+self.addEventListener('push', (event) => {
+  let data = { title: 'UClass', body: 'You have a new update.', url: '/', tag: 'uclass' };
+  try {
+    if (event.data) {
+      const parsed = event.data.json();
+      data = { ...data, ...parsed };
+    }
+  } catch {
+    if (event.data) {
+      data.body = event.data.text();
+    }
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      tag: data.tag || 'uclass',
+      icon: '/icon.svg',
+      badge: '/icon.svg',
+      data: { url: data.url || '/' },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetPath = event.notification.data?.url || '/';
+  const targetUrl = new URL(targetPath, self.location.origin).href;
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if (client.url.startsWith(self.location.origin) && 'focus' in client) {
+          if (typeof client.navigate === 'function') {
+            return client.focus().then(() => client.navigate(targetUrl));
+          }
+          client.postMessage({ type: 'OPEN_URL', url: targetPath });
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(targetUrl);
+      }
+      return undefined;
+    })
+  );
+});

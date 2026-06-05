@@ -49,14 +49,18 @@ export default function ClassPointsPanel({
   const [groupPick, setGroupPick] = useState(new Set());
   const [timerSecs, setTimerSecs] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const res = await api.get(`/classes/${classId}/classroom`, token);
       setData(res);
     } catch (e) {
-      onError?.(e.message);
+      const msg = e.message || 'Could not load behavior points.';
+      setLoadError(msg);
+      onError?.(msg);
     } finally {
       setLoading(false);
     }
@@ -254,8 +258,22 @@ export default function ClassPointsPanel({
     return <p style={{ padding: 20, textAlign: 'center', color: '#64748b' }}>Loading students…</p>;
   }
 
+  if (loadError && !data) {
+    return (
+      <div className="alert alert-error" style={{ marginBottom: 16 }}>
+        <strong>Behavior points unavailable.</strong> {loadError}
+        <button type="button" className="btn btn-outline btn-sm" style={{ marginLeft: 8 }} onClick={load}>
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="class-points-panel">
+      <p style={{ margin: '0 0 12px', fontSize: 14, color: '#4b5563' }}>
+        Tap a student to award <strong>+1</strong> points. Use <strong>Whole class</strong>, <strong>Groups</strong>, or the tools below.
+      </p>
       <div className="class-roster-toolbar">
         <div className="tabs" style={{ marginBottom: 0, flex: '1 1 auto', minWidth: 200 }}>
           <button type="button" className={`tab ${view === 'students' ? 'active' : ''}`} onClick={() => setView('students')}>

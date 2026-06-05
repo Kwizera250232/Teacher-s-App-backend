@@ -26,7 +26,7 @@ import ClassPointsPanel from '../components/ClassPointsPanel';
 import '../pages/Dashboard.css';
 import '../pages/MobileDashboard.css';
 
-const TABS = ['Feed', 'Announcements', 'Notes', 'Homework', 'Quizzes', 'Leaderboard', 'Discussion', 'C. Status', 'Students'];
+const TABS = ['Students', 'Feed', 'Announcements', 'Notes', 'Homework', 'Quizzes', 'Leaderboard', 'Discussion', 'C. Status'];
 
 export default function TeacherClassPage() {
   const { id } = useParams();
@@ -37,7 +37,7 @@ export default function TeacherClassPage() {
   const basePath = location.pathname.startsWith('/head-teacher') ? '/head-teacher' : '/teacher';
   const [cls, setCls] = useState(null);
   const [pageLoading, setPageLoading] = useState(true);
-  const [tab, setTab] = useState('Announcements');
+  const [tab, setTab] = useState('Students');
   const [data, setData] = useState([]);
   const [tabLoading, setTabLoading] = useState(false);
   const [error, setError] = useState('');

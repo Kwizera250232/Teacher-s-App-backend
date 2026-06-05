@@ -309,7 +309,7 @@ export default function StaffDashboard({ roleLabel, basePath }) {
             <div className="wa-section-title">Your classes</div>
             <div className="classes-grid classes-grid--square">
               {classes.map(cls => (
-                <Link key={cls.id} to={`${basePath}/classes/${cls.id}`} className="class-card class-card--square">
+                <Link key={cls.id} to={`${basePath}/classes/${cls.id}?tab=Students`} className="class-card class-card--square">
                   <div className="class-card-icon">{(cls.name || 'C').slice(0, 1)}</div>
                   <div className="class-card-header">
                     <h3>{cls.name}</h3>

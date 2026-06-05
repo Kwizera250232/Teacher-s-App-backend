@@ -5,7 +5,8 @@ function apiHasLatestFeatures(health) {
   return Boolean(
     health?.features?.quiz_teacher_shares &&
     health?.features?.note_teacher_shares &&
-    health?.features?.login_email_edu
+    health?.features?.login_email_edu &&
+    health?.features?.classroom_points
   );
 }
 
@@ -23,12 +24,17 @@ export default function StaleApiBanner() {
           if (!cancelled) setStale(false);
           return;
         }
-        const [quizProbe, noteProbe] = await Promise.all([
+        const [quizProbe, noteProbe, classroomProbe] = await Promise.all([
           fetch(`${API_BASE}/quiz-teacher-shares/colleagues`),
           fetch(`${API_BASE}/note-teacher-shares/colleagues`),
+          fetch(`${API_BASE}/classes/1/classroom`),
         ]);
         if (!cancelled) {
-          setStale(quizProbe.status === 404 || noteProbe.status === 404);
+          setStale(
+            quizProbe.status === 404 ||
+            noteProbe.status === 404 ||
+            classroomProbe.status === 404
+          );
         }
       } catch {
         if (!cancelled) setStale(false);
