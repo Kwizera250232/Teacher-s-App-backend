@@ -34,6 +34,7 @@ import GuestMarksPanel from '../components/GuestMarksPanel';
 import StaffInyandikoDashboard from '../components/staff/StaffInyandikoDashboard';
 import AppNotificationsBell from '../components/AppNotificationsBell';
 import '../components/StudentNotifications.css';
+import { usePushNotifications } from '../hooks/usePushNotifications';
 
 export default function StaffDashboard({ roleLabel, basePath }) {
   const { user, token, logout, isImpersonating, stopImpersonation, updateUser } = useAuth();
@@ -54,6 +55,7 @@ export default function StaffDashboard({ roleLabel, basePath }) {
   const isHeadTeacher = roleLabel === 'Head Teacher';
   const hasSchool = Boolean(user?.school_id);
   const momentsFeedPath = `${basePath}/class-moments`;
+  usePushNotifications(token, user?.role);
 
   const dismissAnnouncement = (id) => {
     const updated = [...dismissed, id];
@@ -115,6 +117,7 @@ export default function StaffDashboard({ roleLabel, basePath }) {
           <span className="phub-logo">UClass</span>
           <span className="phub-sub">{roleLabel}</span>
         </div>
+        <AppNotificationsBell className="student-notif-bell--header staff-header-bell-mobile" basePath={basePath} />
         <MobileStaffHeader
           basePath={basePath}
           user={user}

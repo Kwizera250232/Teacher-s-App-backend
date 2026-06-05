@@ -23,18 +23,40 @@
   background: rgba(255, 255, 255, 0.28);
 }
 
-.dash-header--student .student-notif-bell-btn,
-.wa-class-header .student-notif-bell-btn,
-.phub-header .student-notif-bell-btn,
-.dash-header.phub-header .student-notif-bell-btn {
+.dash-header--student .student-notif-bell-btn {
   background: #f1f5f9;
   color: #0f172a;
 }
 
-.dash-header--student .student-notif-bell-btn:hover,
+.dash-header--student .student-notif-bell-btn:hover {
+  background: #e2e8f0;
+}
+
+/* Green staff / class headers */
+.wa-class-header .student-notif-bell-btn,
+.staff-hub-page .phub-header .student-notif-bell-btn {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
 .wa-class-header .student-notif-bell-btn:hover,
-.phub-header .student-notif-bell-btn:hover,
-.dash-header.phub-header .student-notif-bell-btn:hover {
+.staff-hub-page .phub-header .student-notif-bell-btn:hover {
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.wa-class-header .student-notif-bell-wrap,
+.staff-hub-page .phub-header .student-notif-bell-wrap {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.phub-header-actions .student-notif-bell-btn {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.phub-header-actions .student-notif-bell-btn:hover {
   background: #e2e8f0;
 }
 
@@ -42,6 +64,30 @@
 .dash-user .student-notif-bell-wrap,
 .mobile-student-row1 .student-notif-bell-wrap {
   margin-left: 4px;
+}
+
+.staff-header-bell-mobile {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .staff-hub-page .phub-header {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .staff-header-bell-mobile {
+    display: inline-flex;
+    margin-left: auto;
+    order: 2;
+  }
+
+  .staff-hub-page .phub-header .mobile-staff-header {
+    order: 3;
+    width: 100%;
+  }
 }
 
 .student-notif-bell-icon {

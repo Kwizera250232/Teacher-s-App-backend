@@ -135,6 +135,85 @@ function dedupeAssignments(rows) {
   );
 }
 
+async function loadReflectionForAssignment(assignmentId) {
+  const r = await pool.query(
+    `SELECT r.*, u.name AS reporter_name, t.name AS teacher_name
+     FROM quiz_reflection_reports r
+     LEFT JOIN users u ON u.id = r.reporter_student_id
+     LEFT JOIN users t ON t.id = r.teacher_id
+     WHERE r.assignment_id = $1 AND r.submitted_at IS NOT NULL
+     ORDER BY r.submitted_at DESC
+     LIMIT 1`,
+    [assignmentId]
+  );
+  const row = r.rows[0];
+  if (!row) return null;
+
+  const notes = await pool.query(
+    `SELECT member_student_id, member_name, grade, showed_weakness, help_needed, leader_comment
+     FROM quiz_reflection_member_notes
+     WHERE report_id = $1
+     ORDER BY member_name`,
+    [row.id]
+  );
+
+  return {
+    id: row.id,
+    difficulty: row.difficulty,
+    improvement: row.improvement,
+    student_question: row.student_question,
+    crown_title_key: row.crown_title_key,
+    reporter_name: row.reporter_name,
+    teacher_comment: row.teacher_comment,
+    teacher_name: row.teacher_name,
+    teacher_commented_at: row.teacher_commented_at,
+    submitted_at: row.submitted_at,
+    member_notes: notes.rows,
+  };
+}
+
+async function buildResultSummary(classId, assignmentId, row, members) {
+  const statsMap = await computeClassGroupStats(classId);
+  const st = statsMap[row.group_id] || {};
+  const reflection = await loadReflectionForAssignment(assignmentId);
+
+  const noteByMember = new Map(
+    (reflection?.member_notes || []).map((n) => [n.member_student_id, n])
+  );
+
+  const roster = members.map((m, idx) => {
+    const note = noteByMember.get(m.id);
+    return {
+      ...m,
+      rank_in_team: idx + 1,
+      teammate_grade: note?.grade || null,
+      showed_weakness: note?.showed_weakness || null,
+      help_needed: note?.help_needed || null,
+      leader_comment: note?.leader_comment || null,
+    };
+  });
+
+  const pct = row.total > 0 ? Math.round((row.score / row.total) * 100) : 0;
+
+  return {
+    score: row.score,
+    total: row.total,
+    percentage: pct,
+    submitted_at: row.submitted_at,
+    submitted_by_name: row.submitted_by_name,
+    group_stats: {
+      points_rank: st.points_rank ?? null,
+      quiz_rank: st.quiz_rank ?? null,
+      total_groups: st.total_groups ?? 0,
+      earned_points: st.points ?? 0,
+      quiz_marks: st.quiz_marks ?? 0,
+      quiz_marks_total: st.quiz_marks_total ?? 0,
+    },
+    reflection,
+    roster,
+  };
+}
+
 function formatAssignment(row, members) {
   if (!row) return null;
   return {
@@ -583,6 +662,9 @@ router.get('/:classId/group-quizzes/:assignmentId', authenticateToken, async (re
 
     const payload = formatAssignment(row, members);
     payload.questions = await fetchQuizQuestions(row.quiz_id);
+    if (row.status === 'submitted') {
+      payload.result_summary = await buildResultSummary(classId, assignmentId, row, members);
+    }
     res.json(payload);
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });

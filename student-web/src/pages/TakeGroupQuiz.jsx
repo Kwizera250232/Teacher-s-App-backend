@@ -4,6 +4,7 @@ import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import ClassDeanHelp from '../components/ClassDeanHelp';
 import QuizReflectionWizard from '../components/quizReflection/QuizReflectionWizard';
+import GroupQuizResultPanel from '../components/groupQuiz/GroupQuizResultPanel';
 import '../pages/Dashboard.css';
 
 async function loadQuestions(classId, assignmentId, assignment, token) {
@@ -180,12 +181,12 @@ export default function TakeGroupQuiz() {
 
         {error && !questions.length && <div className="alert alert-error">{error}</div>}
 
-        {result && (
-          <div className="score-card" style={{ marginBottom: 20 }}>
-            <h2>Group submitted</h2>
-            <div className="score-big">{result.score}/{result.total}</div>
-            <p className="score-sub">Score recorded for all members of {assignment.group_name}</p>
-          </div>
+        {!canWork && assignment.status === 'submitted' && (
+          <GroupQuizResultPanel
+            assignment={assignment}
+            resultSummary={assignment.result_summary}
+            onBack={() => navigate(`/student/classes/${classId}?tab=Groups&group=${assignment.group_id}`)}
+          />
         )}
 
         {canWork && questions.map((q, i) => (
