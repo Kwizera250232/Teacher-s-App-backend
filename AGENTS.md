@@ -18,6 +18,12 @@ ALTER TABLE schools ADD COLUMN IF NOT EXISTS email_domain TEXT;
 ALTER TABLE schools ADD COLUMN IF NOT EXISTS welcome_message TEXT;
 ```
 
+### Class behavior points (Students tab)
+
+- API: `routes/class_points.js` — `GET /api/classes/:classId/classroom`, `POST .../points`, groups, undo, reset.
+- Tables: `class_point_events`, `class_groups`, `class_group_members` (`lib/classPointsSchema.js`, ensured at startup).
+- Production verify: `GET /api/health` → `features.classroom_points: true`; `GET /api/classes/1/classroom` without token → **401** (not 404).
+
 ### Auth
 
 - JWT payload: `{id, role}` — does NOT include `school_id`.
