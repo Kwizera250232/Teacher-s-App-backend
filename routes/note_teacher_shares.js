@@ -7,6 +7,7 @@ const {
   assertSameSchoolTeachers,
 } = require('../lib/noteTeacherShares');
 const { notifyNoteTeacherShare } = require('../lib/noteTeacherShareNotify');
+const { notifyClassStudentsInApp } = require('../lib/studentClassNotify');
 
 const router = express.Router();
 
@@ -200,6 +201,20 @@ router.put('/:id/accept', async (req, res) => {
        RETURNING *`,
       [targetClassId, shareId]
     );
+
+    const noteMeta = await pool.query(
+      `SELECT n.title FROM notes n WHERE n.id = $1 LIMIT 1`,
+      [row.source_note_id]
+    );
+    const noteTitle = noteMeta.rows[0]?.title || 'Shared notes';
+    notifyClassStudentsInApp({
+      classId: targetClassId,
+      type: 'shared_note',
+      title: '📄 New notes from your school',
+      body: `"${noteTitle}" was added to your class by a colleague teacher.`,
+      tab: 'Notes',
+      extraPayload: { share_id: shareId, note_id: row.source_note_id },
+    }).catch((e) => console.error('[note_teacher_shares] student notify', e.message));
 
     res.json({
       share: updated.rows[0],

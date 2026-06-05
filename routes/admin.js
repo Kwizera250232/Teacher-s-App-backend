@@ -678,6 +678,12 @@ router.put('/student-shares/:id/moderate', ...adminOnly, async (req, res) => {
   }
   try {
     await ensureStudentSharesModerationColumns(pool);
+    const existing = await pool.query(
+      `SELECT id, student_id, type, content FROM student_shares WHERE id = $1 LIMIT 1`,
+      [shareId]
+    );
+    if (!existing.rows.length) return res.status(404).json({ error: 'Article not found.' });
+    const shareRow = existing.rows[0];
     const noteToSave = decision === 'declined' ? reviewNote : null;
     const result = await pool.query(
       `UPDATE student_shares
@@ -687,6 +693,27 @@ router.put('/student-shares/:id/moderate', ...adminOnly, async (req, res) => {
       [decision, reviewerId, noteToSave, shareId]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Article not found.' });
+
+    const { insertUserNotification } = require('../lib/classMomentNotify');
+    const preview = String(shareRow.content || '').split('\n')[0].slice(0, 80);
+    if (decision === 'approved') {
+      insertUserNotification({
+        userId: shareRow.student_id,
+        type: 'share_approved',
+        title: '✅ Your post was approved',
+        body: preview ? `"${preview}" is now visible on your dashboard.` : 'Your shared work is now visible.',
+        payload: { url: '/student/dashboard', share_id: shareId },
+      }).catch((e) => console.error('[admin moderate] notify', e.message));
+    } else {
+      insertUserNotification({
+        userId: shareRow.student_id,
+        type: 'share_declined',
+        title: '❌ Your post needs changes',
+        body: reviewNote ? `Reason: ${reviewNote}` : 'Your post was not approved. Open your profile to try again.',
+        payload: { url: '/profile?compose=composition', share_id: shareId },
+      }).catch((e) => console.error('[admin moderate] notify', e.message));
+    }
+
     res.json(result.rows[0]);
   } catch (err) {
     console.error('[admin student-shares moderate]', err.message, err.detail || '');
