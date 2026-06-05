@@ -339,6 +339,68 @@ router.post('/:classId/groups', authenticateToken, requireRole('teacher', 'head_
   }
 });
 
+// PUT update group (name and/or members)
+router.put('/:classId/groups/:groupId', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = parseInt(req.params.classId, 10);
+  const groupId = parseInt(req.params.groupId, 10);
+  if (Number.isNaN(classId) || Number.isNaN(groupId)) {
+    return res.status(400).json({ error: 'Invalid ID.' });
+  }
+
+  const name = req.body?.name != null ? String(req.body.name).trim() : null;
+  const studentIds = Array.isArray(req.body?.student_ids) ? req.body.student_ids : null;
+
+  try {
+    const manage = await userCanManageClass(req.user, classId);
+    if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
+
+    const existing = await pool.query(
+      'SELECT id, name FROM class_groups WHERE id = $1 AND class_id = $2',
+      [groupId, classId]
+    );
+    if (!existing.rows.length) return res.status(404).json({ error: 'Group not found.' });
+
+    if (name && name.length) {
+      await pool.query('UPDATE class_groups SET name = $1 WHERE id = $2', [name.slice(0, 120), groupId]);
+    }
+
+    if (studentIds) {
+      const validMembers = new Set(await classStudentIds(classId));
+      const ids = studentIds
+        .map((id) => parseInt(id, 10))
+        .filter((id) => !Number.isNaN(id) && validMembers.has(id));
+
+      await pool.query('DELETE FROM class_group_members WHERE group_id = $1', [groupId]);
+      for (const sid of ids) {
+        await pool.query(
+          'INSERT INTO class_group_members (group_id, student_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+          [groupId, sid]
+        );
+      }
+    }
+
+    const updated = await pool.query(
+      `SELECT g.id, g.name, g.created_at,
+              COALESCE(ARRAY_AGG(gm.student_id) FILTER (WHERE gm.student_id IS NOT NULL), '{}') AS student_ids
+       FROM class_groups g
+       LEFT JOIN class_group_members gm ON gm.group_id = g.id
+       WHERE g.id = $1 AND g.class_id = $2
+       GROUP BY g.id`,
+      [groupId, classId]
+    );
+    const row = updated.rows[0];
+    res.json({
+      id: row.id,
+      name: row.name,
+      student_ids: row.student_ids || [],
+      created_at: row.created_at,
+    });
+  } catch (err) {
+    console.error('[groups PUT]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // DELETE group
 router.delete('/:classId/groups/:groupId', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
