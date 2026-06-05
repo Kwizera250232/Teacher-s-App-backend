@@ -507,6 +507,30 @@ router.put('/:classId/my-groups/:groupId/my-role', authenticateToken, requireRol
   }
 });
 
+// GET quiz questions for a group assignment (bypasses solo-quiz block)
+router.get('/:classId/group-quizzes/:assignmentId/questions', authenticateToken, async (req, res) => {
+  const classId = parseInt(req.params.classId, 10);
+  const assignmentId = parseInt(req.params.assignmentId, 10);
+  try {
+    const row = await loadAssignment(classId, assignmentId);
+    if (!row) return res.status(404).json({ error: 'Assignment not found.' });
+    const isTeacher = ['teacher', 'head_teacher'].includes(req.user.role);
+    if (!isTeacher) {
+      const inGroup = await studentInGroup(req.user.id, row.group_id);
+      if (!inGroup) return res.status(403).json({ error: 'You are not in this group.' });
+    }
+    const result = await pool.query(
+      `SELECT id, question, option_a, option_b, option_c, option_d, question_type, passage, order_num
+       FROM quiz_questions WHERE quiz_id = $1 ORDER BY order_num`,
+      [row.quiz_id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[group-quiz questions]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // GET single assignment detail
 router.get('/:classId/group-quizzes/:assignmentId', authenticateToken, async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
