@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import VerifiedBadge from './VerifiedBadge';
+import AppNotificationsBell from './AppNotificationsBell';
+import './StudentNotifications.css';
 
 const AVATAR_COLORS = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
 
@@ -36,6 +38,7 @@ export default function ClassPointsPanel({
   onStudentClick,
   onParentInvite,
   onAssignWorkToGroup,
+  basePath = '/teacher',
 }) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
@@ -331,7 +334,10 @@ export default function ClassPointsPanel({
       <p style={{ margin: '0 0 12px', fontSize: 14, color: '#4b5563' }}>
         Tap a student to award <strong>+1</strong> points. Use <strong>Whole class</strong>, <strong>Groups</strong>, or the tools below.
       </p>
-      <div className="class-roster-toolbar">
+      <div className="class-roster-toolbar" style={{ flexWrap: 'wrap', gap: 8 }}>
+        <div className="class-points-notif-wrap" title="Student activity notifications">
+          <AppNotificationsBell className="student-notif-bell--header" basePath={basePath} />
+        </div>
         <div className="tabs" style={{ marginBottom: 0, flex: '1 1 auto', minWidth: 200 }}>
           <button type="button" className={`tab ${view === 'students' ? 'active' : ''}`} onClick={() => setView('students')}>
             Students

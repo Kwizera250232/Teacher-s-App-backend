@@ -88,6 +88,54 @@
     order: 3;
     width: 100%;
   }
+
+  /* Mobile staff header uses light gray bg — bell must be dark, not white-on-white */
+  .staff-hub-page.staff-dashboard-classic .phub-header .student-notif-bell-btn,
+  .staff-hub-page .phub-header .staff-header-bell-mobile .student-notif-bell-btn,
+  .staff-hub-page .phub-header .mobile-student-row1 .student-notif-bell-btn {
+    background: #fff !important;
+    color: #128c7e !important;
+    box-shadow: 0 2px 10px rgba(18, 140, 126, 0.25) !important;
+  }
+}
+
+.wa-class-notif {
+  position: relative;
+  z-index: 20;
+}
+
+.class-hero-notif {
+  display: flex;
+  align-items: flex-start;
+  flex-shrink: 0;
+}
+
+.class-hero-notif .student-notif-bell-btn {
+  background: #fff !important;
+  color: #128c7e !important;
+  box-shadow: 0 4px 14px rgba(18, 140, 126, 0.3) !important;
+  width: 44px;
+  height: 44px;
+}
+
+.class-points-notif-wrap {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.class-points-notif-wrap .student-notif-bell-btn {
+  background: #fff !important;
+  color: #128c7e !important;
+  border: 2px solid #128c7e;
+  box-shadow: 0 2px 8px rgba(18, 140, 126, 0.2) !important;
+}
+
+.class-hero-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
 }
 
 .student-notif-bell-icon {

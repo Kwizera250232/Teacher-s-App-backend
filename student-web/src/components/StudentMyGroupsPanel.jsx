@@ -6,6 +6,7 @@ import ClassDeanHelp from './ClassDeanHelp';
 import GroupAchievementHub from './GroupAchievementHub';
 import CrownPickerSection from './CrownPickerSection';
 import DisplayedTitleBadge from './DisplayedTitleBadge';
+import { uniqueGroupAssignments } from '../utils/groupQuizUtils';
 import './StudentMyGroups.css';
 
 function firstName(name) {
@@ -24,30 +25,6 @@ function statusLabel(a) {
     return { text: 'New — open now!', color: '#059669', emoji: '✨', tone: 'new' };
   }
   return { text: 'Open now', color: '#059669', emoji: '🚀', tone: 'new' };
-}
-
-function uniqueAssignments(list) {
-  const statusRank = (s) => (s === 'submitted' ? 3 : s === 'active' ? 2 : 1);
-  const byQuiz = new Map();
-  for (const a of list || []) {
-    if (!a?.id) continue;
-    const key = a.quiz_id != null ? `q${a.quiz_id}` : `a${a.id}`;
-    const prev = byQuiz.get(key);
-    if (!prev) {
-      byQuiz.set(key, a);
-      continue;
-    }
-    if (statusRank(a.status) > statusRank(prev.status)) {
-      byQuiz.set(key, a);
-    } else if (statusRank(a.status) === statusRank(prev.status)) {
-      const aTs = new Date(a.submitted_at || a.created_at || 0).getTime();
-      const pTs = new Date(prev.submitted_at || prev.created_at || 0).getTime();
-      if (aTs >= pTs) byQuiz.set(key, a);
-    }
-  }
-  return [...byQuiz.values()].sort(
-    (x, y) => new Date(y.created_at || 0) - new Date(x.created_at || 0)
-  );
 }
 
 function rankMedal(rank) {
@@ -375,13 +352,13 @@ export default function StudentMyGroupsPanel({
                 <h4 className="sg-quizzes-heading">📝 Group quizzes</h4>
                 <span className="sg-quizzes-sparkle">Team power!</span>
               </div>
-              {!uniqueAssignments(detail?.assignments).length ? (
+              {!uniqueGroupAssignments(detail?.assignments).length ? (
                 <p className="sg-quizzes-empty">
                   No quiz yet — when your teacher drops one here, your squad tackles it together! 🎯
                 </p>
               ) : (
                 <div className="sg-quiz-list">
-                  {uniqueAssignments(detail.assignments).map((a) => {
+                  {uniqueGroupAssignments(detail.assignments).map((a) => {
                     const st = statusLabel(a);
                     return (
                       <div key={a.id} className={`sg-quiz-card sg-quiz-card--${st.tone}`}>
