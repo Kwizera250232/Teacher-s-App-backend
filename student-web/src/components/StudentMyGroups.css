@@ -482,3 +482,43 @@
 .sg-quiz-btn {
   width: 100%;
 }
+
+.sg-crown-picker {
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #fef3c7 0%, #fff 100%);
+  border: 2px solid #fcd34d;
+}
+
+.sg-crown-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.sg-crown-picker-head h4 {
+  margin: 0;
+  font-size: 15px;
+  color: #92400e;
+}
+
+.sg-crown-none {
+  font-size: 12px;
+  color: #b45309;
+  font-weight: 600;
+}
+
+.sg-crown-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #78716c;
+  line-height: 1.4;
+}
+
+.sg-member-crown {
+  display: block;
+  margin-top: 4px;
+}

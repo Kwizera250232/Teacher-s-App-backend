@@ -328,10 +328,21 @@ async function studentGroupDetail(classId, studentId, groupId) {
   const grp = await loadGroupMeta(classId, groupId);
   if (!grp) return null;
 
-  const members = await groupMembers(groupId, grp.leader_id);
+  let members = await groupMembers(groupId, grp.leader_id);
   const statsMap = await computeClassGroupStats(classId);
   const st = statsMap[groupId] || {};
   const pointEvents = await fetchGroupPointEvents(classId, groupId, 50);
+
+  let myAchievements = { achievements: [], displayed_title: null };
+  try {
+    const { getDisplayedTitlesForStudents, listStudentAchievements } = require('../lib/achievementEngine');
+    const crowns = await getDisplayedTitlesForStudents(classId, members.map((m) => m.id));
+    members = members.map((m) => ({
+      ...m,
+      displayed_crown: crowns[m.id] || null,
+    }));
+    myAchievements = await listStudentAchievements(studentId, classId);
+  } catch (_) {}
 
   const assignRes = await pool.query(
     `SELECT a.*, g.name AS group_name, q.title AS quiz_title, q.description AS quiz_description,
@@ -362,6 +373,8 @@ async function studentGroupDetail(classId, studentId, groupId) {
     quiz_rank: st.quiz_rank,
     total_groups: st.total_groups || 0,
     point_events: pointEvents,
+    my_achievements: myAchievements.achievements,
+    displayed_title: myAchievements.displayed_title,
     assignments: assignRes.rows.map((row) => formatAssignment(row, members)),
   };
 }

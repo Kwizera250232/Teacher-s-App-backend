@@ -3,6 +3,7 @@ import { classMomentDetailPath } from './classMomentPaths';
 const TYPE_ICONS = {
   group_quiz: '👥',
   group_points: '🏆',
+  achievement_earned: '🏆',
   class_quiz: '📝',
   class_homework: '📚',
   class_notes: '📄',
@@ -39,6 +40,7 @@ export function studentNotificationPath(n, role = 'student') {
     class_feed: 'Feed',
     group_quiz: 'Groups',
     group_points: 'Groups',
+    achievement_earned: 'Groups',
   };
   const tab = tabMap[n.type];
   const groupId = payload.group_id;

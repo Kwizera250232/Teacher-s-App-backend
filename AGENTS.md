@@ -24,6 +24,14 @@ ALTER TABLE schools ADD COLUMN IF NOT EXISTS welcome_message TEXT;
 - Tables: `class_point_events`, `class_groups`, `class_group_members` (`lib/classPointsSchema.js`, ensured at startup).
 - Production verify: `GET /api/health` → `features.classroom_points: true`; `GET /api/classes/1/classroom` without token → **401** (not 404).
 
+### Student achievements & Hall of Fame
+
+- Tables: `student_achievements`, `student_displayed_titles`, `achievement_feed`, `achievement_reactions` (`lib/achievementsSchema.js`).
+- Awards on solo/group quiz submit (`lib/achievementEngine.js`). Nine titles in `lib/achievementCatalog.js`.
+- **Inside group:** feed + reactions `GET /api/classes/:classId/groups/:groupId/achievements`; crown picker in team UI.
+- **Outside group:** worn crown only — `PUT /api/classes/:classId/achievements/displayed-title`, shown on leaderboard/profile.
+- Production: `GET /api/health` must include `student_achievements: true`; `GET /api/classes/1/achievements/displayed` → **401** without token (not **404**).
+
 ### Auth
 
 - JWT payload: `{id, role}` — does NOT include `school_id`.

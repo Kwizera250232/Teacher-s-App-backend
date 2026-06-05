@@ -4,8 +4,8 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const { userCanManageClass } = require('../lib/classAccess');
 const { titleMeta } = require('../lib/achievementCatalog');
 const {
-  getDisplayedTitle,
   setDisplayedTitle,
+  listStudentAchievements,
   isoWeekKey,
   monthKey,
 } = require('../lib/achievementEngine');
@@ -48,17 +48,8 @@ router.get('/:classId/achievements/mine', authenticateToken, requireRole('studen
     if (!(await studentInClass(classId, req.user.id))) {
       return res.status(403).json({ error: 'Not in this class.' });
     }
-    const rows = await pool.query(
-      `SELECT * FROM student_achievements
-       WHERE student_id = $1 AND class_id = $2
-       ORDER BY earned_at DESC`,
-      [req.user.id, classId]
-    );
-    const displayed = await getDisplayedTitle(req.user.id, classId);
-    res.json({
-      achievements: rows.rows.map(mapAchievement),
-      displayed_title: displayed,
-    });
+    const data = await listStudentAchievements(req.user.id, classId);
+    res.json(data);
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
   }
