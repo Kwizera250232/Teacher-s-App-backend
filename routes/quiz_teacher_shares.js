@@ -10,6 +10,7 @@ const {
   teacherCanReceiveShare,
 } = require('../lib/quizTeacherShares');
 const { notifyQuizTeacherShare } = require('../lib/quizTeacherShareNotify');
+const { notifyClassStudentsInApp } = require('../lib/studentClassNotify');
 
 const router = express.Router();
 
@@ -315,6 +316,20 @@ router.put('/:id/accept', async (req, res) => {
        RETURNING *`,
       [targetClassId, shareId]
     );
+
+    const quizMeta = await pool.query(
+      `SELECT q.title FROM quizzes q WHERE q.id = $1 LIMIT 1`,
+      [row.source_quiz_id]
+    );
+    const quizTitle = quizMeta.rows[0]?.title || 'Shared quiz';
+    notifyClassStudentsInApp({
+      classId: targetClassId,
+      type: 'shared_quiz',
+      title: '📝 New quiz from your school',
+      body: `"${quizTitle}" was added to your class by a colleague teacher.`,
+      tab: 'Quizzes',
+      extraPayload: { share_id: shareId, quiz_id: row.source_quiz_id },
+    }).catch((e) => console.error('[quiz_teacher_shares] student notify', e.message));
 
     res.json({
       share: updated.rows[0],

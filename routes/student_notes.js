@@ -84,7 +84,7 @@ router.get('/notifications', authenticateToken, requireRole('student'), async (r
        FROM user_notifications
        WHERE user_id = $1
        ORDER BY created_at DESC
-       LIMIT 40`,
+       LIMIT 60`,
       [req.user.id]
     );
     const unread = rows.rows.filter((r) => !r.is_read).length;
@@ -100,6 +100,18 @@ router.put('/notifications/:id/read', authenticateToken, requireRole('student'),
     await pool.query(
       'UPDATE user_notifications SET is_read = TRUE WHERE id = $1 AND user_id = $2',
       [req.params.id, req.user.id]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.put('/notifications/read-all', authenticateToken, requireRole('student'), async (req, res) => {
+  try {
+    await pool.query(
+      'UPDATE user_notifications SET is_read = TRUE WHERE user_id = $1 AND is_read = FALSE',
+      [req.user.id]
     );
     res.json({ ok: true });
   } catch (err) {
