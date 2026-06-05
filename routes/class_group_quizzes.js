@@ -110,16 +110,29 @@ async function fetchQuizQuestions(quizId) {
   return result.rows;
 }
 
-/** One row per assignment id (guards against bad joins / legacy dup rows). */
+/** One row per quiz in a group (guards against bad joins / legacy dup rows). */
 function dedupeAssignments(rows) {
-  const seen = new Set();
-  const out = [];
+  const statusRank = (s) => (s === 'submitted' ? 3 : s === 'active' ? 2 : 1);
+  const byQuiz = new Map();
   for (const row of rows) {
-    if (!row?.id || seen.has(row.id)) continue;
-    seen.add(row.id);
-    out.push(row);
+    if (!row?.id) continue;
+    const key = row.quiz_id != null ? `q${row.quiz_id}` : `a${row.id}`;
+    const prev = byQuiz.get(key);
+    if (!prev) {
+      byQuiz.set(key, row);
+      continue;
+    }
+    if (statusRank(row.status) > statusRank(prev.status)) {
+      byQuiz.set(key, row);
+    } else if (statusRank(row.status) === statusRank(prev.status)) {
+      const rowTs = new Date(row.submitted_at || row.created_at || 0).getTime();
+      const prevTs = new Date(prev.submitted_at || prev.created_at || 0).getTime();
+      if (rowTs >= prevTs) byQuiz.set(key, row);
+    }
   }
-  return out;
+  return [...byQuiz.values()].sort(
+    (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)
+  );
 }
 
 function formatAssignment(row, members) {
@@ -366,7 +379,7 @@ async function studentGroupDetail(classId, studentId, groupId) {
   } catch (_) {}
 
   const assignRes = await pool.query(
-    `SELECT a.*, g.name AS group_name, q.title AS quiz_title, q.description AS quiz_description,
+    `SELECT DISTINCT ON (a.id) a.*, g.name AS group_name, q.title AS quiz_title, q.description AS quiz_description,
             u.name AS started_by_name, su.name AS submitted_by_name
      FROM class_group_quiz_assignments a
      JOIN class_groups g ON g.id = a.group_id
@@ -374,7 +387,7 @@ async function studentGroupDetail(classId, studentId, groupId) {
      LEFT JOIN users u ON u.id = a.started_by_student_id
      LEFT JOIN users su ON su.id = a.submitted_by_student_id
      WHERE a.class_id = $1 AND a.group_id = $2
-     ORDER BY a.created_at DESC`,
+     ORDER BY a.id, a.created_at DESC`,
     [classId, groupId]
   );
 
