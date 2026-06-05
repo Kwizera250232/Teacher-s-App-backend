@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { userCanManageClass } = require('../lib/classAccess');
+const { notifyGroupQuizReleased } = require('../lib/groupQuizNotify');
 const router = express.Router();
 
 async function studentInGroup(studentId, groupId) {
@@ -132,38 +133,59 @@ router.post('/:classId/group-quizzes', authenticateToken, requireRole('teacher',
     if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
 
     const quiz = await pool.query(
-      'SELECT id FROM quizzes WHERE id = $1 AND class_id = $2',
+      'SELECT id, title FROM quizzes WHERE id = $1 AND class_id = $2',
       [quizId, classId]
     );
     if (!quiz.rows.length) return res.status(404).json({ error: 'Quiz not found in this class.' });
+    const quizTitle = quiz.rows[0].title;
+
+    const classRow = await pool.query('SELECT name FROM classes WHERE id = $1', [classId]);
+    const className = classRow.rows[0]?.name || '';
 
     const created = [];
     for (const gid of groupIds) {
       const groupId = parseInt(gid, 10);
       if (Number.isNaN(groupId)) continue;
       const grp = await pool.query(
-        'SELECT id FROM class_groups WHERE id = $1 AND class_id = $2',
+        'SELECT id, name FROM class_groups WHERE id = $1 AND class_id = $2',
         [groupId, classId]
       );
       if (!grp.rows.length) continue;
 
+      const memberCount = await pool.query(
+        'SELECT COUNT(*)::int AS c FROM class_group_members WHERE group_id = $1',
+        [groupId]
+      );
+      if (!memberCount.rows[0]?.c) continue;
+
       const ins = await pool.query(
-        `INSERT INTO class_group_quiz_assignments (class_id, group_id, quiz_id, teacher_id)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO class_group_quiz_assignments (class_id, group_id, quiz_id, teacher_id, status, started_at)
+         VALUES ($1, $2, $3, $4, 'active', NOW())
          ON CONFLICT (group_id, quiz_id) DO UPDATE SET
            teacher_id = EXCLUDED.teacher_id,
            status = CASE
              WHEN class_group_quiz_assignments.status = 'submitted' THEN class_group_quiz_assignments.status
-             ELSE 'assigned'
-           END
+             ELSE 'active'
+           END,
+           started_at = COALESCE(class_group_quiz_assignments.started_at, NOW())
          RETURNING id`,
         [classId, groupId, quizId, req.user.id]
       );
-      created.push(ins.rows[0].id);
+      const assignmentId = ins.rows[0].id;
+      created.push(assignmentId);
+
+      notifyGroupQuizReleased({
+        classId,
+        groupId,
+        assignmentId,
+        quizTitle,
+        groupName: grp.rows[0].name,
+        className,
+      }).catch((e) => console.error('[group-quiz notify]', e.message));
     }
 
     if (!created.length) {
-      return res.status(400).json({ error: 'No valid groups selected.' });
+      return res.status(400).json({ error: 'No valid groups with students selected.' });
     }
 
     const listed = await pool.query(

@@ -26,13 +26,13 @@ export default function StudentGroupQuizCards({ assignments, classId, showClassN
             {a.status === 'submitted' && (
               <span style={{ color: '#166534', fontWeight: 700 }}>Submitted · {a.score}/{a.total}</span>
             )}
-            {a.status === 'active' && (
+            {a.status === 'active' && a.started_by_student_id && (
               <span style={{ color: '#b45309', fontWeight: 700 }}>
-                In progress{a.started_by_name ? ` · started by ${a.started_by_name.split(' ')[0]}` : ''}
+                In progress{a.started_by_name ? ` · ${a.started_by_name.split(' ')[0]}` : ''}
               </span>
             )}
-            {a.status === 'assigned' && (
-              <span style={{ color: '#64748b', fontWeight: 600 }}>Ready — open and start as a group</span>
+            {(a.status === 'assigned' || (a.status === 'active' && !a.started_by_student_id)) && (
+              <span style={{ color: '#059669', fontWeight: 700 }}>New — open now</span>
             )}
           </div>
           {a.members?.length > 0 && (
@@ -47,7 +47,7 @@ export default function StudentGroupQuizCards({ assignments, classId, showClassN
           style={{ alignSelf: 'flex-start', marginTop: 8 }}
           onClick={() => navigate(`/student/classes/${cid}/group-quizzes/${a.id}`)}
         >
-          {a.status === 'submitted' ? 'View result' : a.status === 'active' ? 'Continue group work' : 'Open group & start'}
+          {a.status === 'submitted' ? 'View result' : 'Open group quiz'}
         </button>
       </div>
     );

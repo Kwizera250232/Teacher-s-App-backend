@@ -610,7 +610,11 @@ export default function TeacherClassPage() {
                       fontWeight: 700,
                       color: a.status === 'submitted' ? '#166534' : a.status === 'active' ? '#b45309' : '#64748b',
                     }}>
-                      {a.status === 'submitted' ? `Done ${a.score}/${a.total}` : a.status === 'active' ? 'In progress' : 'Waiting'}
+                      {a.status === 'submitted'
+                        ? `Done ${a.score}/${a.total}`
+                        : a.status === 'active' && a.started_by_student_id
+                          ? 'In progress'
+                          : 'Released'}
                     </span>
                   </div>
                 ))}
@@ -906,7 +910,7 @@ export default function TeacherClassPage() {
             setShowQuizModal(true);
           }}
           onAssigned={() => {
-            showSuccess('Work assigned to selected groups.');
+            showSuccess('Quiz released to groups — students notified.');
             api.get(`/classes/${id}/group-quizzes`, token)
               .then((list) => setGroupAssignments(Array.isArray(list) ? list : []))
               .catch(() => {});

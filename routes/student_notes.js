@@ -77,6 +77,36 @@ async function studentParentInviteRoute(req, res) {
 router.get('/parent-invite', authenticateToken, requireRole('student'), studentParentInviteRoute);
 router.post('/parent-invite', authenticateToken, requireRole('student'), studentParentInviteRoute);
 
+router.get('/notifications', authenticateToken, requireRole('student'), async (req, res) => {
+  try {
+    const rows = await pool.query(
+      `SELECT id, type, title, body, payload, is_read, created_at
+       FROM user_notifications
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT 40`,
+      [req.user.id]
+    );
+    const unread = rows.rows.filter((r) => !r.is_read).length;
+    res.json({ unread_count: unread, notifications: rows.rows });
+  } catch (err) {
+    console.error('[student/notifications]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.put('/notifications/:id/read', authenticateToken, requireRole('student'), async (req, res) => {
+  try {
+    await pool.query(
+      'UPDATE user_notifications SET is_read = TRUE WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.user.id]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // DELETE note
 router.delete('/notes/:id', authenticateToken, requireRole('student'), async (req, res) => {
   try {

@@ -13,6 +13,7 @@ import CompositionStatusFeed from '../components/CompositionStatusFeed';
 import ClassMomentsFold from '../components/classMoments/ClassMomentsFold';
 import StudentGroupWorkFold, { groupWorkCountByClass } from '../components/StudentGroupWorkFold';
 import { useClassMomentAlerts } from '../hooks/useClassMomentAlerts';
+import { useGroupWorkAlerts } from '../hooks/useGroupWorkAlerts';
 import { classMomentDetailPath } from '../utils/classMomentPaths';
 import '../components/classMoments/ClassMoments.css';
 import './Dashboard.css';
@@ -77,6 +78,7 @@ export default function StudentDashboard() {
   };
 
   useClassMomentAlerts(token, user?.role);
+  useGroupWorkAlerts(token, user?.role);
 
   useEffect(() => { loadClasses(); }, []);
 

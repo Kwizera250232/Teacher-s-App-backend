@@ -2,11 +2,14 @@ import { useNavigate } from 'react-router-dom';
 
 function statusLabel(a) {
   if (a.status === 'submitted') return { text: `Done · ${a.score}/${a.total}`, color: '#166534' };
-  if (a.status === 'active') {
-    const who = a.started_by_name ? ` · started by ${a.started_by_name.split(' ')[0]}` : '';
+  if (a.status === 'active' && a.started_by_student_id) {
+    const who = a.started_by_name ? ` · ${a.started_by_name.split(' ')[0]} started` : '';
     return { text: `In progress${who}`, color: '#b45309' };
   }
-  return { text: 'Ready to start', color: '#64748b' };
+  if (a.status === 'active' || a.status === 'assigned') {
+    return { text: 'New — open now', color: '#059669' };
+  }
+  return { text: 'Open now', color: '#059669' };
 }
 
 export default function StudentMyGroupsPanel({ groups, classId, loading, error }) {
@@ -77,7 +80,7 @@ export default function StudentMyGroupsPanel({ groups, classId, loading, error }
                       className="btn btn-primary btn-sm"
                       onClick={() => navigate(`/student/classes/${classId}/group-quizzes/${a.id}`)}
                     >
-                      {a.status === 'submitted' ? 'View result' : a.status === 'active' ? 'Continue in group' : 'Open & start quiz'}
+                      {a.status === 'submitted' ? 'View result' : 'Open group quiz'}
                     </button>
                   </div>
                 );

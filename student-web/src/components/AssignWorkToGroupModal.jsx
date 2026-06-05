@@ -203,7 +203,7 @@ export default function AssignWorkToGroupModal({
               className="btn btn-primary btn-full"
               disabled={saving || !selectedQuizId || !selectedGroups.size}
             >
-              {saving ? 'Assigning…' : 'Assign work to selected groups'}
+              {saving ? 'Releasing…' : 'Release quiz to selected groups'}
             </button>
           </form>
         )}

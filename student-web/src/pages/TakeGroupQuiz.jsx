@@ -62,15 +62,6 @@ export default function TakeGroupQuiz() {
     saveAnswers({ [questionId]: value });
   };
 
-  const handleStart = async () => {
-    try {
-      await api.post(`/classes/${classId}/group-quizzes/${assignmentId}/start`, {}, token);
-      await load();
-    } catch (e) {
-      setError(e.message);
-    }
-  };
-
   const handleSubmit = async () => {
     if (Object.keys(answers).length < questions.length) {
       setError('Answer all questions before submitting for your group.');
@@ -121,11 +112,6 @@ export default function TakeGroupQuiz() {
           <p style={{ margin: '8px 0 0', fontSize: 13, color: '#64748b' }}>
             Members: {assignment.members?.map((m) => m.name.split(' ')[0]).join(', ') || '—'}
           </p>
-          {assignment.status === 'assigned' && (
-            <button type="button" className="btn btn-primary btn-sm" style={{ marginTop: 12, alignSelf: 'flex-start' }} onClick={handleStart}>
-              Start working as group
-            </button>
-          )}
           {assignment.status === 'active' && assignment.started_by_name && (
             <p style={{ margin: '8px 0 0', fontSize: 12, color: '#059669' }}>
               Started by {assignment.started_by_name}
