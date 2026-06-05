@@ -4,6 +4,7 @@ import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import ClassDeanHelp from './ClassDeanHelp';
 import GroupAchievementHub from './GroupAchievementHub';
+import CrownPickerSection from './CrownPickerSection';
 import DisplayedTitleBadge from './DisplayedTitleBadge';
 import './StudentMyGroups.css';
 
@@ -139,6 +140,11 @@ function TeamRoster({
               <strong>{firstName(m.name)}{m.id === currentUserId ? ' (you)' : ''}</strong>
               {m.team_role_meta && (
                 <span className="sg-member-role">{m.team_role_meta.label}</span>
+              )}
+              {m.displayed_crown && (
+                <span className="sg-member-crown">
+                  <DisplayedTitleBadge title={m.displayed_crown} compact />
+                </span>
               )}
             </div>
           </li>
@@ -316,6 +322,14 @@ export default function StudentMyGroupsPanel({
             />
 
             <EarnedPointsWall events={detail?.point_events} total={earned} />
+
+            <CrownPickerSection
+              classId={classId}
+              token={token}
+              achievements={detail?.my_achievements}
+              displayedTitle={detail?.displayed_title}
+              onUpdated={loadDetail}
+            />
 
             <GroupAchievementHub classId={classId} groupId={openGroupId} token={token} />
 

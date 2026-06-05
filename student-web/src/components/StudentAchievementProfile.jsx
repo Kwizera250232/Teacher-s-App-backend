@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { api } from '../api';
-import DisplayedTitleBadge from './DisplayedTitleBadge';
+import CrownPickerSection from './CrownPickerSection';
 import { titleMeta } from '../utils/achievementCatalog';
 import './GroupAchievementHub.css';
 
@@ -9,14 +9,14 @@ export default function StudentAchievementProfile({ token }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     if (!token) return;
+    setLoading(true);
     api
       .get('/classes/my', token)
       .then((classes) => {
         if (!classes?.length) {
           setRows([]);
-          setLoading(false);
           return;
         }
         return Promise.all(
@@ -33,6 +33,10 @@ export default function StudentAchievementProfile({ token }) {
       .finally(() => setLoading(false));
   }, [token]);
 
+  useEffect(() => {
+    load();
+  }, [load]);
+
   if (loading) return null;
   if (!rows.length) return null;
 
@@ -47,12 +51,13 @@ export default function StudentAchievementProfile({ token }) {
           <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>
             {row.className}
           </div>
-          {row.displayed_title && (
-            <div style={{ marginBottom: 8 }}>
-              <DisplayedTitleBadge title={row.displayed_title} />
-              <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 8 }}>Wearing now</span>
-            </div>
-          )}
+          <CrownPickerSection
+            classId={row.classId}
+            token={token}
+            achievements={row.achievements}
+            displayedTitle={row.displayed_title}
+            onUpdated={load}
+          />
           {row.achievements?.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {row.achievements.slice(0, 8).map((a) => {
