@@ -4,6 +4,8 @@ const TYPE_ICONS = {
   group_quiz: '👥',
   group_points: '🏆',
   achievement_earned: '🏆',
+  quiz_teacher_reply: '💬',
+  quiz_team_report: '📋',
   class_quiz: '📝',
   class_homework: '📚',
   class_notes: '📄',
@@ -41,7 +43,11 @@ export function studentNotificationPath(n, role = 'student') {
     group_quiz: 'Groups',
     group_points: 'Groups',
     achievement_earned: 'Groups',
+    quiz_teacher_reply: null,
   };
+  if (n.type === 'quiz_teacher_reply' && payload.report_id) {
+    return `/student/quiz-reports?highlight=${payload.report_id}`;
+  }
   const tab = tabMap[n.type];
   const groupId = payload.group_id;
   if (tab === 'Groups' && groupId) {

@@ -12,6 +12,7 @@ import CompositionStatusPanel from '../components/CompositionStatusPanel';
 import CompositionStatusFeed from '../components/CompositionStatusFeed';
 import ClassMomentsFold from '../components/classMoments/ClassMomentsFold';
 import StudentNotificationsBell from '../components/StudentNotificationsBell';
+import QuizTeacherCommentPopup from '../components/quizReflection/QuizTeacherCommentPopup';
 import { useClassMomentAlerts } from '../hooks/useClassMomentAlerts';
 import { classMomentDetailPath } from '../utils/classMomentPaths';
 import '../components/classMoments/ClassMoments.css';
@@ -23,6 +24,7 @@ const QUICK_NAV = (handlers) => [
   { id: 'classnow', icon: '📸', label: 'Class Now', onClick: handlers.scrollClassNow },
   { id: 'status', icon: '✍️', label: 'C. Status', onClick: handlers.openStatus },
   { id: 'notes', icon: '📝', label: 'Notes', to: '/student/notes' },
+  { id: 'reports', icon: '📋', label: 'Quiz reports', to: '/student/quiz-reports' },
   { id: 'parent', icon: '👪', label: 'Parent', onClick: handlers.openParent },
   { id: 'profile', icon: '👤', label: 'Profile', to: '/profile' },
 ];
@@ -118,6 +120,7 @@ export default function StudentDashboard() {
   const quickNavItems = QUICK_NAV(navHandlers);
   return (
     <div className="dashboard student-dashboard-classic">
+      <QuizTeacherCommentPopup token={token} />
       <header className="dash-header dash-header--student">
         <div className="dash-header-desktop-brand dash-brand">🎓 UClass</div>
         <MobileStudentHeader

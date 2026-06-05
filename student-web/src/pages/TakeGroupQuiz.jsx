@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import ClassDeanHelp from '../components/ClassDeanHelp';
-import AchievementCelebrateModal from '../components/AchievementCelebrateModal';
+import QuizReflectionWizard from '../components/quizReflection/QuizReflectionWizard';
 import '../pages/Dashboard.css';
 
 async function loadQuestions(classId, assignmentId, assignment, token) {
@@ -24,7 +24,8 @@ export default function TakeGroupQuiz() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [className, setClassName] = useState('');
-  const [celebrateAchievements, setCelebrateAchievements] = useState(null);
+  const [reflectionOpen, setReflectionOpen] = useState(false);
+  const [submitAchievements, setSubmitAchievements] = useState([]);
   const questionsLoaded = useRef(false);
 
   const load = useCallback(async ({ refreshQuestions = false } = {}) => {
@@ -101,7 +102,8 @@ export default function TakeGroupQuiz() {
       setResult(res);
       const mine = res.newAchievements?.find((x) => x.student_id === user?.id);
       const earned = mine?.achievements?.filter((a) => a?.title_key) || [];
-      if (earned.length) setCelebrateAchievements(earned);
+      setSubmitAchievements(earned);
+      setReflectionOpen(true);
       await load({ refreshQuestions: false });
     } catch (e) {
       setError(e.message);
@@ -122,16 +124,20 @@ export default function TakeGroupQuiz() {
 
   return (
     <div className="class-page wa-theme">
-      {celebrateAchievements && (
-        <AchievementCelebrateModal
+      {reflectionOpen && result && (
+        <QuizReflectionWizard
           classId={classId}
-          groupId={assignment?.group_id}
+          assignmentId={assignmentId}
           token={token}
-          achievements={celebrateAchievements}
-          score={result?.score}
-          total={result?.total}
-          onDone={() => {
-            setCelebrateAchievements(null);
+          achievements={submitAchievements}
+          score={result.score}
+          total={result.total}
+          onComplete={() => {
+            setReflectionOpen(false);
+            navigate(`/student/classes/${classId}?tab=Groups&group=${assignment.group_id}`);
+          }}
+          onSkip={() => {
+            setReflectionOpen(false);
             navigate(`/student/classes/${classId}?tab=Groups&group=${assignment.group_id}`);
           }}
         />
