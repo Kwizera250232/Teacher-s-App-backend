@@ -2,11 +2,21 @@ import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 
-export default function UmunsiAiModal({ classId, className, token, onClose, isTeacher = false }) {
+export default function UmunsiAiModal({
+  classId,
+  className,
+  token,
+  onClose,
+  isTeacher = false,
+  quizHint = '',
+}) {
   const navigate = useNavigate();
+  const quizLine = quizHint
+    ? `\n\nYou are helping with a **group quiz**: ${quizHint}. Give hints only — do not give the full answer list.`
+    : '';
   const greeting = isTeacher
-    ? `Muraho Mwarimu! Ndi Baza Umunsi Teacher AI 🤖\n\nNshobora gufasha:\n• Gusobanura amasomo n'ibitabo bya curriculum ya Rwanda\n• Gufasha gutegura homework na gusobanura abanyeshuri\n• Gukora ibibazo by'ikizamini\n\nBaza ikibazo cyangwa wandike homework kugira ngo ngusobanurire uko uyigisha!\n\nSubiza mu Kinyarwanda cyangwa English.`
-    : `Muraho! Ndi Baza Umunsi Student AI 🤖\n\nNshobora gufasha mu bibazo bijyanye n'amasomo mwigwa muri ${className}.\n\nNibaze ikibazo!\n\nSubiza mu Kinyarwanda cyangwa English.`;
+    ? `Muraho Mwarimu! Ndi Baza Umunsi Teacher AI 🤖\n\nNshobora gufasha:\n• Gusobanura amasomo n'ibitabo bya curriculum ya Rwanda\n• Gufasha gutegura homework na gusobanura abanyeshuri\n• Gukora ibibazo by'ikizamini\n\nBaza ikibazo cyangwa wandike homework kugira ngo ngusobanurire uko uyigisha!\n\nSubiza mu Kinyarwanda cyangwa English.${quizLine}`
+    : `Muraho! Ndi Baza Umunsi Student AI 🤖\n\nNshobora gufasha mu bibazo bijyanye n'amasomo mwigwa muri ${className}.\n\nNibaze ikibazo!\n\nSubiza mu Kinyarwanda cyangwa English.${quizLine}`;
   const [messages, setMessages] = useState([
     { role: 'assistant', content: greeting },
   ]);

@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import VerifiedBadge from './VerifiedBadge';
+import StudentNotificationsBell from './StudentNotificationsBell';
 
 export default function MobileStudentHeader({
   user,
@@ -24,9 +25,12 @@ export default function MobileStudentHeader({
             }}
           />
         </div>
-        <Link to="/profile" className="mobile-nav-text-btn mobile-profile-btn">
-          Profile
-        </Link>
+        <div className="mobile-student-header-actions">
+          <StudentNotificationsBell className="student-notif-bell--header" />
+          <Link to="/profile" className="mobile-nav-text-btn mobile-profile-btn">
+            Profile
+          </Link>
+        </div>
       </div>
       <div className="mobile-student-row2">
         {onOpenStatus && (

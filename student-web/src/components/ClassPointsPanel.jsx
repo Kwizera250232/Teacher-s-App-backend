@@ -46,6 +46,7 @@ export default function ClassPointsPanel({
   const [skillTarget, setSkillTarget] = useState(null);
   const [groupAward, setGroupAward] = useState(null);
   const [showGroupModal, setShowGroupModal] = useState(false);
+  const [editGroup, setEditGroup] = useState(null);
   const [groupName, setGroupName] = useState('');
   const [groupPick, setGroupPick] = useState(new Set());
   const [timerSecs, setTimerSecs] = useState(null);
@@ -152,6 +153,50 @@ export default function ClassPointsPanel({
       awardPoints({ whole_class: true, skill, value: 1 });
     } else if (skillTarget.type === 'multi') {
       awardPoints({ student_ids: skillTarget.ids, skill, value: 1 });
+    }
+  };
+
+  const openEditGroup = (g) => {
+    setEditGroup(g);
+    setGroupName(g.name || '');
+    setGroupPick(new Set(g.student_ids || []));
+    setShowGroupModal(false);
+  };
+
+  const saveEditGroup = async (e) => {
+    e.preventDefault();
+    if (!editGroup || !groupName.trim()) return;
+    setBusy(true);
+    try {
+      await api.put(
+        `/classes/${classId}/groups/${editGroup.id}`,
+        { name: groupName.trim(), student_ids: [...groupPick] },
+        token
+      );
+      onSuccess?.('Group updated.');
+      setEditGroup(null);
+      setGroupName('');
+      setGroupPick(new Set());
+      await load();
+    } catch (err) {
+      onError?.(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteGroup = async (g) => {
+    if (!window.confirm(`Delete group "${g.name}"? Assigned group quizzes stay in history but the team is removed.`)) return;
+    setBusy(true);
+    try {
+      await api.delete(`/classes/${classId}/groups/${g.id}`, token);
+      onSuccess?.('Group deleted.');
+      if (editGroup?.id === g.id) setEditGroup(null);
+      await load();
+    } catch (err) {
+      onError?.(err.message);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -374,19 +419,43 @@ export default function ClassPointsPanel({
                     </div>
                     <div className="class-roster-name">{g.name}</div>
                   </div>
-                  {onAssignWorkToGroup && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+                    {onAssignWorkToGroup && (
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        style={{ fontSize: 10, padding: '4px 6px', width: '100%' }}
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          onAssignWorkToGroup(g);
+                        }}
+                      >
+                        Assign quiz
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      style={{ fontSize: 10, padding: '4px 6px', width: '100%' }}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        openEditGroup(g);
+                      }}
+                    >
+                      Edit group
+                    </button>
                     <button
                       type="button"
                       className="btn btn-outline btn-sm"
-                      style={{ fontSize: 10, padding: '2px 6px', marginTop: 4, width: '100%' }}
+                      style={{ fontSize: 10, padding: '4px 6px', width: '100%', color: '#b91c1c', borderColor: '#fecaca' }}
                       onClick={(ev) => {
                         ev.stopPropagation();
-                        onAssignWorkToGroup(g);
+                        deleteGroup(g);
                       }}
                     >
-                      Assign quiz
+                      Delete
                     </button>
-                  )}
+                  </div>
                 </div>
               ))}
               {!groups.length && (
@@ -472,6 +541,31 @@ export default function ClassPointsPanel({
             >
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+
+      {editGroup && (
+        <div className="class-points-modal-backdrop" onClick={() => { setEditGroup(null); setGroupName(''); setGroupPick(new Set()); }}>
+          <div className="class-points-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 12px' }}>Edit group</h3>
+            <form onSubmit={saveEditGroup}>
+              <input
+                className="form-group"
+                style={{ width: '100%', padding: '10px 14px', border: '2px solid #e8e8e8', borderRadius: 8, marginBottom: 12 }}
+                placeholder="Group name"
+                value={groupName}
+                onChange={(e) => setGroupName(e.target.value)}
+                required
+              />
+              <p style={{ fontSize: 13, color: '#666', margin: '0 0 8px' }}>Members (tap to add/remove)</p>
+              <div className="class-roster-grid" style={{ marginBottom: 12 }}>
+                {students.map((s, i) => renderStudentCard(s, i, { showParentInvite: false, pickForGroup: true }))}
+              </div>
+              <button type="submit" className="btn btn-primary" disabled={busy || !groupName.trim()}>
+                Save changes ({groupPick.size} members)
+              </button>
+            </form>
           </div>
         </div>
       )}

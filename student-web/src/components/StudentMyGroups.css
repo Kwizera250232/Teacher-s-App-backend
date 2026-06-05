@@ -1,0 +1,149 @@
+.student-group-list-hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.student-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.student-group-list-card {
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px;
+  border: 2px solid #e0e7ff;
+  border-radius: 14px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.student-group-list-card:hover {
+  border-color: #667eea;
+  background: #f8f9ff;
+}
+
+.student-group-list-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.student-group-list-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #f59e0b;
+  color: #fff;
+}
+
+.student-group-list-open {
+  display: block;
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #4338ca;
+}
+
+.student-group-stats {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.student-group-stat {
+  flex: 1;
+  min-width: 120px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.student-group-stat-val {
+  display: block;
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.student-group-stat-lbl {
+  display: block;
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.student-group-stat-rank {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #4338ca;
+  margin-top: 4px;
+}
+
+.student-group-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.student-group-back {
+  align-self: flex-start;
+}
+
+.student-group-detail-head h3 {
+  margin: 0 0 4px;
+}
+
+.student-group-members {
+  margin: 0;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.student-group-dean-wrap {
+  margin: 4px 0;
+}
+
+.student-group-quiz-heading {
+  margin: 8px 0 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #374151;
+}
+
+.student-group-quiz-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.student-group-quiz-card {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.student-group-quiz-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.student-group-quiz-desc {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.student-group-quiz-status {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
