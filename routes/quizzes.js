@@ -63,7 +63,16 @@ pool.query(`
 // GET quizzes for a class (includes colleague shares accepted into this class)
 router.get('/:classId/quizzes', authenticateToken, async (req, res) => {
   try {
-    const rows = await listQuizzesForClass(req.params.classId);
+    let rows = await listQuizzesForClass(req.params.classId);
+    if (req.user.role === 'student') {
+      const classId = parseInt(req.params.classId, 10);
+      const groupQuizIds = await pool.query(
+        `SELECT DISTINCT quiz_id FROM class_group_quiz_assignments WHERE class_id = $1`,
+        [classId]
+      );
+      const hide = new Set(groupQuizIds.rows.map((r) => r.quiz_id));
+      rows = rows.filter((q) => !hide.has(q.id));
+    }
     res.json(rows);
   } catch (err) {
     console.error('[quizzes/list]', err);
