@@ -23,14 +23,25 @@ export default function TakeGroupQuiz() {
 
   const load = useCallback(async () => {
     try {
-      const a = await api.get(`/classes/${classId}/group-quizzes/${assignmentId}`, token);
+      let a = await api.get(`/classes/${classId}/group-quizzes/${assignmentId}`, token);
+      if (a.status === 'assigned') {
+        try {
+          a = await api.post(`/classes/${classId}/group-quizzes/${assignmentId}/start`, {}, token);
+        } catch {
+          /* keep assigned row; questions may still load */
+        }
+      }
       setAssignment(a);
       setAnswers(a.draft_answers || {});
       if (a.status === 'submitted') {
         setResult({ score: a.score, total: a.total, submitted: true });
       }
-      const qs = await api.get(`/classes/${classId}/quizzes/${a.quiz_id}/questions`, token);
+      const qs = await api.get(
+        `/classes/${classId}/group-quizzes/${assignmentId}/questions`,
+        token
+      );
       setQuestions(qs);
+      setError('');
       api.get(`/classes/${classId}`, token).then((c) => setClassName(c?.name || '')).catch(() => {});
     } catch (e) {
       setError(e.message);
