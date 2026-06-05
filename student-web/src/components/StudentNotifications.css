@@ -24,14 +24,24 @@
 }
 
 .dash-header--student .student-notif-bell-btn,
-.wa-class-header .student-notif-bell-btn {
+.wa-class-header .student-notif-bell-btn,
+.phub-header .student-notif-bell-btn,
+.dash-header.phub-header .student-notif-bell-btn {
   background: #f1f5f9;
   color: #0f172a;
 }
 
 .dash-header--student .student-notif-bell-btn:hover,
-.wa-class-header .student-notif-bell-btn:hover {
+.wa-class-header .student-notif-bell-btn:hover,
+.phub-header .student-notif-bell-btn:hover,
+.dash-header.phub-header .student-notif-bell-btn:hover {
   background: #e2e8f0;
+}
+
+.phub-header-actions .student-notif-bell-wrap,
+.dash-user .student-notif-bell-wrap,
+.mobile-student-row1 .student-notif-bell-wrap {
+  margin-left: 4px;
 }
 
 .student-notif-bell-icon {

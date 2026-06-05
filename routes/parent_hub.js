@@ -138,7 +138,8 @@ router.get('/notifications', authenticateToken, requireRole('parent'), async (re
       `SELECT * FROM parent_notifications WHERE ${SQL_PARENT_NOTIF_SCOPE} ORDER BY created_at DESC LIMIT 100`,
       [req.user.id]
     );
-    res.json(r.rows);
+    const unread = r.rows.filter((row) => !row.is_read).length;
+    res.json({ unread_count: unread, notifications: r.rows });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
   }

@@ -110,6 +110,18 @@ async function fetchQuizQuestions(quizId) {
   return result.rows;
 }
 
+/** One row per assignment id (guards against bad joins / legacy dup rows). */
+function dedupeAssignments(rows) {
+  const seen = new Set();
+  const out = [];
+  for (const row of rows) {
+    if (!row?.id || seen.has(row.id)) continue;
+    seen.add(row.id);
+    out.push(row);
+  }
+  return out;
+}
+
 function formatAssignment(row, members) {
   if (!row) return null;
   return {
@@ -360,7 +372,7 @@ async function studentGroupDetail(classId, studentId, groupId) {
      JOIN class_groups g ON g.id = a.group_id
      JOIN quizzes q ON q.id = a.quiz_id
      LEFT JOIN users u ON u.id = a.started_by_student_id
-     LEFT JOIN users su ON u.id = a.submitted_by_student_id
+     LEFT JOIN users su ON su.id = a.submitted_by_student_id
      WHERE a.class_id = $1 AND a.group_id = $2
      ORDER BY a.created_at DESC`,
     [classId, groupId]
@@ -384,7 +396,7 @@ async function studentGroupDetail(classId, studentId, groupId) {
     point_events: pointEvents,
     my_achievements: myAchievements.achievements,
     displayed_title: myAchievements.displayed_title,
-    assignments: assignRes.rows.map((row) => formatAssignment(row, members)),
+    assignments: dedupeAssignments(assignRes.rows).map((row) => formatAssignment(row, members)),
   };
 }
 
@@ -741,6 +753,33 @@ router.post('/:classId/group-quizzes/:assignmentId/submit', authenticateToken, r
       }
     } catch (e) {
       console.error('[achievements group quiz]', e.message);
+    }
+
+    try {
+      const { notifyTeachersGroupQuizSubmitted, notifyParentsGroupQuizSubmitted } = require('../lib/staffActivityNotify');
+      const submitter = members.find((m) => m.id === req.user.id);
+      const classRow = await pool.query('SELECT teacher_id FROM classes WHERE id = $1', [classId]);
+      await notifyTeachersGroupQuizSubmitted({
+        classId,
+        groupId: row.group_id,
+        groupName: row.group_name,
+        quizTitle: row.quiz_title,
+        submitterName: submitter?.name || 'A student',
+        score,
+        total,
+        assignmentId,
+      });
+      await notifyParentsGroupQuizSubmitted({
+        studentIds: members.map((m) => m.id),
+        classId,
+        senderId: classRow.rows[0]?.teacher_id,
+        groupName: row.group_name,
+        quizTitle: row.quiz_title,
+        score,
+        total,
+      });
+    } catch (e) {
+      console.error('[group-quiz staff/parent notify]', e.message);
     }
 
     res.json({

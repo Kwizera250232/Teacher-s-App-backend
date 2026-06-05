@@ -32,6 +32,8 @@ import StaleApiBanner from '../components/StaleApiBanner';
 import TeacherSchoolBadge from '../components/TeacherSchoolBadge';
 import GuestMarksPanel from '../components/GuestMarksPanel';
 import StaffInyandikoDashboard from '../components/staff/StaffInyandikoDashboard';
+import AppNotificationsBell from '../components/AppNotificationsBell';
+import '../components/StudentNotifications.css';
 
 export default function StaffDashboard({ roleLabel, basePath }) {
   const { user, token, logout, isImpersonating, stopImpersonation, updateUser } = useAuth();
@@ -114,6 +116,7 @@ export default function StaffDashboard({ roleLabel, basePath }) {
           <span className="phub-sub">{roleLabel}</span>
         </div>
         <MobileStaffHeader
+          basePath={basePath}
           user={user}
           roleLabel={roleLabel}
           onLogout={logout}
@@ -131,6 +134,7 @@ export default function StaffDashboard({ roleLabel, basePath }) {
           {isImpersonating && (
             <button className="btn btn-secondary btn-sm" onClick={stopImpersonation}>↩ Return Admin</button>
           )}
+          <AppNotificationsBell className="student-notif-bell--header" basePath={basePath} />
           <Link to="/messages" className="btn btn-secondary btn-sm" style={{ position: 'relative' }}>
             💬 Messages{unread > 0 && <span style={{ background: '#ef4444', color: '#fff', borderRadius: '50%', fontSize: 11, fontWeight: 700, padding: '1px 6px', marginLeft: 4 }}>{unread}</span>}
           </Link>

@@ -118,6 +118,7 @@ app.use('/api/note-teacher-shares', require('./routes/note_teacher_shares'));
 app.use('/share', require('./routes/share_moment_page'));
 app.use('/api/parent', parentPortalRoutes);
 app.use('/api/parent', parentHubRoutes);
+app.use('/api/staff', require('./routes/staff_notifications'));
 app.use('/api/donate', donateRoutes);
 app.use('/api/hooks', require('./routes/hooks'));
 app.use('/api/mail', require('./routes/mail'));

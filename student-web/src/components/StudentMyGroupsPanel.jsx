@@ -13,15 +13,26 @@ function firstName(name) {
 }
 
 function statusLabel(a) {
-  if (a.status === 'submitted') return { text: `Done · ${a.score}/${a.total}`, color: '#166534' };
+  if (a.status === 'submitted') {
+    return { text: `Done · ${a.score}/${a.total}`, color: '#166534', emoji: '🏁', tone: 'done' };
+  }
   if (a.status === 'active' && a.started_by_student_id) {
     const who = a.started_by_name ? ` · ${firstName(a.started_by_name)} started` : '';
-    return { text: `In progress${who}`, color: '#b45309' };
+    return { text: `In progress${who}`, color: '#b45309', emoji: '🔥', tone: 'active' };
   }
   if (a.status === 'active' || a.status === 'assigned') {
-    return { text: 'New — open now', color: '#059669' };
+    return { text: 'New — open now!', color: '#059669', emoji: '✨', tone: 'new' };
   }
-  return { text: 'Open now', color: '#059669' };
+  return { text: 'Open now', color: '#059669', emoji: '🚀', tone: 'new' };
+}
+
+function uniqueAssignments(list) {
+  const seen = new Set();
+  return (list || []).filter((a) => {
+    if (!a?.id || seen.has(a.id)) return false;
+    seen.add(a.id);
+    return true;
+  });
 }
 
 function rankMedal(rank) {
@@ -345,28 +356,41 @@ export default function StudentMyGroupsPanel({
             {detailError && <div className="alert alert-error">{detailError}</div>}
 
             <section className="sg-quizzes-section">
-              <h4 className="sg-quizzes-heading">📝 Group quizzes</h4>
-              {!detail?.assignments?.length ? (
-                <p className="sg-quizzes-empty">No quiz assigned yet. Check back when your teacher releases one!</p>
+              <div className="sg-quizzes-heading-row">
+                <h4 className="sg-quizzes-heading">📝 Group quizzes</h4>
+                <span className="sg-quizzes-sparkle">Team power!</span>
+              </div>
+              {!uniqueAssignments(detail?.assignments).length ? (
+                <p className="sg-quizzes-empty">
+                  No quiz yet — when your teacher drops one here, your squad tackles it together! 🎯
+                </p>
               ) : (
                 <div className="sg-quiz-list">
-                  {detail.assignments.map((a) => {
+                  {uniqueAssignments(detail.assignments).map((a) => {
                     const st = statusLabel(a);
                     return (
-                      <div key={a.id} className="sg-quiz-card">
+                      <div key={a.id} className={`sg-quiz-card sg-quiz-card--${st.tone}`}>
+                        <div className="sg-quiz-card-sparkle" aria-hidden />
                         <div className="sg-quiz-card-top">
-                          <span className="sg-quiz-title">❓ {a.quiz_title}</span>
+                          <span className="sg-quiz-title">
+                            <span className="sg-quiz-emoji">{st.emoji}</span> {a.quiz_title}
+                          </span>
                           <span className="sg-quiz-status" style={{ color: st.color }}>{st.text}</span>
                         </div>
+                        {a.submitted_by_name && a.status === 'submitted' && (
+                          <p className="sg-quiz-submitter">
+                            🙌 Submitted by {firstName(a.submitted_by_name)}
+                          </p>
+                        )}
                         {a.quiz_description && (
                           <p className="sg-quiz-desc">{a.quiz_description}</p>
                         )}
                         <button
                           type="button"
-                          className="btn btn-primary btn-sm sg-quiz-btn"
+                          className={`btn btn-sm sg-quiz-btn${a.status === 'submitted' ? ' sg-quiz-btn--done' : ''}`}
                           onClick={() => navigate(`/student/classes/${classId}/group-quizzes/${a.id}`)}
                         >
-                          {a.status === 'submitted' ? 'View result' : 'Open group quiz →'}
+                          {a.status === 'submitted' ? '🏆 View result' : '🚀 Open group quiz'}
                         </button>
                       </div>
                     );
