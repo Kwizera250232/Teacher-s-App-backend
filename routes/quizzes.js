@@ -226,7 +226,9 @@ router.post('/:classId/quizzes/:quizId/share', authenticateToken, requireRole('t
 // GET quiz questions (for taking quiz)
 router.get('/:classId/quizzes/:quizId/questions', authenticateToken, async (req, res) => {
   try {
-    const access = await canTakeQuiz(req.user, req.params.classId, req.params.quizId);
+    const access = await canTakeQuiz(req.user, req.params.classId, req.params.quizId, {
+      forQuestions: true,
+    });
     if (!access.ok) return res.status(access.status).json({ error: access.error });
     const result = await pool.query(
       `SELECT id, question, option_a, option_b, option_c, option_d, question_type, passage, order_num
