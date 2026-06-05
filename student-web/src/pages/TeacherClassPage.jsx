@@ -27,6 +27,7 @@ import AssignWorkToGroupModal from '../components/AssignWorkToGroupModal';
 import TeacherQuizReportsPanel from '../components/quizReflection/TeacherQuizReportsPanel';
 import AppNotificationsBell from '../components/AppNotificationsBell';
 import '../components/StudentNotifications.css';
+import { usePushNotifications } from '../hooks/usePushNotifications';
 import '../pages/Dashboard.css';
 import '../pages/MobileDashboard.css';
 
@@ -39,6 +40,7 @@ export default function TeacherClassPage() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const basePath = location.pathname.startsWith('/head-teacher') ? '/head-teacher' : '/teacher';
+  usePushNotifications(token);
   const [cls, setCls] = useState(null);
   const [pageLoading, setPageLoading] = useState(true);
   const [tab, setTab] = useState('Students');
