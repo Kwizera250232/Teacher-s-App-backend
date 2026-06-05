@@ -88,6 +88,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/classes', classRoutes);
 app.use('/api/classes', require('./routes/class_points'));
 app.use('/api/classes', require('./routes/class_group_quizzes'));
+app.use('/api/classes', require('./routes/achievements'));
 app.use('/api/classes', noteRoutes);
 app.use('/api/classes', homeworkRoutes);
 app.use('/api/classes', quizRoutes);
@@ -158,6 +159,7 @@ app.get('/api/health', (req, res) => {
       classroom_points: true,
       group_quizzes: true,
       my_groups: true,
+      student_achievements: true,
     },
   });
 });
@@ -226,6 +228,7 @@ app.listen(PORT, () => {
   ensureFeedTables().catch((e) => console.error('[startup] feed schema:', e.message));
   require('./lib/classPointsSchema').ensureClassPointsSchema().catch((e) => console.error('[startup] class points schema:', e.message));
   require('./lib/classGroupQuizzesSchema').ensureClassGroupQuizzesSchema().catch((e) => console.error('[startup] group quizzes schema:', e.message));
+  require('./lib/achievementsSchema').ensureAchievementsSchema().catch((e) => console.error('[startup] achievements schema:', e.message));
   const pool = require('./db');
   const { migrateSchoolLoginDomains } = require('./lib/schoolDomain');
   migrateSchoolLoginDomains(pool).catch((e) => console.error('[startup] school login domains:', e.message));

@@ -275,6 +275,11 @@ async function assertStudentInClass(classId, studentId) {
 
 async function studentGroupsSummary(classId, studentId) {
   const statsMap = await computeClassGroupStats(classId);
+  let displayedTitle = null;
+  try {
+    const { getDisplayedTitle } = require('../lib/achievementEngine');
+    displayedTitle = await getDisplayedTitle(studentId, classId);
+  } catch (_) {}
   const groupsRes = await pool.query(
     `SELECT g.id, g.name, g.created_at, g.leader_id, lu.name AS leader_name
      FROM class_groups g
@@ -310,6 +315,7 @@ async function studentGroupsSummary(classId, studentId) {
       total_groups: st.total_groups || 0,
       assignment_count: assignCount.rows[0]?.c || 0,
       pending_count: st.quizzes_pending || 0,
+      displayed_title: displayedTitle,
     });
   }
   return out;
@@ -632,7 +638,71 @@ router.post('/:classId/group-quizzes/:assignmentId/submit', authenticateToken, r
       client.release();
     }
 
-    res.json({ score, total, results, group_name: row.group_name, members: members.map((m) => m.name) });
+    const newAchievements = [];
+    try {
+      const { evaluateQuizSubmit, grantAchievement, refreshWeeklyTitles } = require('../lib/achievementEngine');
+      const questionsForAch = await pool.query(
+        'SELECT id, question_type FROM quiz_questions WHERE quiz_id = $1',
+        [row.quiz_id]
+      );
+      const pct = total > 0 ? Math.round((score / total) * 100) : 0;
+      const baseMeta = { quiz_id: row.quiz_id, score, total, percentage: pct, group_id: row.group_id };
+
+      const submitterEarned = await evaluateQuizSubmit({
+        studentId: req.user.id,
+        classId,
+        groupId: row.group_id,
+        quizId: row.quiz_id,
+        score,
+        total,
+        questions: questionsForAch.rows,
+        startedAt: row.started_at,
+        submittedAt: new Date(),
+        skipWeeklyRefresh: true,
+      });
+      if (submitterEarned.length) {
+        newAchievements.push({
+          student_id: req.user.id,
+          student_name: members.find((m) => m.id === req.user.id)?.name,
+          achievements: submitterEarned,
+        });
+      }
+
+      for (const m of members) {
+        if (m.id === req.user.id) continue;
+        const extra = [];
+        if (pct >= 95) {
+          const a = await grantAchievement({
+            studentId: m.id,
+            classId,
+            groupId: row.group_id,
+            titleKey: 'quiz_champion',
+            metadata: baseMeta,
+            silent: true,
+          });
+          if (a) extra.push(a);
+        }
+        if (extra.length) {
+          newAchievements.push({ student_id: m.id, student_name: m.name, achievements: extra });
+        }
+      }
+
+      const weekly = await refreshWeeklyTitles(classId, row.group_id);
+      if (weekly.length) {
+        newAchievements.push({ student_id: null, student_name: null, achievements: weekly });
+      }
+    } catch (e) {
+      console.error('[achievements group quiz]', e.message);
+    }
+
+    res.json({
+      score,
+      total,
+      results,
+      group_name: row.group_name,
+      members: members.map((m) => m.name),
+      newAchievements,
+    });
   } catch (err) {
     console.error('[group-quiz submit]', err);
     res.status(500).json({ error: 'Internal server error.' });

@@ -1,0 +1,117 @@
+.ach-celebrate-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 6000;
+  background: rgba(15, 23, 42, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.ach-celebrate-modal {
+  width: 100%;
+  max-width: 420px;
+  background: linear-gradient(160deg, #1e1b4b 0%, #312e81 40%, #4f46e5 100%);
+  color: #fff;
+  border-radius: 20px;
+  padding: 24px 20px;
+  text-align: center;
+  box-shadow: 0 24px 80px rgba(79, 70, 229, 0.45);
+  animation: ach-pop 0.35s ease;
+}
+
+@keyframes ach-pop {
+  from { transform: scale(0.9); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.ach-celebrate-confetti {
+  font-size: 28px;
+  margin-bottom: 8px;
+}
+
+.ach-celebrate-modal h2 {
+  margin: 0 0 8px;
+  font-size: 22px;
+}
+
+.ach-celebrate-score {
+  margin: 0 0 12px;
+  font-size: 15px;
+  opacity: 0.95;
+}
+
+.ach-celebrate-hint {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  opacity: 0.88;
+}
+
+.ach-title-pick-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.ach-title-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 8px;
+  border-radius: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.ach-title-pick:hover {
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.ach-title-pick--active {
+  background: rgba(255, 255, 255, 0.22);
+  transform: scale(1.03);
+}
+
+.ach-title-pick-emoji {
+  font-size: 32px;
+}
+
+.ach-title-pick-label {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.ach-celebrate-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.ach-celebrate-foot {
+  margin: 14px 0 0;
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.ach-displayed-crown {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  white-space: nowrap;
+}

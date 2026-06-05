@@ -7,6 +7,7 @@ import './Profile.css';
 import StudentShareFeed from '../components/StudentShareFeed';
 import DonateSupportBanner from '../components/DonateSupportBanner';
 import TeacherSchoolBadge from '../components/TeacherSchoolBadge';
+import StudentAchievementProfile from '../components/StudentAchievementProfile';
 import '../components/StudentShareFeed.css';
 
 const DEFAULT_AVATAR = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%23667eea'/%3E%3Ctext y='.9em' font-size='50' x='25' fill='white'%3E%F0%9F%91%A4%3C/text%3E%3C/svg%3E";
@@ -522,6 +523,10 @@ export default function Profile() {
               <span>Subscribers</span>
             </div>
           </div>
+
+          {user?.role === 'student' && (
+            <StudentAchievementProfile token={token} />
+          )}
 
           {/* Personal info */}
           {(phone || address || schools.length > 0) && (

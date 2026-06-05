@@ -349,7 +349,25 @@ router.post('/:classId/quizzes/:quizId/submit', authenticateToken, requireRole('
       }
     }
 
-    res.json({ score, total, results, earnedBadges, guest: isGuest });
+    let newAchievements = [];
+    if (!isGuest) {
+      try {
+        const { evaluateQuizSubmit } = require('../lib/achievementEngine');
+        newAchievements = await evaluateQuizSubmit({
+          studentId: req.user.id,
+          classId: parseInt(req.params.classId, 10),
+          groupId: null,
+          quizId: parseInt(req.params.quizId, 10),
+          score,
+          total,
+          questions: questions.rows,
+        });
+      } catch (e) {
+        console.error('[achievements solo quiz]', e.message);
+      }
+    }
+
+    res.json({ score, total, results, earnedBadges, newAchievements, guest: isGuest });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
   }
