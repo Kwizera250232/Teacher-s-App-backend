@@ -75,6 +75,20 @@ export default function CompositionStatusPanel({ token, onClose, openPickerIniti
     load();
   }, [token]);
 
+  useEffect(() => {
+    if (step !== 'active' || !token) return undefined;
+    const refreshViewers = async () => {
+      try {
+        const m = await api.get('/composition-status/mine', token);
+        if (m.active) setMine(m.active);
+      } catch {
+        /* ignore */
+      }
+    };
+    const id = setInterval(refreshViewers, 12000);
+    return () => clearInterval(id);
+  }, [step, token]);
+
   const publish = async (shareId) => {
     setPublishing(true);
     setError('');

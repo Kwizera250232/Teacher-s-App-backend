@@ -11,7 +11,9 @@ export default function Login() {
   const [searchParams] = useSearchParams();
   const classCode = searchParams.get('code') || '';
   const quizShare = searchParams.get('quiz_share') || '';
+  const parentToken = searchParams.get('parent_token') || '';
   const [form, setForm] = useState({ email: '', password: '' });
+  const [showPwd, setShowPwd] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
@@ -24,8 +26,28 @@ export default function Login() {
     try {
       const payload = { ...form };
       if (quizShare) payload.quiz_share_token = quizShare;
+      if (parentToken) payload.parent_token = parentToken;
       const data = await api.post('/auth/login', payload);
       login(data.token, data.user);
+      if (parentToken && data.user.role === 'parent') {
+        const linked = data.parent_invite_linked?.linked;
+        if (!linked && data.parent_invite_linked?.reason === 'invalid_or_expired') {
+          setError('This parent invitation has expired. Ask your child or teacher for a new link.');
+          setLoading(false);
+          return;
+        }
+        if (!linked) {
+          try {
+            await api.post('/parent/accept-invite', { parent_token: parentToken }, data.token);
+          } catch (linkErr) {
+            if (!String(linkErr.message || '').includes('already')) {
+              setError(linkErr.message || 'Could not link your child from this invitation.');
+              setLoading(false);
+              return;
+            }
+          }
+        }
+      }
       const shareRedir = data.quiz_share_redirect;
       if (shareRedir?.class_id && shareRedir?.quiz_id) {
         if (data.user.role === 'guest') {
@@ -57,8 +79,19 @@ export default function Login() {
   return (
     <AuthAppShell
       title="Murakaza Neza"
-      subtitle="Injira muri konti yawe — same look as inside the app"
-      footer={<p>Nta konti ufite? <Link to="/register">Iyandikishe</Link></p>}
+      subtitle={
+        parentToken
+          ? 'Sign in to link your child and view their marks and class work'
+          : 'Injira muri konti yawe — same look as inside the app'
+      }
+      footer={
+        <p>
+          Nta konti ufite?{' '}
+          <Link to={parentToken ? `/invite?parent_token=${encodeURIComponent(parentToken)}` : '/register'}>
+            Iyandikishe
+          </Link>
+        </p>
+      }
     >
         <AuthBackLink />
         {error && <div className="alert alert-error">{error}</div>}
@@ -85,13 +118,25 @@ export default function Login() {
           </div>
           <div className="form-group">
             <label>Ijambo Banga</label>
-            <input
-              type="password"
-              value={form.password}
-              onChange={e => setForm({ ...form, password: e.target.value })}
-              placeholder="••••••••"
-              required
-            />
+            <div className="auth-password-wrap">
+              <input
+                type={showPwd ? 'text' : 'password'}
+                autoComplete="current-password"
+                value={form.password}
+                onChange={e => setForm({ ...form, password: e.target.value })}
+                placeholder="••••••••"
+                required
+              />
+              <button
+                type="button"
+                className="auth-password-toggle"
+                tabIndex={-1}
+                onClick={() => setShowPwd((v) => !v)}
+                aria-label={showPwd ? 'Hisha ijambobanga' : 'Erekana ijambobanga'}
+              >
+                {showPwd ? '🙈' : '👁️'}
+              </button>
+            </div>
           </div>
           <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
             {loading ? 'Gutegereza...' : 'Injira'}

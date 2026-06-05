@@ -22,6 +22,7 @@ import ParentInviteModal from '../components/ParentInviteModal';
 import CompositionStatusList from '../components/CompositionStatusList';
 import ClassDeanHelp from '../components/ClassDeanHelp';
 import GuestMarksPanel from '../components/GuestMarksPanel';
+import ClassPointsPanel from '../components/ClassPointsPanel';
 import '../pages/Dashboard.css';
 import '../pages/MobileDashboard.css';
 
@@ -90,7 +91,7 @@ export default function TeacherClassPage() {
 
   const loadTab = async () => {
     setError('');
-    if (tab === 'Leaderboard' || tab === 'Feed' || tab === 'C. Status') return;
+    if (tab === 'Leaderboard' || tab === 'Feed' || tab === 'C. Status' || tab === 'Students') return;
     setTabLoading(true);
     setData([]);
     try {
@@ -710,61 +711,15 @@ export default function TeacherClassPage() {
               </p>
             </div>
             <CoTeacherInvite classId={id} token={token} />
-            {tabLoading && <p style={{ padding: 20, textAlign: 'center', color: '#64748b' }}>Loading students…</p>}
-            {!tabLoading && studentRows.length === 0 && (
-              <p style={{ padding: 20, textAlign: 'center', color: '#888' }}>No students yet.</p>
-            )}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', justifyContent: 'flex-start' }}>
-              {!tabLoading && studentRows.map((s) => {
-                const displayName = String(s.name || 'Student').trim();
-                const initials = displayName.split(/\s+/).filter(Boolean).map((w) => w[0]).join('').toUpperCase().slice(0, 2) || '?';
-                const joinedLabel = s.joined_at
-                  ? new Date(s.joined_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
-                  : '—';
-                const colors = ['#6366f1','#0ea5e9','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6'];
-                const bg = colors[s.id % colors.length];
-                return (
-                  <div
-                    key={s.id}
-                    onClick={() => setSelectedStudent(s)}
-                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, cursor: 'pointer', width: 70 }}
-                  >
-                    <div style={{
-                      width: 52, height: 52, borderRadius: '50%', background: bg,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      color: 'white', fontWeight: 700, fontSize: 18,
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                      border: '2.5px solid white',
-                      transition: 'transform 0.15s',
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.transform='scale(1.1)'}
-                    onMouseLeave={e => e.currentTarget.style.transform='scale(1)'}
-                    >
-                      {initials}
-                    </div>
-                    <div style={{ fontSize: 11, color: '#374151', textAlign: 'center', lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <span style={{ maxWidth: 64, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>{displayName.split(/\s+/)[0]}</span>
-                      <VerifiedBadge size={11} info={{ items: [
-                        { icon: '📚', label: 'Class', value: cls?.name },
-                        { icon: '📅', label: 'Joined', value: joinedLabel },
-                        { icon: '👨‍🏫', label: 'Teacher', value: cls?.teacher_name },
-                      ] }} />
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn-outline btn-sm"
-                      style={{ fontSize: 10, padding: '2px 6px', marginTop: 4 }}
-                      onClick={(ev) => {
-                        ev.stopPropagation();
-                        setParentInviteFor({ studentId: s.id, studentName: displayName });
-                      }}
-                    >
-                      👪 Parent invite
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
+            <ClassPointsPanel
+              classId={id}
+              token={token}
+              classMeta={cls}
+              onError={(msg) => setError(msg)}
+              onSuccess={(msg) => showSuccess(msg)}
+              onStudentClick={setSelectedStudent}
+              onParentInvite={setParentInviteFor}
+            />
           </div>
         )}
 

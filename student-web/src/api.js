@@ -20,6 +20,7 @@ function getDefaultUploadsBase(apiBase) {
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || getDefaultApiBase();
+export { API_BASE };
 export const UPLOADS_BASE = import.meta.env.VITE_UPLOADS_URL || getDefaultUploadsBase(API_BASE);
 
 function normalizeLegacySchoolDomainError(message) {

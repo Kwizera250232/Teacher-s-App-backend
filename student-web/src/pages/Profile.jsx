@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import './Profile.css';
 import StudentShareFeed from '../components/StudentShareFeed';
 import DonateSupportBanner from '../components/DonateSupportBanner';
+import TeacherSchoolBadge from '../components/TeacherSchoolBadge';
 import '../components/StudentShareFeed.css';
 
 const DEFAULT_AVATAR = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%23667eea'/%3E%3Ctext y='.9em' font-size='50' x='25' fill='white'%3E%F0%9F%91%A4%3C/text%3E%3C/svg%3E";
@@ -377,7 +378,7 @@ function TeacherUserCreation({ token }) {
 }
 
 export default function Profile() {
-  const { user, token } = useAuth();
+  const { user, token, updateUser } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const fileRef = useRef();
@@ -415,6 +416,9 @@ export default function Profile() {
   }, [searchParams, user?.role]);
 
   useEffect(() => {
+    api.get('/auth/me', token).then((r) => {
+      if (r?.user) updateUser(r.user);
+    }).catch(() => {});
     api.get('/profile/me', token).then(p => {
       setProfile(p);
       setPhone(p.phone || '');
@@ -505,6 +509,11 @@ export default function Profile() {
             <span className="profile-role-badge">{user?.role}</span>
           </div>
           <div className="profile-email">✉️ {user?.email}</div>
+          {(user?.role === 'teacher' || user?.role === 'head_teacher') && (
+            <div style={{ marginTop: 10, marginBottom: 4 }}>
+              <TeacherSchoolBadge user={user} />
+            </div>
+          )}
 
           {/* Stats */}
           <div className="profile-stats-bar">

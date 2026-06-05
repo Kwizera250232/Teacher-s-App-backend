@@ -1,0 +1,265 @@
+.iny-student-wrap,
+.iny-teacher-wrap {
+  padding: 8px 0 24px;
+}
+
+.iny-intro {
+  font-size: 14px;
+  color: #64748b;
+  line-height: 1.5;
+  margin: 0 0 20px;
+  max-width: 720px;
+}
+
+.iny-loading,
+.iny-empty-state {
+  text-align: center;
+  padding: 32px 16px;
+  color: #94a3b8;
+}
+
+.iny-empty-icon {
+  font-size: 48px;
+  margin-bottom: 8px;
+}
+
+.iny-student-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.iny-panel {
+  background: #fff;
+  border-radius: 14px;
+  padding: 18px 16px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07);
+  border-top: 4px solid #667eea;
+  min-height: 280px;
+}
+
+.iny-panel--marks {
+  border-top-color: #27ae60;
+}
+
+.iny-panel-title {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 800;
+  color: #1e293b;
+}
+
+.iny-panel-desc {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+.iny-upload-box {
+  margin-bottom: 14px;
+}
+
+.iny-file-input {
+  display: none;
+}
+
+.iny-upload-btn {
+  width: 100%;
+  font-size: 13px;
+}
+
+.iny-upload-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.iny-empty {
+  font-size: 13px;
+  color: #94a3b8;
+  margin: 12px 0;
+}
+
+.iny-doc-view {
+  margin-top: 8px;
+}
+
+.iny-doc-frame {
+  width: 100%;
+  height: 220px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.iny-doc-image {
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  object-fit: contain;
+}
+
+.iny-doc-link,
+.iny-download-btn {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.iny-doc-filename {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.iny-delete-btn {
+  margin-top: 10px;
+  background: none;
+  border: none;
+  color: #dc2626;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.iny-report-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.iny-report-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 13px;
+}
+
+.iny-report-link {
+  flex: 1;
+  min-width: 120px;
+  color: #2563eb;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.iny-report-link:hover {
+  text-decoration: underline;
+}
+
+.iny-report-date {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.iny-report-preview {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed #e2e8f0;
+}
+
+.iny-quiz-table-wrap {
+  overflow-x: auto;
+}
+
+.iny-quiz-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.iny-quiz-table th,
+.iny-quiz-table td {
+  padding: 10px 8px;
+  text-align: left;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.iny-quiz-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #64748b;
+  letter-spacing: 0.4px;
+}
+
+.iny-quiz-pending td {
+  color: #94a3b8;
+}
+
+.iny-quiz-pct {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #166534;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.iny-teacher-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.iny-teacher-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+
+.iny-teacher-card h4 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  color: #1e293b;
+}
+
+.iny-teacher-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  font-size: 13px;
+}
+
+.iny-teacher-grid strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #64748b;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.iny-teacher-link {
+  display: block;
+  color: #2563eb;
+  margin-bottom: 4px;
+  text-decoration: none;
+}
+
+.iny-muted {
+  color: #cbd5e1;
+}
+
+@media (max-width: 960px) {
+  .iny-student-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .iny-panel {
+    min-height: auto;
+  }
+}
+
+@media (max-width: 600px) {
+  .iny-teacher-grid {
+    grid-template-columns: 1fr;
+  }
+}

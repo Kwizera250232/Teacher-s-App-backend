@@ -90,6 +90,7 @@
 }
 
 .lb-top-row td { font-weight: 700; background: #fffdf0; }
+.lb-self-row td { font-weight: 600; background: #f0fdf4; }
 
 .lb-pct {
   display: inline-block;

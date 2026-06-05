@@ -12,6 +12,8 @@ import ClassDeanHelp from '../components/ClassDeanHelp';
 import ClassMomentsClassFold from '../components/classMoments/ClassMomentsClassFold';
 import '../components/classMoments/ClassMoments.css';
 import VerifiedBadge from '../components/VerifiedBadge';
+import SharedQuizAttribution from '../components/SharedQuizAttribution';
+import SharedNoteAttribution from '../components/SharedNoteAttribution';
 import '../pages/Dashboard.css';
 
 const CLASSMATE_DEFAULT_AVATAR =
@@ -234,6 +236,7 @@ export default function StudentClassPage() {
               <div key={n.id} className="item-card item-card-stack">
                 <div className="item-card-body">
                   <h3>📄 {n.title}</h3>
+                  <SharedNoteAttribution note={n} />
                   {n.file_name && (
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 6,
                       background: '#f0f2ff', border: '1px solid #c7d2fe', borderRadius: 6,
@@ -414,6 +417,7 @@ export default function StudentClassPage() {
               <div key={q.id} className="item-card">
                 <div className="item-card-body">
                   <h3>❓ {q.title}</h3>
+                  <SharedQuizAttribution quiz={q} />
                   {q.description && <p>{q.description}</p>}
                   <div className="meta">{new Date(q.created_at).toLocaleDateString()}</div>
                 </div>

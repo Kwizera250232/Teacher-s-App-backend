@@ -53,7 +53,7 @@ export default function ParentHub() {
   const [thread, setThread] = useState([]);
   const [text, setText] = useState('');
   const [mobilePanel, setMobilePanel] = useState('list');
-  const [marksPeriod, setMarksPeriod] = useState('week');
+  const [marksPeriod, setMarksPeriod] = useState('all');
   const [downloadingMarks, setDownloadingMarks] = useState(false);
   const [downloadingQuiz, setDownloadingQuiz] = useState(null);
   const bottomRef = useRef();

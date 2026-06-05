@@ -1,0 +1,214 @@
+.iny-dash {
+  margin-bottom: 24px;
+}
+
+.iny-dash-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.iny-dash-title {
+  margin: 0 0 6px;
+  font-size: 1.25rem;
+  color: #075e54;
+}
+
+.iny-dash-sub {
+  margin: 0;
+  font-size: 14px;
+  color: #64748b;
+  line-height: 1.5;
+  max-width: 560px;
+}
+
+.iny-dash-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.iny-dash-stats strong {
+  color: #075e54;
+}
+
+.iny-dash-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.iny-dash-select,
+.iny-dash-search {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  background: #fff;
+}
+
+.iny-dash-select {
+  min-width: 200px;
+}
+
+.iny-dash-search {
+  flex: 1;
+  min-width: 180px;
+}
+
+.iny-dash-empty {
+  text-align: center;
+  padding: 32px 16px;
+  color: #94a3b8;
+  background: #f8fafc;
+  border-radius: 12px;
+}
+
+.iny-dash-class {
+  margin-bottom: 24px;
+}
+
+.iny-dash-class-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #ecfdf5;
+}
+
+.iny-dash-class-head h3 {
+  margin: 0 0 4px;
+  font-size: 17px;
+  color: #1e293b;
+}
+
+.iny-dash-subject {
+  display: inline-block;
+  margin-right: 8px;
+  font-size: 12px;
+  color: #64748b;
+  background: #f1f5f9;
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+.iny-dash-code {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.iny-dash-class-link {
+  font-size: 13px;
+  font-weight: 600;
+  color: #2563eb;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.iny-dash-student-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.iny-dash-student {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
+.iny-dash-student-toggle {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border: none;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+}
+
+.iny-dash-student-name {
+  font-weight: 700;
+  font-size: 15px;
+  color: #1e293b;
+  min-width: 120px;
+}
+
+.iny-dash-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+}
+
+.iny-dash-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.iny-dash-badge.ok {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.iny-dash-badge.missing {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.iny-dash-chevron {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.iny-dash-student-body {
+  padding: 0 16px 16px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.iny-dash-student-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  padding-top: 14px;
+}
+
+.iny-doc-frame--compact {
+  height: 160px;
+}
+
+.iny-doc-image--compact {
+  max-height: 160px;
+}
+
+@media (max-width: 960px) {
+  .iny-dash-student-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .iny-dash-student-toggle {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .iny-dash-chevron {
+    align-self: flex-end;
+  }
+}

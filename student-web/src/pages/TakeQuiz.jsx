@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { downloadWord } from '../utils/downloadResult';
+import SharedQuizAttribution from '../components/SharedQuizAttribution';
 import '../pages/Dashboard.css';
 
 export default function TakeQuiz() {
@@ -23,13 +24,16 @@ export default function TakeQuiz() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [downloading, setDownloading] = useState(false);
+  const [quizMeta, setQuizMeta] = useState(null);
 
   useEffect(() => {
     Promise.all([
       api.get(`/classes/${classId}/quizzes/${quizId}/questions`, token),
       api.get(`/classes/${classId}/quizzes/${quizId}/my-result`, token).catch(() => null),
-    ]).then(([qs, existing]) => {
+      api.get(`/classes/${classId}/quizzes/${quizId}`, token).catch(() => null),
+    ]).then(([qs, existing, meta]) => {
       setQuestions(qs);
+      if (meta) setQuizMeta(meta);
       if (existing && existing.score !== undefined) {
         setAlreadyDone(true);
         setPrevResult(existing);
@@ -374,7 +378,8 @@ export default function TakeQuiz() {
 
         {!alreadyDone && (
           <>
-            <h2 style={{ marginBottom: 8 }}>Quiz</h2>
+            <h2 style={{ marginBottom: 8 }}>{quizMeta?.title || 'Quiz'}</h2>
+            <SharedQuizAttribution quiz={quizMeta} />
             <p style={{ color: '#888', fontSize: 14, marginBottom: 24 }}>{questions.length} questions · Answer all before submitting</p>
 
             {error && <div className="alert alert-error">{error}</div>}

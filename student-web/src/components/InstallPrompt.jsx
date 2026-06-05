@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
+import { subscribeToPush, pushSupported } from '../utils/pushNotifications';
 import './InstallPrompt.css';
 
 const STORAGE_KEY = 'uclass_pwa_installed';
@@ -46,6 +47,10 @@ export function InstallProvider({ children }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user_agent: navigator.userAgent }),
     }).catch(() => {});
+    const token = localStorage.getItem('token');
+    if (token && pushSupported()) {
+      subscribeToPush(token).catch(() => {});
+    }
   };
 
   const triggerInstall = async () => {

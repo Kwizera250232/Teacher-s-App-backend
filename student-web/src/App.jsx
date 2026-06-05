@@ -1,4 +1,5 @@
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
@@ -31,6 +32,7 @@ import Messages from './pages/Messages';
 import Footer from './components/Footer';
 import OfflineBanner from './components/OfflineBanner';
 import { InstallProvider } from './components/InstallPrompt';
+import { usePushNotifications } from './hooks/usePushNotifications';
 import './components/Footer.css';
 import './styles/WaAppShell.css';
 import './styles/WaChatShell.css';
@@ -53,7 +55,21 @@ function HomeRedirect() {
 
 function AppShell() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { token } = useAuth();
+  usePushNotifications(token);
   const hideFooter = /\/messages(\/|$)|\/parent\/dashboard|\/guest\//.test(location.pathname);
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return undefined;
+    const handler = (event) => {
+      if (event.data?.type === 'OPEN_URL' && event.data.url) {
+        navigate(event.data.url);
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', handler);
+    return () => navigator.serviceWorker.removeEventListener('message', handler);
+  }, [navigate]);
 
   return (
     <div className={`app-wa-shell${hideFooter ? ' app-wa-shell--chat-fullscreen' : ''}`} style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>

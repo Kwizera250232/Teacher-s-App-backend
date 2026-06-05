@@ -16,7 +16,7 @@ export default function GuestMarksPanel({ token, classId, compact = false }) {
       .then((rows) => setMarks(Array.isArray(rows) ? rows : []))
       .catch((e) => {
         const msg = String(e.message || '');
-        if (/404/.test(msg) || /not found/i.test(msg)) {
+        if (/404/.test(msg) || /not found/i.test(msg) || /not on the server yet/i.test(msg)) {
           setMarks([]);
         } else {
           setError(msg);

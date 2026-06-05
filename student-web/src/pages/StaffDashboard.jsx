@@ -6,6 +6,8 @@ import CreateClassModal from '../components/CreateClassModal';
 import AddStudentsModal from '../components/AddStudentsModal';
 import SchoolRequestBanner from '../components/SchoolRequestBanner';
 import SchoolRequestsPanel from '../components/SchoolRequestsPanel';
+import QuizTeacherShareInbox from '../components/QuizTeacherShareInbox';
+import NoteTeacherShareInbox from '../components/NoteTeacherShareInbox';
 import VerifiedBadge from '../components/VerifiedBadge';
 import StaffQuickActions from '../components/StaffQuickActions';
 import SchoolHubPanel from '../components/staff/SchoolHubPanel';
@@ -26,10 +28,13 @@ import OnlineNowStrip from '../components/classMoments/OnlineNowStrip';
 import { usePresence } from '../hooks/usePresence';
 import '../components/classMoments/ClassMoments.css';
 import TutorialVideo from '../components/TutorialVideo';
+import StaleApiBanner from '../components/StaleApiBanner';
+import TeacherSchoolBadge from '../components/TeacherSchoolBadge';
 import GuestMarksPanel from '../components/GuestMarksPanel';
+import StaffInyandikoDashboard from '../components/staff/StaffInyandikoDashboard';
 
 export default function StaffDashboard({ roleLabel, basePath }) {
-  const { user, token, logout, isImpersonating, stopImpersonation } = useAuth();
+  const { user, token, logout, isImpersonating, stopImpersonation, updateUser } = useAuth();
   const [classes, setClasses] = useState([]);
   const [showCreate, setShowCreate] = useState(false);
   const [showAddStudents, setShowAddStudents] = useState(false);
@@ -73,6 +78,15 @@ export default function StaffDashboard({ roleLabel, basePath }) {
   };
 
   useEffect(() => { loadClasses(); }, []);
+
+  useEffect(() => {
+    if (!token) return;
+    api.get('/auth/me', token)
+      .then((r) => {
+        if (r?.user) updateUser(r.user);
+      })
+      .catch(() => {});
+  }, [token, updateUser]);
   useEffect(() => {
     if (!isHeadTeacher && hubTab === 'school') setHubTab('classes');
   }, [isHeadTeacher, hubTab]);
@@ -88,6 +102,7 @@ export default function StaffDashboard({ roleLabel, basePath }) {
     ...(isHeadTeacher ? [{ id: 'school', label: '🏫 School' }] : []),
     ...(hasSchool ? [{ id: 'chats', label: '💬 Chats' }] : []),
     { id: 'classnow', label: '📸 Class Now' },
+    { id: 'inyandiko', label: '✍️ Inyandiko' },
     { id: 'tools', label: '⚡ Tools' },
   ];
 
@@ -143,12 +158,24 @@ export default function StaffDashboard({ roleLabel, basePath }) {
       </nav>
 
       <main className={`dash-main${hubTab === 'chats' ? ' dash-main--chats-full' : ''}`}>
+        <StaleApiBanner />
         <TutorialVideo
           compact
           title="How to use UClass (video)"
           subtitle="Signup, Dean AI, classes, notes, homework & feed"
         />
         {hubTab !== 'chats' && <SchoolRequestBanner token={token} user={user} />}
+        {hasSchool && hubTab !== 'chats' && (
+          <div style={{ marginBottom: 12 }}>
+            <TeacherSchoolBadge user={user} style={{ width: '100%', justifyContent: 'center' }} />
+          </div>
+        )}
+        {hasSchool && hubTab === 'classes' && (
+          <>
+            <QuizTeacherShareInbox token={token} classes={classes} onChange={loadClasses} />
+            <NoteTeacherShareInbox token={token} classes={classes} onChange={loadClasses} />
+          </>
+        )}
         {isHeadTeacher && hubTab === 'school' && <SchoolRequestsPanel token={token} />}
 
         {error && <div className="alert alert-error">{error}</div>}
@@ -178,6 +205,10 @@ export default function StaffDashboard({ roleLabel, basePath }) {
             <OnlineNowStrip online={online} />
             <StaffClassNowPanel token={token} classes={classes} />
           </>
+        )}
+
+        {hubTab === 'inyandiko' && (
+          <StaffInyandikoDashboard token={token} basePath={basePath} />
         )}
 
         {hubTab === 'tools' && (
@@ -311,6 +342,9 @@ export default function StaffDashboard({ roleLabel, basePath }) {
         </button>
         <button type="button" onClick={() => setHubTab('classnow')}>
           📸 Class Now
+        </button>
+        <button type="button" onClick={() => setHubTab('inyandiko')}>
+          ✍️ Inyandiko
         </button>
         <button type="button" onClick={() => setHubTab('tools')}>
           ✍️ C. Status

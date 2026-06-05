@@ -142,7 +142,20 @@ export default function InviteSignup() {
             ? `Parent invite for ${preview.student_name}`
             : 'Complete your account — same look as inside the app'
       }
-      footer={<p>Already have an account? <Link to="/login">Sign in</Link></p>}
+      footer={
+        <p>
+          Already have an account?{' '}
+          <Link
+            to={
+              parentToken
+                ? `/login?parent_token=${encodeURIComponent(parentToken)}`
+                : '/login'
+            }
+          >
+            Sign in
+          </Link>
+        </p>
+      }
     >
         {pending ? (
           <>
