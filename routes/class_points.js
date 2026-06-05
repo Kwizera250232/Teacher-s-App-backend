@@ -2,19 +2,10 @@ const express = require('express');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { userCanManageClass } = require('../lib/classAccess');
+const { groupPointTotals } = require('../lib/groupStats');
+const { insertUserNotification } = require('../lib/classMomentNotify');
+const { SKILLS, skillMeta, formatPointEvent } = require('../lib/classPointSkills');
 const router = express.Router();
-
-const SKILLS = [
-  { id: 'on_task', label: 'On task', emoji: '👍' },
-  { id: 'participating', label: 'Participating', emoji: '💡' },
-  { id: 'persistence', label: 'Persistence', emoji: '🏔️' },
-  { id: 'helping', label: 'Helping others', emoji: '🤝' },
-  { id: 'working_hard', label: 'Working hard', emoji: '⚡' },
-];
-
-function skillMeta(skillId) {
-  return SKILLS.find((s) => s.id === skillId) || SKILLS[0];
-}
 
 async function classStudentIds(classId) {
   const res = await pool.query(
@@ -54,23 +45,6 @@ async function fetchRecentEvents(classId, limit = 40) {
   }));
 }
 
-function formatEvent(row) {
-  return {
-    id: row.id,
-    student_id: row.student_id,
-    student_name: row.student_name,
-    teacher_name: row.teacher_name,
-    group_id: row.group_id,
-    whole_class: row.whole_class,
-    value: row.value,
-    skill: row.skill,
-    skill_meta: skillMeta(row.skill),
-    note: row.note,
-    undone: row.undone,
-    created_at: row.created_at,
-  };
-}
-
 // GET classroom dashboard (students, groups, points, feed)
 router.get('/:classId/classroom', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
@@ -90,18 +64,21 @@ router.get('/:classId/classroom', authenticateToken, requireRole('teacher', 'hea
         [classId]
       ),
       pool.query(
-        `SELECT g.id, g.name, g.created_at,
+        `SELECT g.id, g.name, g.created_at, g.leader_id, lu.name AS leader_name,
                 COALESCE(ARRAY_AGG(gm.student_id) FILTER (WHERE gm.student_id IS NOT NULL), '{}') AS student_ids
          FROM class_groups g
          LEFT JOIN class_group_members gm ON gm.group_id = g.id
+         LEFT JOIN users lu ON lu.id = g.leader_id
          WHERE g.class_id = $1
-         GROUP BY g.id
+         GROUP BY g.id, g.leader_id, lu.name
          ORDER BY g.created_at`,
         [classId]
       ),
       studentPointTotals(classId),
       fetchRecentEvents(classId, 30),
     ]);
+
+    const groupTotals = await groupPointTotals(classId);
 
     const students = studentsRes.rows.map((s) => ({
       ...s,
@@ -110,26 +87,22 @@ router.get('/:classId/classroom', authenticateToken, requireRole('teacher', 'hea
 
     const wholeClassPoints = students.reduce((sum, s) => sum + (s.points || 0), 0);
 
-    const groups = await Promise.all(
-      groupsRes.rows.map(async (g) => {
-        const memberIds = g.student_ids || [];
-        const groupPoints = memberIds.reduce((sum, sid) => sum + (totals[sid] || 0), 0);
-        return {
-          id: g.id,
-          name: g.name,
-          student_ids: memberIds,
-          points: groupPoints,
-          created_at: g.created_at,
-        };
-      })
-    );
+    const groups = groupsRes.rows.map((g) => ({
+      id: g.id,
+      name: g.name,
+      student_ids: g.student_ids || [],
+      points: groupTotals[g.id] || 0,
+      leader_id: g.leader_id,
+      leader_name: g.leader_name,
+      created_at: g.created_at,
+    }));
 
     res.json({
       skills: SKILLS,
       students,
       groups,
       whole_class_points: wholeClassPoints,
-      recent_events: events.map(formatEvent),
+      recent_events: events.map(formatPointEvent),
     });
   } catch (err) {
     console.error('[classroom GET]', err);
@@ -228,9 +201,29 @@ router.post('/:classId/points', authenticateToken, requireRole('teacher', 'head_
       [created]
     );
 
+    if (groupIdNum) {
+      const grp = await pool.query('SELECT name FROM class_groups WHERE id = $1', [groupIdNum]);
+      const groupName = grp.rows[0]?.name || 'your team';
+      const skillInfo = skillMeta(skill);
+      for (const sid of targetIds) {
+        insertUserNotification({
+          userId: sid,
+          type: 'group_points',
+          title: `${skillInfo.emoji} Team point earned!`,
+          body: `+${pointValue} for ${groupName} — ${skillInfo.label}. Open your group to see stickers.`,
+          payload: {
+            type: 'group_points',
+            class_id: classId,
+            group_id: groupIdNum,
+            url: `/student/classes/${classId}?tab=Groups&group=${groupIdNum}`,
+          },
+        }).catch((e) => console.error('[group-points notify]', e.message));
+      }
+    }
+
     res.status(201).json({
       ok: true,
-      events: events.rows.map(formatEvent),
+      events: events.rows.map(formatPointEvent),
     });
   } catch (err) {
     console.error('[points POST]', err);
@@ -293,7 +286,7 @@ router.get('/:classId/points/feed', authenticateToken, requireRole('teacher', 'h
     if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
 
     const events = await fetchRecentEvents(classId, limit);
-    res.json(events.map(formatEvent));
+    res.json(events.map(formatPointEvent));
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
   }
@@ -349,6 +342,7 @@ router.put('/:classId/groups/:groupId', authenticateToken, requireRole('teacher'
 
   const name = req.body?.name != null ? String(req.body.name).trim() : null;
   const studentIds = Array.isArray(req.body?.student_ids) ? req.body.student_ids : null;
+  const leaderId = req.body?.leader_id != null ? parseInt(req.body.leader_id, 10) : null;
 
   try {
     const manage = await userCanManageClass(req.user, classId);
@@ -379,20 +373,40 @@ router.put('/:classId/groups/:groupId', authenticateToken, requireRole('teacher'
       }
     }
 
+    if (leaderId !== null) {
+      if (Number.isNaN(leaderId) || leaderId === 0) {
+        await pool.query('UPDATE class_groups SET leader_id = NULL WHERE id = $1', [groupId]);
+      } else {
+        const inGroup = await pool.query(
+          'SELECT 1 FROM class_group_members WHERE group_id = $1 AND student_id = $2',
+          [groupId, leaderId]
+        );
+        if (!inGroup.rows.length) {
+          return res.status(400).json({ error: 'Leader must be a member of this group.' });
+        }
+        await pool.query('UPDATE class_groups SET leader_id = $1 WHERE id = $2', [leaderId, groupId]);
+      }
+    }
+
     const updated = await pool.query(
-      `SELECT g.id, g.name, g.created_at,
+      `SELECT g.id, g.name, g.created_at, g.leader_id, lu.name AS leader_name,
               COALESCE(ARRAY_AGG(gm.student_id) FILTER (WHERE gm.student_id IS NOT NULL), '{}') AS student_ids
        FROM class_groups g
        LEFT JOIN class_group_members gm ON gm.group_id = g.id
+       LEFT JOIN users lu ON lu.id = g.leader_id
        WHERE g.id = $1 AND g.class_id = $2
-       GROUP BY g.id`,
+       GROUP BY g.id, g.leader_id, lu.name`,
       [groupId, classId]
     );
     const row = updated.rows[0];
+    const gTotals = await groupPointTotals(classId);
     res.json({
       id: row.id,
       name: row.name,
       student_ids: row.student_ids || [],
+      leader_id: row.leader_id,
+      leader_name: row.leader_name,
+      points: gTotals[groupId] || 0,
       created_at: row.created_at,
     });
   } catch (err) {

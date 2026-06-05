@@ -4,6 +4,7 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const { userCanManageClass } = require('../lib/classAccess');
 const { notifyGroupQuizReleased } = require('../lib/groupQuizNotify');
 const { computeClassGroupStats } = require('../lib/groupStats');
+const { formatPointEvent, teamRoleMeta, TEAM_ROLES } = require('../lib/classPointSkills');
 const router = express.Router();
 
 async function studentInGroup(studentId, groupId) {
@@ -29,16 +30,47 @@ async function loadAssignment(classId, assignmentId) {
   return r.rows[0] || null;
 }
 
-async function groupMembers(groupId) {
+async function loadGroupMeta(classId, groupId) {
   const r = await pool.query(
-    `SELECT u.id, u.name
+    `SELECT g.id, g.name, g.created_at, g.leader_id, lu.name AS leader_name
+     FROM class_groups g
+     LEFT JOIN users lu ON lu.id = g.leader_id
+     WHERE g.id = $1 AND g.class_id = $2`,
+    [groupId, classId]
+  );
+  return r.rows[0] || null;
+}
+
+async function groupMembers(groupId, leaderId = null) {
+  const r = await pool.query(
+    `SELECT u.id, u.name, gm.team_role
      FROM class_group_members gm
      JOIN users u ON u.id = gm.student_id
      WHERE gm.group_id = $1
      ORDER BY u.name`,
     [groupId]
   );
-  return r.rows;
+  return r.rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    team_role: row.team_role,
+    team_role_meta: teamRoleMeta(row.team_role),
+    is_leader: leaderId != null && row.id === leaderId,
+  }));
+}
+
+async function fetchGroupPointEvents(classId, groupId, limit = 40) {
+  const res = await pool.query(
+    `SELECT e.*, u.name AS student_name, t.name AS teacher_name
+     FROM class_point_events e
+     LEFT JOIN users u ON u.id = e.student_id
+     JOIN users t ON t.id = e.teacher_id
+     WHERE e.class_id = $1 AND e.group_id = $2 AND NOT e.undone
+     ORDER BY e.created_at DESC
+     LIMIT $3`,
+    [classId, groupId, limit]
+  );
+  return res.rows.map(formatPointEvent);
 }
 
 function scoreAnswers(questions, answers) {
@@ -110,9 +142,38 @@ router.get('/:classId/group-quizzes', authenticateToken, requireRole('teacher', 
        ORDER BY a.created_at DESC`,
       [classId]
     );
-    res.json(rows.rows.map((r) => formatAssignment(r)));
+    const withMembers = await Promise.all(
+      rows.rows.map(async (r) => {
+        const meta = await loadGroupMeta(classId, r.group_id);
+        const members = await groupMembers(r.group_id, meta?.leader_id);
+        return formatAssignment(r, members);
+      })
+    );
+    res.json(withMembers);
   } catch (err) {
     console.error('[group-quizzes list]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// DELETE group quiz assignment (teacher)
+router.delete('/:classId/group-quizzes/:assignmentId', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = parseInt(req.params.classId, 10);
+  const assignmentId = parseInt(req.params.assignmentId, 10);
+  try {
+    const manage = await userCanManageClass(req.user, classId);
+    if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
+
+    const row = await loadAssignment(classId, assignmentId);
+    if (!row) return res.status(404).json({ error: 'Assignment not found.' });
+
+    await pool.query(
+      'DELETE FROM class_group_quiz_assignments WHERE id = $1 AND class_id = $2',
+      [assignmentId, classId]
+    );
+    res.json({ ok: true, deleted_id: assignmentId });
+  } catch (err) {
+    console.error('[group-quizzes delete]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
@@ -215,9 +276,10 @@ async function assertStudentInClass(classId, studentId) {
 async function studentGroupsSummary(classId, studentId) {
   const statsMap = await computeClassGroupStats(classId);
   const groupsRes = await pool.query(
-    `SELECT g.id, g.name, g.created_at
+    `SELECT g.id, g.name, g.created_at, g.leader_id, lu.name AS leader_name
      FROM class_groups g
      JOIN class_group_members gm ON gm.group_id = g.id AND gm.student_id = $2
+     LEFT JOIN users lu ON lu.id = g.leader_id
      WHERE g.class_id = $1
      ORDER BY g.name, g.created_at`,
     [classId, studentId]
@@ -225,7 +287,7 @@ async function studentGroupsSummary(classId, studentId) {
 
   const out = [];
   for (const g of groupsRes.rows) {
-    const members = await groupMembers(g.id);
+    const members = await groupMembers(g.id, g.leader_id);
     const st = statsMap[g.id] || {};
     const assignCount = await pool.query(
       `SELECT COUNT(*)::int AS c FROM class_group_quiz_assignments
@@ -236,9 +298,11 @@ async function studentGroupsSummary(classId, studentId) {
       id: g.id,
       name: g.name,
       created_at: g.created_at,
+      leader_id: g.leader_id,
+      leader_name: g.leader_name,
       members,
       member_count: members.length,
-      points: st.points || 0,
+      has_earned_points: (st.points || 0) > 0,
       points_rank: st.points_rank,
       quiz_marks: st.quiz_marks || 0,
       quiz_marks_total: st.quiz_marks_total || 0,
@@ -255,15 +319,13 @@ async function studentGroupDetail(classId, studentId, groupId) {
   const inGroup = await studentInGroup(studentId, groupId);
   if (!inGroup) return null;
 
-  const grp = await pool.query(
-    'SELECT id, name, created_at FROM class_groups WHERE id = $1 AND class_id = $2',
-    [groupId, classId]
-  );
-  if (!grp.rows.length) return null;
+  const grp = await loadGroupMeta(classId, groupId);
+  if (!grp) return null;
 
-  const members = await groupMembers(groupId);
+  const members = await groupMembers(groupId, grp.leader_id);
   const statsMap = await computeClassGroupStats(classId);
   const st = statsMap[groupId] || {};
+  const pointEvents = await fetchGroupPointEvents(classId, groupId, 50);
 
   const assignRes = await pool.query(
     `SELECT a.*, g.name AS group_name, q.title AS quiz_title, q.description AS quiz_description,
@@ -279,16 +341,21 @@ async function studentGroupDetail(classId, studentId, groupId) {
   );
 
   return {
-    id: grp.rows[0].id,
-    name: grp.rows[0].name,
-    created_at: grp.rows[0].created_at,
+    id: grp.id,
+    name: grp.name,
+    created_at: grp.created_at,
+    leader_id: grp.leader_id,
+    leader_name: grp.leader_name,
     members,
+    team_roles: TEAM_ROLES,
+    earned_points: st.points || 0,
     points: st.points || 0,
     points_rank: st.points_rank,
     quiz_marks: st.quiz_marks || 0,
     quiz_marks_total: st.quiz_marks_total || 0,
     quiz_rank: st.quiz_rank,
     total_groups: st.total_groups || 0,
+    point_events: pointEvents,
     assignments: assignRes.rows.map((row) => formatAssignment(row, members)),
   };
 }
@@ -343,6 +410,84 @@ router.get('/:classId/my-group-quizzes', authenticateToken, requireRole('student
   }
 });
 
+// PUT claim or pass group leader (student)
+router.put('/:classId/my-groups/:groupId/leader', authenticateToken, requireRole('student'), async (req, res) => {
+  const classId = parseInt(req.params.classId, 10);
+  const groupId = parseInt(req.params.groupId, 10);
+  const passTo = req.body?.pass_to != null ? parseInt(req.body.pass_to, 10) : null;
+
+  try {
+    if (!(await assertStudentInClass(classId, req.user.id))) {
+      return res.status(403).json({ error: 'Not in this class.' });
+    }
+    if (!(await studentInGroup(req.user.id, groupId))) {
+      return res.status(403).json({ error: 'You are not in this group.' });
+    }
+
+    const grp = await loadGroupMeta(classId, groupId);
+    if (!grp) return res.status(404).json({ error: 'Group not found.' });
+
+    let newLeaderId = req.user.id;
+    if (passTo) {
+      if (grp.leader_id !== req.user.id) {
+        return res.status(403).json({ error: 'Only the current leader can pass the crown.' });
+      }
+      if (!(await studentInGroup(passTo, groupId))) {
+        return res.status(400).json({ error: 'New leader must be in this group.' });
+      }
+      newLeaderId = passTo;
+    } else if (grp.leader_id && grp.leader_id !== req.user.id) {
+      return res.status(409).json({ error: 'This group already has a leader. Ask them to pass the crown or your teacher.' });
+    }
+
+    await pool.query('UPDATE class_groups SET leader_id = $1 WHERE id = $2', [newLeaderId, groupId]);
+    const updated = await loadGroupMeta(classId, groupId);
+    const members = await groupMembers(groupId, updated.leader_id);
+    res.json({
+      leader_id: updated.leader_id,
+      leader_name: updated.leader_name,
+      members,
+    });
+  } catch (err) {
+    console.error('[my-groups leader]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// PUT set own team role badge (student)
+router.put('/:classId/my-groups/:groupId/my-role', authenticateToken, requireRole('student'), async (req, res) => {
+  const classId = parseInt(req.params.classId, 10);
+  const groupId = parseInt(req.params.groupId, 10);
+  const teamRole = req.body?.team_role != null ? String(req.body.team_role).trim().slice(0, 40) : '';
+
+  try {
+    if (!(await assertStudentInClass(classId, req.user.id))) {
+      return res.status(403).json({ error: 'Not in this class.' });
+    }
+    if (!(await studentInGroup(req.user.id, groupId))) {
+      return res.status(403).json({ error: 'You are not in this group.' });
+    }
+
+    if (teamRole && !TEAM_ROLES.some((r) => r.id === teamRole)) {
+      return res.status(400).json({ error: 'Invalid team role.' });
+    }
+
+    await pool.query(
+      `UPDATE class_group_members SET team_role = $3
+       WHERE group_id = $1 AND student_id = $2`,
+      [groupId, req.user.id, teamRole || null]
+    );
+
+    const grp = await loadGroupMeta(classId, groupId);
+    const members = await groupMembers(groupId, grp?.leader_id);
+    const me = members.find((m) => m.id === req.user.id);
+    res.json({ team_role: me?.team_role, team_role_meta: me?.team_role_meta, members });
+  } catch (err) {
+    console.error('[my-groups role]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // GET single assignment detail
 router.get('/:classId/group-quizzes/:assignmentId', authenticateToken, async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
@@ -351,7 +496,8 @@ router.get('/:classId/group-quizzes/:assignmentId', authenticateToken, async (re
     const row = await loadAssignment(classId, assignmentId);
     if (!row) return res.status(404).json({ error: 'Assignment not found.' });
 
-    const members = await groupMembers(row.group_id);
+    const meta = await loadGroupMeta(classId, row.group_id);
+    const members = await groupMembers(row.group_id, meta?.leader_id);
     const isTeacher = ['teacher', 'head_teacher'].includes(req.user.role);
     if (!isTeacher) {
       const inGroup = await studentInGroup(req.user.id, row.group_id);
@@ -386,7 +532,8 @@ router.post('/:classId/group-quizzes/:assignmentId/start', authenticateToken, re
       [assignmentId, classId, req.user.id]
     );
     const updated = await loadAssignment(classId, assignmentId);
-    const members = await groupMembers(updated.group_id);
+    const meta = await loadGroupMeta(classId, updated.group_id);
+    const members = await groupMembers(updated.group_id, meta?.leader_id);
     res.json(formatAssignment(updated, members));
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
@@ -446,7 +593,8 @@ router.post('/:classId/group-quizzes/:assignmentId/submit', authenticateToken, r
     );
     const { score, total, results } = scoreAnswers(questions.rows, finalAnswers);
 
-    const members = await groupMembers(row.group_id);
+    const meta = await loadGroupMeta(classId, row.group_id);
+    const members = await groupMembers(row.group_id, meta?.leader_id);
     const client = await pool.connect();
     try {
       await client.query('BEGIN');

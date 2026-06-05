@@ -49,6 +49,7 @@ export default function ClassPointsPanel({
   const [editGroup, setEditGroup] = useState(null);
   const [groupName, setGroupName] = useState('');
   const [groupPick, setGroupPick] = useState(new Set());
+  const [groupLeaderId, setGroupLeaderId] = useState('');
   const [timerSecs, setTimerSecs] = useState(null);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState('');
@@ -160,6 +161,7 @@ export default function ClassPointsPanel({
     setEditGroup(g);
     setGroupName(g.name || '');
     setGroupPick(new Set(g.student_ids || []));
+    setGroupLeaderId(g.leader_id ? String(g.leader_id) : '');
     setShowGroupModal(false);
   };
 
@@ -170,13 +172,18 @@ export default function ClassPointsPanel({
     try {
       await api.put(
         `/classes/${classId}/groups/${editGroup.id}`,
-        { name: groupName.trim(), student_ids: [...groupPick] },
+        {
+          name: groupName.trim(),
+          student_ids: [...groupPick],
+          leader_id: groupLeaderId ? parseInt(groupLeaderId, 10) : 0,
+        },
         token
       );
       onSuccess?.('Group updated.');
       setEditGroup(null);
       setGroupName('');
       setGroupPick(new Set());
+      setGroupLeaderId('');
       await load();
     } catch (err) {
       onError?.(err.message);
@@ -415,9 +422,17 @@ export default function ClassPointsPanel({
                   >
                     <div className="class-roster-avatar class-roster-avatar--group">
                       {(g.points || 0) > 0 && <span className="class-roster-point-badge">{g.points}</span>}
-                      {g.student_ids?.length || 0}
+                      {g.leader_id ? '👑' : (g.student_ids?.length || 0)}
                     </div>
                     <div className="class-roster-name">{g.name}</div>
+                    {g.leader_name && (
+                      <div style={{ fontSize: 10, color: '#b45309', fontWeight: 700, marginTop: 2 }}>
+                        👑 {firstName(g.leader_name)}
+                      </div>
+                    )}
+                    {(g.points || 0) > 0 && (
+                      <div style={{ fontSize: 10, color: '#059669', fontWeight: 600 }}>Team stickers inside group</div>
+                    )}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
                     {onAssignWorkToGroup && (
@@ -487,7 +502,11 @@ export default function ClassPointsPanel({
                       </s>
                     ) : (
                       <>
-                        <strong>+{ev.value}</strong> {ev.student_name} — {ev.skill_meta?.emoji} {ev.skill_meta?.label}
+                        <strong>+{ev.value}</strong> {ev.student_name}
+                        {ev.group_id && (
+                          <> · <span style={{ color: '#4338ca' }}>Team {groups.find((x) => x.id === ev.group_id)?.name || 'group'}</span></>
+                        )}
+                        {' '}— {ev.skill_meta?.emoji} {ev.skill_meta?.label}
                       </>
                     )}
                   </p>
@@ -562,6 +581,23 @@ export default function ClassPointsPanel({
               <div className="class-roster-grid" style={{ marginBottom: 12 }}>
                 {students.map((s, i) => renderStudentCard(s, i, { showParentInvite: false, pickForGroup: true }))}
               </div>
+              {groupPick.size > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>
+                    👑 Group leader (optional)
+                  </label>
+                  <select
+                    value={groupLeaderId}
+                    onChange={(e) => setGroupLeaderId(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '2px solid #e8e8e8' }}
+                  >
+                    <option value="">No leader yet</option>
+                    {students.filter((s) => groupPick.has(s.id)).map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <button type="submit" className="btn btn-primary" disabled={busy || !groupName.trim()}>
                 Save changes ({groupPick.size} members)
               </button>

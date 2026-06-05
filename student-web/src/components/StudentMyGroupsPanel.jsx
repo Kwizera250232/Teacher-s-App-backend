@@ -1,13 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
 import ClassDeanHelp from './ClassDeanHelp';
 import './StudentMyGroups.css';
+
+function firstName(name) {
+  return String(name || '').trim().split(/\s+/)[0] || 'Student';
+}
 
 function statusLabel(a) {
   if (a.status === 'submitted') return { text: `Done · ${a.score}/${a.total}`, color: '#166534' };
   if (a.status === 'active' && a.started_by_student_id) {
-    const who = a.started_by_name ? ` · ${a.started_by_name.split(' ')[0]} started` : '';
+    const who = a.started_by_name ? ` · ${firstName(a.started_by_name)} started` : '';
     return { text: `In progress${who}`, color: '#b45309' };
   }
   if (a.status === 'active' || a.status === 'assigned') {
@@ -16,30 +21,165 @@ function statusLabel(a) {
   return { text: 'Open now', color: '#059669' };
 }
 
-function GroupStatsBar({ group }) {
-  const rankPts = group.points_rank && group.total_groups
-    ? `#${group.points_rank} of ${group.total_groups} teams`
-    : null;
-  const rankQuiz = group.quiz_rank && group.total_groups
-    ? `#${group.quiz_rank} on quiz marks`
-    : null;
+function rankMedal(rank) {
+  if (rank === 1) return '🥇';
+  if (rank === 2) return '🥈';
+  if (rank === 3) return '🥉';
+  return `#${rank}`;
+}
+
+function GroupRankBanner({ group }) {
+  if (!group.total_groups || group.total_groups < 2) return null;
+  return (
+    <div className="sg-rank-banner">
+      <div className="sg-rank-pill">
+        <span className="sg-rank-medal">{rankMedal(group.points_rank)}</span>
+        <span>Points rank · {group.points_rank} of {group.total_groups}</span>
+      </div>
+      {group.quiz_rank != null && (
+        <div className="sg-rank-pill sg-rank-pill--quiz">
+          <span className="sg-rank-medal">{rankMedal(group.quiz_rank)}</span>
+          <span>Quiz rank · {group.quiz_rank} of {group.total_groups}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EarnedPointsWall({ events, total }) {
+  const stickerCounts = useMemo(() => {
+    const map = {};
+    for (const ev of events || []) {
+      const key = ev.skill || 'on_task';
+      if (!map[key]) {
+        map[key] = { ...ev.skill_meta, count: 0, events: [] };
+      }
+      map[key].count += ev.value || 1;
+      map[key].events.push(ev);
+    }
+    return Object.values(map);
+  }, [events]);
 
   return (
-    <div className="student-group-stats">
-      <div className="student-group-stat">
-        <span className="student-group-stat-val">{group.points ?? 0}</span>
-        <span className="student-group-stat-lbl">Team points</span>
-        {rankPts && <span className="student-group-stat-rank">{rankPts}</span>}
+    <section className="sg-earned-section">
+      <div className="sg-earned-header">
+        <h4>🏆 Earned points</h4>
+        <span className="sg-earned-total">{total || 0} total</span>
       </div>
-      <div className="student-group-stat">
-        <span className="student-group-stat-val">
-          {group.quiz_marks ?? 0}
-          {group.quiz_marks_total > 0 ? `/${group.quiz_marks_total}` : ''}
-        </span>
-        <span className="student-group-stat-lbl">Quiz marks</span>
-        {rankQuiz && <span className="student-group-stat-rank">{rankQuiz}</span>}
+      {total === 0 ? (
+        <p className="sg-earned-empty">
+          When your teacher awards your team, stickers appear here. Work together to fill this wall!
+        </p>
+      ) : (
+        <>
+          <div className="sg-sticker-grid">
+            {stickerCounts.map((s) => (
+              <div key={s.id || s.label} className="sg-sticker" title={s.label}>
+                <span className="sg-sticker-emoji">{s.emoji}</span>
+                <span className="sg-sticker-count">×{s.count}</span>
+                <span className="sg-sticker-label">{s.label}</span>
+              </div>
+            ))}
+          </div>
+          <ul className="sg-earned-feed">
+            {(events || []).slice(0, 8).map((ev) => (
+              <li key={ev.id}>
+                <span className="sg-earned-feed-emoji">{ev.skill_meta?.emoji}</span>
+                <span>
+                  <strong>+{ev.value}</strong> {firstName(ev.student_name)}
+                  <span className="sg-earned-feed-skill"> · {ev.skill_meta?.label}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+}
+
+function TeamRoster({
+  members,
+  leaderId,
+  leaderName,
+  teamRoles,
+  currentUserId,
+  onClaimLeader,
+  onSetRole,
+  busy,
+}) {
+  const [roleOpen, setRoleOpen] = useState(false);
+
+  return (
+    <section className="sg-roster">
+      <div className="sg-roster-head">
+        <h4>👥 Team roster</h4>
+        {leaderName ? (
+          <span className="sg-leader-badge">👑 Leader: {firstName(leaderName)}</span>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-outline btn-sm sg-claim-leader"
+            disabled={busy}
+            onClick={onClaimLeader}
+          >
+            👑 Become leader
+          </button>
+        )}
       </div>
-    </div>
+      <ul className="sg-member-list">
+        {members?.map((m) => (
+          <li key={m.id} className={`sg-member${m.is_leader ? ' sg-member--leader' : ''}`}>
+            <div className="sg-member-avatar">
+              {m.is_leader ? '👑' : (m.team_role_meta?.emoji || '🧑‍🎓')}
+            </div>
+            <div className="sg-member-info">
+              <strong>{firstName(m.name)}{m.id === currentUserId ? ' (you)' : ''}</strong>
+              {m.team_role_meta && (
+                <span className="sg-member-role">{m.team_role_meta.label}</span>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {currentUserId && members?.some((m) => m.id === currentUserId) && (
+        <div className="sg-my-role">
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setRoleOpen((o) => !o)}
+          >
+            🏷️ Pick your team rank
+          </button>
+          {roleOpen && (
+            <div className="sg-role-picker">
+              {(teamRoles || []).map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  disabled={busy}
+                  onClick={() => { onSetRole(r.id); setRoleOpen(false); }}
+                >
+                  {r.emoji} {r.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                disabled={busy}
+                onClick={() => { onSetRole(''); setRoleOpen(false); }}
+              >
+                Clear rank
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {leaderId === currentUserId && members?.length > 1 && (
+        <p className="sg-leader-hint">You are leader — motivate your team and start group quizzes first!</p>
+      )}
+    </section>
   );
 }
 
@@ -53,10 +193,23 @@ export default function StudentMyGroupsPanel({
   initialGroupId,
 }) {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [openGroupId, setOpenGroupId] = useState(initialGroupId ? Number(initialGroupId) : null);
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const loadDetail = () => {
+    if (!openGroupId || !token) return;
+    setDetailLoading(true);
+    setDetailError('');
+    api
+      .get(`/classes/${classId}/my-groups/${openGroupId}`, token)
+      .then(setDetail)
+      .catch((e) => setDetailError(e.message))
+      .finally(() => setDetailLoading(false));
+  };
 
   useEffect(() => {
     if (initialGroupId) setOpenGroupId(Number(initialGroupId));
@@ -67,17 +220,35 @@ export default function StudentMyGroupsPanel({
       setDetail(null);
       return;
     }
-    setDetailLoading(true);
-    setDetailError('');
-    api
-      .get(`/classes/${classId}/my-groups/${openGroupId}`, token)
-      .then(setDetail)
-      .catch((e) => setDetailError(e.message))
-      .finally(() => setDetailLoading(false));
+    loadDetail();
   }, [openGroupId, classId, token]);
 
+  const claimLeader = async () => {
+    setBusy(true);
+    try {
+      await api.put(`/classes/${classId}/my-groups/${openGroupId}/leader`, {}, token);
+      loadDetail();
+    } catch (e) {
+      setDetailError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setRole = async (teamRole) => {
+    setBusy(true);
+    try {
+      await api.put(`/classes/${classId}/my-groups/${openGroupId}/my-role`, { team_role: teamRole }, token);
+      loadDetail();
+    } catch (e) {
+      setDetailError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (loading) {
-    return <p style={{ textAlign: 'center', padding: 32, color: '#888' }}>Loading your groups…</p>;
+    return <p className="sg-loading">Loading your teams…</p>;
   }
 
   if (error) {
@@ -86,11 +257,11 @@ export default function StudentMyGroupsPanel({
 
   if (!groups?.length) {
     return (
-      <div style={{ textAlign: 'center', padding: 40, color: '#888' }}>
-        <p style={{ fontSize: 40, margin: '0 0 12px' }}>👥</p>
-        <p><strong>You are not in a group yet.</strong></p>
-        <p style={{ fontSize: 13, marginTop: 8 }}>
-          Ask your teacher to add you to a group, then open your team here to see assigned quizzes.
+      <div className="sg-empty">
+        <p className="sg-empty-icon">👥</p>
+        <p><strong>You are not in a team yet.</strong></p>
+        <p className="sg-empty-hint">
+          Ask your teacher to add you to a group. Teams earn stickers, climb ranks, and tackle quizzes together!
         </p>
       </div>
     );
@@ -99,67 +270,92 @@ export default function StudentMyGroupsPanel({
   if (openGroupId) {
     const summary = groups.find((g) => g.id === openGroupId);
     const g = detail || summary;
+    const earned = detail?.earned_points ?? detail?.points ?? 0;
 
     return (
-      <div className="student-group-detail">
-        <button type="button" className="btn btn-outline btn-sm student-group-back" onClick={() => setOpenGroupId(null)}>
-          ← All groups
+      <div className="sg-detail">
+        <button type="button" className="btn btn-outline btn-sm sg-back" onClick={() => setOpenGroupId(null)}>
+          ← All teams
         </button>
 
         {detailLoading && !detail ? (
-          <p style={{ padding: 24, color: '#888' }}>Opening group…</p>
+          <p className="sg-loading">Opening team…</p>
         ) : (
           <>
-            <div className="student-group-detail-head">
-              <h3>👥 {g?.name}</h3>
-              {g?.members?.length > 0 && (
-                <p className="student-group-members">
-                  Team: {g.members.map((m) => m.name.split(' ')[0]).join(', ')}
-                </p>
-              )}
-            </div>
+            <header className="sg-detail-hero">
+              <div className="sg-detail-hero-bg" />
+              <h3 className="sg-detail-title">👥 {g?.name}</h3>
+              <p className="sg-detail-sub">Your class team · work together, earn stickers, win ranks</p>
+              <GroupRankBanner group={g} />
+              <div className="sg-detail-scores">
+                <div className="sg-score-card sg-score-card--points">
+                  <span className="sg-score-val">{earned}</span>
+                  <span className="sg-score-lbl">Earned points</span>
+                </div>
+                <div className="sg-score-card">
+                  <span className="sg-score-val">
+                    {g?.quiz_marks ?? 0}
+                    {g?.quiz_marks_total > 0 ? `/${g.quiz_marks_total}` : ''}
+                  </span>
+                  <span className="sg-score-lbl">Quiz marks</span>
+                </div>
+              </div>
+            </header>
 
-            {g && <GroupStatsBar group={g} />}
+            <TeamRoster
+              members={detail?.members || g?.members}
+              leaderId={detail?.leader_id ?? g?.leader_id}
+              leaderName={detail?.leader_name ?? g?.leader_name}
+              teamRoles={detail?.team_roles}
+              currentUserId={user?.id}
+              onClaimLeader={claimLeader}
+              onSetRole={setRole}
+              busy={busy}
+            />
 
-            <div className="student-group-dean-wrap">
+            <EarnedPointsWall events={detail?.point_events} total={earned} />
+
+            <div className="sg-dean-wrap">
               <ClassDeanHelp
                 token={token}
                 classId={classId}
                 className={className}
-                quizHint={g?.name ? `Team ${g.name} — ask about group quiz work` : ''}
+                quizHint={g?.name ? `Team ${g.name} — ask about group work and quizzes` : ''}
               />
             </div>
 
             {detailError && <div className="alert alert-error">{detailError}</div>}
 
-            {!detail?.assignments?.length ? (
-              <p style={{ fontSize: 14, color: '#94a3b8', padding: '12px 0' }}>
-                No quiz assigned to this group yet.
-              </p>
-            ) : (
-              <div className="student-group-quiz-list">
-                <h4 className="student-group-quiz-heading">Group quizzes</h4>
-                {detail.assignments.map((a) => {
-                  const st = statusLabel(a);
-                  return (
-                    <div key={a.id} className="student-group-quiz-card">
-                      <div className="student-group-quiz-title">❓ {a.quiz_title}</div>
-                      {a.quiz_description && (
-                        <p className="student-group-quiz-desc">{a.quiz_description}</p>
-                      )}
-                      <div className="student-group-quiz-status" style={{ color: st.color }}>{st.text}</div>
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        onClick={() => navigate(`/student/classes/${classId}/group-quizzes/${a.id}`)}
-                      >
-                        {a.status === 'submitted' ? 'View result' : 'Open group quiz'}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <section className="sg-quizzes-section">
+              <h4 className="sg-quizzes-heading">📝 Group quizzes</h4>
+              {!detail?.assignments?.length ? (
+                <p className="sg-quizzes-empty">No quiz assigned yet. Check back when your teacher releases one!</p>
+              ) : (
+                <div className="sg-quiz-list">
+                  {detail.assignments.map((a) => {
+                    const st = statusLabel(a);
+                    return (
+                      <div key={a.id} className="sg-quiz-card">
+                        <div className="sg-quiz-card-top">
+                          <span className="sg-quiz-title">❓ {a.quiz_title}</span>
+                          <span className="sg-quiz-status" style={{ color: st.color }}>{st.text}</span>
+                        </div>
+                        {a.quiz_description && (
+                          <p className="sg-quiz-desc">{a.quiz_description}</p>
+                        )}
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm sg-quiz-btn"
+                          onClick={() => navigate(`/student/classes/${classId}/group-quizzes/${a.id}`)}
+                        >
+                          {a.status === 'submitted' ? 'View result' : 'Open group quiz →'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
           </>
         )}
       </div>
@@ -167,27 +363,42 @@ export default function StudentMyGroupsPanel({
   }
 
   return (
-    <div className="student-group-list">
-      <p className="student-group-list-hint">
-        Tap a team to open it — group quizzes are only visible inside your group.
+    <div className="sg-list">
+      <p className="sg-list-hint">
+        Open a team to see earned stickers, your rank, and group quizzes — points stay inside your team room.
       </p>
       {groups.map((g) => (
         <button
           key={g.id}
           type="button"
-          className="student-group-list-card"
+          className="sg-list-card"
           onClick={() => setOpenGroupId(g.id)}
         >
-          <div className="student-group-list-card-top">
-            <strong>👥 {g.name}</strong>
+          <div className="sg-list-card-head">
+            <div>
+              <strong className="sg-list-name">👥 {g.name}</strong>
+              {g.leader_name && (
+                <span className="sg-list-leader">👑 {firstName(g.leader_name)}</span>
+              )}
+            </div>
             {(g.pending_count > 0 || g.assignment_count > 0) && (
-              <span className="student-group-list-badge">
+              <span className="sg-list-badge">
                 {g.pending_count > 0 ? `${g.pending_count} to do` : `${g.assignment_count} quiz`}
               </span>
             )}
           </div>
-          <GroupStatsBar group={g} />
-          <span className="student-group-list-open">Open group →</span>
+          <div className="sg-list-meta">
+            {g.total_groups > 1 && g.points_rank && (
+              <span className="sg-list-rank">{rankMedal(g.points_rank)} Rank {g.points_rank}/{g.total_groups}</span>
+            )}
+            {g.has_earned_points && (
+              <span className="sg-list-stickers">🏆 Stickers inside →</span>
+            )}
+            {g.quiz_marks_total > 0 && (
+              <span className="sg-list-quiz">📝 {g.quiz_marks}/{g.quiz_marks_total} marks</span>
+            )}
+          </div>
+          <span className="sg-list-open">Enter team room →</span>
         </button>
       ))}
     </div>
