@@ -181,33 +181,77 @@ router.post('/:classId/group-quizzes', authenticateToken, requireRole('teacher',
   }
 });
 
-// GET student's group quiz assignments in this class
+async function assertStudentInClass(classId, studentId) {
+  const member = await pool.query(
+    'SELECT 1 FROM class_members WHERE class_id = $1 AND student_id = $2',
+    [classId, studentId]
+  );
+  return member.rows.length > 0;
+}
+
+async function studentGroupsWithAssignments(classId, studentId) {
+  const groupsRes = await pool.query(
+    `SELECT g.id, g.name, g.created_at
+     FROM class_groups g
+     JOIN class_group_members gm ON gm.group_id = g.id AND gm.student_id = $2
+     WHERE g.class_id = $1
+     ORDER BY g.name, g.created_at`,
+    [classId, studentId]
+  );
+
+  const out = [];
+  for (const g of groupsRes.rows) {
+    const members = await groupMembers(g.id);
+    const assignRes = await pool.query(
+      `SELECT a.*, g.name AS group_name, q.title AS quiz_title, q.description AS quiz_description,
+              u.name AS started_by_name, su.name AS submitted_by_name
+       FROM class_group_quiz_assignments a
+       JOIN class_groups g ON g.id = a.group_id
+       JOIN quizzes q ON q.id = a.quiz_id
+       LEFT JOIN users u ON u.id = a.started_by_student_id
+       LEFT JOIN users su ON su.id = a.submitted_by_student_id
+       WHERE a.class_id = $1 AND a.group_id = $2
+       ORDER BY a.created_at DESC`,
+      [classId, g.id]
+    );
+    out.push({
+      id: g.id,
+      name: g.name,
+      created_at: g.created_at,
+      members,
+      assignments: assignRes.rows.map((row) => formatAssignment(row, members)),
+    });
+  }
+  return out;
+}
+
+// GET student's groups in this class (with quiz work inside each group)
+router.get('/:classId/my-groups', authenticateToken, requireRole('student'), async (req, res) => {
+  const classId = parseInt(req.params.classId, 10);
+  try {
+    if (!(await assertStudentInClass(classId, req.user.id))) {
+      return res.status(403).json({ error: 'Not in this class.' });
+    }
+    res.json(await studentGroupsWithAssignments(classId, req.user.id));
+  } catch (err) {
+    console.error('[my-groups]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// GET student's group quiz assignments in this class (flat list)
 router.get('/:classId/my-group-quizzes', authenticateToken, requireRole('student'), async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   try {
-    const member = await pool.query(
-      'SELECT 1 FROM class_members WHERE class_id = $1 AND student_id = $2',
-      [classId, req.user.id]
-    );
-    if (!member.rows.length) return res.status(403).json({ error: 'Not in this class.' });
-
-    const rows = await pool.query(
-      `SELECT a.*, g.name AS group_name, q.title AS quiz_title, q.description AS quiz_description
-       FROM class_group_quiz_assignments a
-       JOIN class_groups g ON g.id = a.group_id
-       JOIN class_group_members gm ON gm.group_id = g.id AND gm.student_id = $2
-       JOIN quizzes q ON q.id = a.quiz_id
-       WHERE a.class_id = $1
-       ORDER BY a.created_at DESC`,
-      [classId, req.user.id]
-    );
-
-    const out = [];
-    for (const row of rows.rows) {
-      const members = await groupMembers(row.group_id);
-      out.push(formatAssignment(row, members));
+    if (!(await assertStudentInClass(classId, req.user.id))) {
+      return res.status(403).json({ error: 'Not in this class.' });
     }
-    res.json(out);
+    const groups = await studentGroupsWithAssignments(classId, req.user.id);
+    const flat = [];
+    for (const g of groups) {
+      for (const a of g.assignments || []) flat.push(a);
+    }
+    res.json(flat);
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
   }
