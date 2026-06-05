@@ -274,9 +274,14 @@ export default function TeacherClassPage() {
                 <ClassDeanHelp token={token} classId={id} className={cls.name} isTeacher />
               </div>
             </div>
-            <div className="class-hero-code">
-              <span className="code-label">Class Code</span>
-              <div className="code-big">{cls.class_code}</div>
+            <div className="class-hero-side">
+              <div className="class-hero-notif">
+                <AppNotificationsBell className="student-notif-bell--header" basePath={basePath} />
+              </div>
+              <div className="class-hero-code">
+                <span className="code-label">Class Code</span>
+                <div className="code-big">{cls.class_code}</div>
+              </div>
             </div>
           </div>
         )}
@@ -801,6 +806,7 @@ export default function TeacherClassPage() {
               classId={id}
               token={token}
               classMeta={cls}
+              basePath={basePath}
               onError={(msg) => setError(msg)}
               onSuccess={(msg) => showSuccess(msg)}
               onStudentClick={setSelectedStudent}
