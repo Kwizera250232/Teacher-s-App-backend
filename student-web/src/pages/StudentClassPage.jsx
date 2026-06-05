@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, uploadFile, UPLOADS_BASE } from '../api';
 import { useAuth } from '../context/AuthContext';
 import DocPreviewModal from '../components/DocPreviewModal';
@@ -14,17 +14,19 @@ import '../components/classMoments/ClassMoments.css';
 import VerifiedBadge from '../components/VerifiedBadge';
 import SharedQuizAttribution from '../components/SharedQuizAttribution';
 import SharedNoteAttribution from '../components/SharedNoteAttribution';
+import StudentMyGroupsPanel from '../components/StudentMyGroupsPanel';
 import '../pages/Dashboard.css';
 
 const CLASSMATE_DEFAULT_AVATAR =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%2325d366'/%3E%3Ctext y='.9em' font-size='50' x='25' fill='white'%3E%F0%9F%91%A4%3C/text%3E%3C/svg%3E";
 
-const TABS = ['Feed', 'Announcements', 'Notes', 'Homework', 'Quizzes', 'Leaderboard', 'Discussion', 'Classmates'];
+const TABS = ['Feed', 'Groups', 'Announcements', 'Notes', 'Homework', 'Quizzes', 'Leaderboard', 'Discussion', 'Classmates'];
 
 export default function StudentClassPage() {
   const { id } = useParams();
   const { token, user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [cls, setCls] = useState(null);
   const [pageLoading, setPageLoading] = useState(true);
   const [tab, setTab] = useState('Announcements');
@@ -38,7 +40,15 @@ export default function StudentClassPage() {
   const [shareItem, setShareItem] = useState(null);   // { title, text, url }
   const [classmates, setClassmates] = useState([]);
   const [selectedPerson, setSelectedPerson] = useState(null);
+  const [myGroups, setMyGroups] = useState([]);
+  const [groupsLoading, setGroupsLoading] = useState(false);
+  const [groupsError, setGroupsError] = useState('');
   const showSuccess = (msg) => { setSuccess(msg); setTimeout(() => setSuccess(''), 3000); };
+
+  useEffect(() => {
+    const urlTab = searchParams.get('tab');
+    if (urlTab && TABS.includes(urlTab)) setTab(urlTab);
+  }, [searchParams]);
 
   useEffect(() => {
     setPageLoading(true);
@@ -62,6 +72,45 @@ export default function StudentClassPage() {
   const loadTab = async () => {
     setError('');
     if (tab === 'Leaderboard' || tab === 'Feed') return;
+    if (tab === 'Groups') {
+      setGroupsLoading(true);
+      try {
+        const res = await api.get(`/classes/${id}/my-groups`, token);
+        setMyGroups(Array.isArray(res) ? res : []);
+        setGroupsError('');
+      } catch (e) {
+        if (/404|not found/i.test(String(e.message))) {
+          try {
+            const legacy = await api.get(`/classes/${id}/my-group-quizzes`, token);
+            const list = Array.isArray(legacy) ? legacy : [];
+            const byGroup = {};
+            for (const a of list) {
+              const gid = a.group_id;
+              if (!byGroup[gid]) {
+                byGroup[gid] = {
+                  id: gid,
+                  name: a.group_name || `Group ${gid}`,
+                  members: a.members || [],
+                  assignments: [],
+                };
+              }
+              byGroup[gid].assignments.push(a);
+            }
+            setMyGroups(Object.values(byGroup));
+            setGroupsError('');
+          } catch (e2) {
+            if (navigator.onLine) setGroupsError(e2.message);
+            setMyGroups([]);
+          }
+        } else if (navigator.onLine) {
+          setGroupsError(e.message);
+          setMyGroups([]);
+        }
+      } finally {
+        setGroupsLoading(false);
+      }
+      return;
+    }
     if (tab === 'Classmates') {
       try {
         const res = await api.get(`/classes/${id}/classmates`, token);
@@ -408,6 +457,15 @@ export default function StudentClassPage() {
                 </div>
               );
             })
+        )}
+
+        {tab === 'Groups' && (
+          <StudentMyGroupsPanel
+            groups={myGroups}
+            classId={id}
+            loading={groupsLoading}
+            error={groupsError}
+          />
         )}
 
         {tab === 'Quizzes' && (

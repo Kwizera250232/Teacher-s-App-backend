@@ -11,6 +11,7 @@ import MobileBottomBar from '../components/MobileBottomBar';
 import CompositionStatusPanel from '../components/CompositionStatusPanel';
 import CompositionStatusFeed from '../components/CompositionStatusFeed';
 import ClassMomentsFold from '../components/classMoments/ClassMomentsFold';
+import StudentGroupWorkFold, { groupWorkCountByClass } from '../components/StudentGroupWorkFold';
 import { useClassMomentAlerts } from '../hooks/useClassMomentAlerts';
 import { classMomentDetailPath } from '../utils/classMomentPaths';
 import '../components/classMoments/ClassMoments.css';
@@ -19,6 +20,7 @@ import './MobileDashboard.css';
 
 const QUICK_NAV = (handlers) => [
   { id: 'classes', icon: '📚', label: 'Classes', onClick: handlers.scrollClasses, active: true },
+  { id: 'groups', icon: '👥', label: 'Groups', onClick: handlers.scrollGroups },
   { id: 'status', icon: '✍️', label: 'C. Status', onClick: handlers.openStatus },
   { id: 'notes', icon: '📝', label: 'Notes', to: '/student/notes' },
   { id: 'parent', icon: '👪', label: 'Parent', onClick: handlers.openParent },
@@ -39,7 +41,9 @@ export default function StudentDashboard() {
   const [showParentInvite, setShowParentInvite] = useState(false);
   const [showCompositionStatus, setShowCompositionStatus] = useState(false);
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
+  const [groupAssignments, setGroupAssignments] = useState([]);
   const classesRef = useRef(null);
+  const groupWorkRef = useRef(null);
 
   const openStatus = () => {
     setStatusPickerOpen(false);
@@ -48,6 +52,7 @@ export default function StudentDashboard() {
 
   const navHandlers = {
     scrollClasses: () => classesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+    scrollGroups: () => groupWorkRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
     openStatus,
     openParent: () => setShowParentInvite(true),
   };
@@ -74,6 +79,36 @@ export default function StudentDashboard() {
   useClassMomentAlerts(token, user?.role);
 
   useEffect(() => { loadClasses(); }, []);
+
+  useEffect(() => {
+    if (!token || !classes.length) {
+      setGroupAssignments([]);
+      return;
+    }
+    Promise.all(
+      classes.map((cls) =>
+        api
+          .get(`/classes/${cls.id}/my-groups`, token)
+          .then((groups) => {
+            const rows = [];
+            for (const g of Array.isArray(groups) ? groups : []) {
+              for (const a of g.assignments || []) {
+                rows.push({ ...a, class_id: cls.id, class_name: cls.name, group_name: g.name, members: g.members });
+              }
+            }
+            return rows;
+          })
+          .catch(() =>
+            api
+              .get(`/classes/${cls.id}/my-group-quizzes`, token)
+              .then((list) =>
+                (Array.isArray(list) ? list : []).map((a) => ({ ...a, class_id: cls.id, class_name: cls.name }))
+              )
+              .catch(() => [])
+          )
+      )
+    ).then((rows) => setGroupAssignments(rows.flat()));
+  }, [token, classes]);
   useEffect(() => {
     api.get('/admin/user-announcements', token).then(setAnnouncements).catch(() => {});
   }, []);
@@ -111,6 +146,7 @@ export default function StudentDashboard() {
   };
 
   const quickNavItems = QUICK_NAV(navHandlers);
+  const groupWorkByClass = groupWorkCountByClass(groupAssignments);
 
   return (
     <div className="dashboard student-dashboard-classic">
@@ -186,6 +222,10 @@ export default function StudentDashboard() {
 
         <CompositionStatusFeed token={token} />
 
+        <div ref={groupWorkRef}>
+          <StudentGroupWorkFold token={token} classes={classes} />
+        </div>
+
         {error && <div className="alert alert-error">{error}</div>}
 
         {announcements.filter(a => !dismissed.includes(a.id)).map(a => (
@@ -211,7 +251,12 @@ export default function StudentDashboard() {
             <div className="classes-grid classes-grid--square">
               {classes.map(cls => (
                 <div key={cls.id} className="class-card-wrap class-card-wrap--square">
-                  <Link to={`/student/classes/${cls.id}`} className="class-card class-card--square">
+                  <Link
+                    to={groupWorkByClass[cls.id]
+                      ? `/student/classes/${cls.id}?tab=Groups`
+                      : `/student/classes/${cls.id}`}
+                    className="class-card class-card--square"
+                  >
                     <div className="class-card-icon">{(cls.name || 'C').slice(0, 1)}</div>
                     <div className="class-card-header">
                       <h3>{cls.name}</h3>
@@ -225,7 +270,7 @@ export default function StudentDashboard() {
                     )}
                     <p className="class-teacher">👨‍🏫 {cls.teacher_name || 'Teacher'}</p>
                     <div className="class-card-footer">
-                      <span>Open</span>
+                      <span>{groupWorkByClass[cls.id] ? `👥 ${groupWorkByClass[cls.id]} group quiz` : 'Open'}</span>
                       <span className="arrow">→</span>
                     </div>
                   </Link>

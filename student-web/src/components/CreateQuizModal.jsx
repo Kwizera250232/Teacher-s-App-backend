@@ -142,14 +142,15 @@ export default function CreateQuizModal({ token, classId, onClose, onCreated, ed
     setLoading(true);
     try {
       const prepared = questions.map(prepareForSave);
+      let created;
       if (isEdit) {
-        await api.put(`/classes/${classId}/quizzes/${editQuiz.id}`, { title, description, questions: prepared }, token);
+        created = await api.put(`/classes/${classId}/quizzes/${editQuiz.id}`, { title, description, questions: prepared }, token);
       } else {
-        await api.post(`/classes/${classId}/quizzes`, { title, description, questions: prepared }, token);
+        created = await api.post(`/classes/${classId}/quizzes`, { title, description, questions: prepared }, token);
       }
       isSubmitted.current = true;
       if (!isEdit) localStorage.removeItem(draftKey);
-      onCreated();
+      onCreated(created);
     } catch (err) {
       setError(err.message);
     } finally {

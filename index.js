@@ -156,6 +156,8 @@ app.get('/api/health', (req, res) => {
       login_email_edu: true,
       web_push: Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY),
       classroom_points: true,
+      group_quizzes: true,
+      my_groups: true,
     },
   });
 });

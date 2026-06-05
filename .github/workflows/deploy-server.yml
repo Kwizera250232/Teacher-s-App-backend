@@ -68,3 +68,7 @@ jobs:
           SHARE_CODE="$(curl -s -o /dev/null -w '%{http_code}' https://studentapi.umunsi.com/api/quiz-teacher-shares/colleagues)"
           echo "quiz-teacher-shares/colleagues HTTP $SHARE_CODE (expect 401, not 404)"
           test "$SHARE_CODE" != "404"
+          GROUPS_CODE="$(curl -s -o /dev/null -w '%{http_code}' https://studentapi.umunsi.com/api/classes/1/my-groups)"
+          echo "classes/1/my-groups HTTP $GROUPS_CODE (expect 401, not 404)"
+          test "$GROUPS_CODE" != "404"
+          echo "$BODY" | grep -q 'my_groups' || echo "::warning::Health missing my_groups feature flag."

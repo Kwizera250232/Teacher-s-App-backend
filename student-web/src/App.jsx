@@ -14,6 +14,7 @@ import TeacherClassPage from './pages/TeacherClassPage';
 import RecordCatMarks from './pages/RecordCatMarks';
 import StudentClassPage from './pages/StudentClassPage';
 import TakeQuiz from './pages/TakeQuiz';
+import TakeGroupQuiz from './pages/TakeGroupQuiz';
 import QuizResults from './pages/QuizResults';
 import AdminDashboard from './pages/AdminDashboard';
 import JoinClass from './pages/JoinClass';
@@ -149,6 +150,9 @@ function AppShell() {
                 } />
                 <Route path="/student/classes/:classId/quizzes/:quizId" element={
                   <ProtectedRoute role="student"><TakeQuiz /></ProtectedRoute>
+                } />
+                <Route path="/student/classes/:classId/group-quizzes/:assignmentId" element={
+                  <ProtectedRoute role="student"><TakeGroupQuiz /></ProtectedRoute>
                 } />
                 <Route path="/student/notes" element={
                   <ProtectedRoute role="student"><StudentNotes /></ProtectedRoute>
