@@ -1,10 +1,15 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import ClassDeanHelp from '../components/ClassDeanHelp';
 import AchievementCelebrateModal from '../components/AchievementCelebrateModal';
 import '../pages/Dashboard.css';
+
+async function loadQuestions(classId, assignmentId, assignment, token) {
+  if (assignment?.questions?.length) return assignment.questions;
+  return api.get(`/classes/${classId}/group-quizzes/${assignmentId}/questions`, token);
+}
 
 export default function TakeGroupQuiz() {
   const { classId, assignmentId } = useParams();
@@ -20,15 +25,16 @@ export default function TakeGroupQuiz() {
   const [error, setError] = useState('');
   const [className, setClassName] = useState('');
   const [celebrateAchievements, setCelebrateAchievements] = useState(null);
+  const questionsLoaded = useRef(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ refreshQuestions = false } = {}) => {
     try {
       let a = await api.get(`/classes/${classId}/group-quizzes/${assignmentId}`, token);
       if (a.status === 'assigned') {
         try {
           a = await api.post(`/classes/${classId}/group-quizzes/${assignmentId}/start`, {}, token);
         } catch {
-          /* keep assigned row; questions may still load */
+          /* assignment row is still usable */
         }
       }
       setAssignment(a);
@@ -36,11 +42,11 @@ export default function TakeGroupQuiz() {
       if (a.status === 'submitted') {
         setResult({ score: a.score, total: a.total, submitted: true });
       }
-      const qs = await api.get(
-        `/classes/${classId}/group-quizzes/${assignmentId}/questions`,
-        token
-      );
-      setQuestions(qs);
+      if (refreshQuestions || !questionsLoaded.current) {
+        const qs = await loadQuestions(classId, assignmentId, a, token);
+        setQuestions(qs);
+        questionsLoaded.current = true;
+      }
       setError('');
       api.get(`/classes/${classId}`, token).then((c) => setClassName(c?.name || '')).catch(() => {});
     } catch (e) {
@@ -51,8 +57,9 @@ export default function TakeGroupQuiz() {
   }, [classId, assignmentId, token]);
 
   useEffect(() => {
-    load();
-    const t = setInterval(load, 5000);
+    questionsLoaded.current = false;
+    load({ refreshQuestions: true });
+    const t = setInterval(() => load({ refreshQuestions: false }), 8000);
     return () => clearInterval(t);
   }, [load]);
 
@@ -95,7 +102,7 @@ export default function TakeGroupQuiz() {
       const mine = res.newAchievements?.find((x) => x.student_id === user?.id);
       const earned = mine?.achievements?.filter((a) => a?.title_key) || [];
       if (earned.length) setCelebrateAchievements(earned);
-      await load();
+      await load({ refreshQuestions: false });
     } catch (e) {
       setError(e.message);
     } finally {
@@ -165,7 +172,7 @@ export default function TakeGroupQuiz() {
           )}
         </div>
 
-        {error && <div className="alert alert-error">{error}</div>}
+        {error && !questions.length && <div className="alert alert-error">{error}</div>}
 
         {result && (
           <div className="score-card" style={{ marginBottom: 20 }}>
@@ -175,7 +182,7 @@ export default function TakeGroupQuiz() {
           </div>
         )}
 
-        {canWork && (assignment.status === 'active' || assignment.status === 'assigned') && questions.map((q, i) => (
+        {canWork && questions.map((q, i) => (
           <div key={q.id} className="quiz-question">
             <h3>Q{i + 1}. {q.question}</h3>
             {q.question_type === 'fill_blank' ? (
@@ -206,7 +213,7 @@ export default function TakeGroupQuiz() {
           </div>
         ))}
 
-        {canWork && assignment.status !== 'submitted' && questions.length > 0 && (
+        {canWork && questions.length > 0 && (
           <button
             type="button"
             className="btn btn-primary btn-full"

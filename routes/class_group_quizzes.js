@@ -101,6 +101,15 @@ function scoreAnswers(questions, answers) {
   return { score, total: questions.length, results };
 }
 
+async function fetchQuizQuestions(quizId) {
+  const result = await pool.query(
+    `SELECT id, question, option_a, option_b, option_c, option_d, question_type, passage, order_num
+     FROM quiz_questions WHERE quiz_id = $1 ORDER BY order_num`,
+    [quizId]
+  );
+  return result.rows;
+}
+
 function formatAssignment(row, members) {
   if (!row) return null;
   return {
@@ -547,7 +556,9 @@ router.get('/:classId/group-quizzes/:assignmentId', authenticateToken, async (re
       if (!inGroup) return res.status(403).json({ error: 'You are not in this group.' });
     }
 
-    res.json(formatAssignment(row, members));
+    const payload = formatAssignment(row, members);
+    payload.questions = await fetchQuizQuestions(row.quiz_id);
+    res.json(payload);
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
   }
