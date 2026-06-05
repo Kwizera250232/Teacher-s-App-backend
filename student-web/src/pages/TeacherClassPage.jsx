@@ -25,6 +25,8 @@ import GuestMarksPanel from '../components/GuestMarksPanel';
 import ClassPointsPanel from '../components/ClassPointsPanel';
 import AssignWorkToGroupModal from '../components/AssignWorkToGroupModal';
 import TeacherQuizReportsPanel from '../components/quizReflection/TeacherQuizReportsPanel';
+import AppNotificationsBell from '../components/AppNotificationsBell';
+import '../components/StudentNotifications.css';
 import '../pages/Dashboard.css';
 import '../pages/MobileDashboard.css';
 
@@ -256,6 +258,7 @@ export default function TeacherClassPage() {
           <strong>{cls?.name || 'Class'}</strong>
           <span>{cls?.subject || 'UClass'}</span>
         </div>
+        <AppNotificationsBell className="student-notif-bell--header wa-class-notif" basePath={basePath} />
       </header>
 
       <main className="class-main wa-chat-screen">

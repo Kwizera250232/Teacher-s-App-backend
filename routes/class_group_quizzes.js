@@ -755,6 +755,33 @@ router.post('/:classId/group-quizzes/:assignmentId/submit', authenticateToken, r
       console.error('[achievements group quiz]', e.message);
     }
 
+    try {
+      const { notifyTeachersGroupQuizSubmitted, notifyParentsGroupQuizSubmitted } = require('../lib/staffActivityNotify');
+      const submitter = members.find((m) => m.id === req.user.id);
+      const classRow = await pool.query('SELECT teacher_id FROM classes WHERE id = $1', [classId]);
+      await notifyTeachersGroupQuizSubmitted({
+        classId,
+        groupId: row.group_id,
+        groupName: row.group_name,
+        quizTitle: row.quiz_title,
+        submitterName: submitter?.name || 'A student',
+        score,
+        total,
+        assignmentId,
+      });
+      await notifyParentsGroupQuizSubmitted({
+        studentIds: members.map((m) => m.id),
+        classId,
+        senderId: classRow.rows[0]?.teacher_id,
+        groupName: row.group_name,
+        quizTitle: row.quiz_title,
+        score,
+        total,
+      });
+    } catch (e) {
+      console.error('[group-quiz staff/parent notify]', e.message);
+    }
+
     res.json({
       score,
       total,

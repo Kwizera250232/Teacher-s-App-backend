@@ -13,6 +13,8 @@ import { classMomentDetailPath } from '../utils/classMomentPaths';
 import '../components/classMoments/ClassMoments.css';
 import './ParentHub.css';
 import TutorialVideo from '../components/TutorialVideo';
+import AppNotificationsBell from '../components/AppNotificationsBell';
+import '../components/StudentNotifications.css';
 
 const DEFAULT_AVATAR = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%234285f4'/%3E%3Ctext y='.9em' font-size='50' x='25' fill='white'%3E%F0%9F%91%A4%3C/text%3E%3C/svg%3E";
 
@@ -297,6 +299,7 @@ export default function ParentHub() {
           <span className="phub-sub">Parent</span>
         </div>
         <div className="phub-header-actions">
+          <AppNotificationsBell className="student-notif-bell--header" />
           <Link to="/messages" className="btn btn-secondary btn-sm">💬 All messages</Link>
           <Link to="/parent/legacy" className="btn btn-outline btn-sm">Classic feed</Link>
           <DonateButton />

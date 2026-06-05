@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import VerifiedBadge from './VerifiedBadge';
+import AppNotificationsBell from './AppNotificationsBell';
 
 export default function MobileStaffHeader({
   user,
@@ -7,6 +8,7 @@ export default function MobileStaffHeader({
   onLogout,
   isImpersonating,
   stopImpersonation,
+  basePath = '/teacher',
 }) {
   return (
     <div className="mobile-staff-header">
@@ -23,6 +25,7 @@ export default function MobileStaffHeader({
             }}
           />
         </div>
+        <AppNotificationsBell className="student-notif-bell--header" basePath={basePath} />
         <Link to="/profile" className="mobile-nav-text-btn">
           Profile
         </Link>

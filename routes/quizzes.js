@@ -310,12 +310,28 @@ router.post('/:classId/quizzes/:quizId/submit', authenticateToken, requireRole('
         const qi = quizInfo.rows[0];
         if (qi) {
           const st = await pool.query('SELECT name FROM users WHERE id = $1', [req.user.id]);
+          const studentName = st.rows[0]?.name || 'Student';
           await notifyParentsOfStudent({
             studentId: req.user.id,
             senderId: qi.teacher_id,
             type: 'quiz_result',
             title: `Your child completed a quiz`,
-            body: `${st.rows[0]?.name}: ${qi.title} — ${percentage}% (${score}/${total})`,
+            body: `${studentName}: ${qi.title} — ${percentage}% (${score}/${total})`,
+            payload: {
+              class_id: qi.class_id,
+              quiz_id: parseInt(req.params.quizId, 10),
+              url: '/parent/dashboard?tab=child',
+              student_id: req.user.id,
+            },
+          });
+          const { notifyTeachersQuizSubmitted } = require('../lib/staffActivityNotify');
+          await notifyTeachersQuizSubmitted({
+            classId: qi.class_id,
+            quizId: parseInt(req.params.quizId, 10),
+            quizTitle: qi.title,
+            studentName,
+            score,
+            total,
           });
         }
       } catch (e) {

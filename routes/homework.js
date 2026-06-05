@@ -137,6 +137,44 @@ router.post('/:classId/homework/:hwId/submit', authenticateToken, requireRole('s
        RETURNING *`,
       [req.params.hwId, req.user.id, filePath, fileName, text_response || null]
     );
+
+    try {
+      const meta = await pool.query(
+        `SELECT h.title, h.class_id, c.teacher_id, u.name AS student_name
+         FROM homework h
+         JOIN classes c ON c.id = h.class_id
+         JOIN users u ON u.id = $2
+         WHERE h.id = $1`,
+        [req.params.hwId, req.user.id]
+      );
+      const row = meta.rows[0];
+      if (row) {
+        const { notifyTeachersHomeworkSubmitted } = require('../lib/staffActivityNotify');
+        await notifyTeachersHomeworkSubmitted({
+          classId: row.class_id,
+          homeworkId: parseInt(req.params.hwId, 10),
+          homeworkTitle: row.title,
+          studentName: row.student_name,
+        });
+        const { notifyParentsOfStudent } = require('../lib/parentClassNotify');
+        await notifyParentsOfStudent({
+          studentId: req.user.id,
+          senderId: row.teacher_id,
+          type: 'homework_submitted',
+          title: `${row.student_name} submitted homework`,
+          body: `“${row.title}” — open My child to see progress.`,
+          payload: {
+            class_id: row.class_id,
+            homework_id: parseInt(req.params.hwId, 10),
+            url: '/parent/dashboard?tab=child',
+            student_id: req.user.id,
+          },
+        });
+      }
+    } catch (e) {
+      console.error('[homework staff/parent notify]', e.message);
+    }
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('[homework submit] error:', err.message, err.code, err.detail);
