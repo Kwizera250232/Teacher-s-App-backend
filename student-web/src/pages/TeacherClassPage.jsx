@@ -601,21 +601,43 @@ export default function TeacherClassPage() {
               <div style={{ marginBottom: 16, background: '#f0f9ff', borderRadius: 10, padding: '12px 14px', border: '1px solid #bae6fd' }}>
                 <h3 style={{ margin: '0 0 10px', fontSize: 15, color: '#0369a1' }}>👥 Group work assigned</h3>
                 {groupAssignments.map((a) => (
-                  <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid #e0f2fe', fontSize: 14 }}>
+                  <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid #e0f2fe', fontSize: 14, flexWrap: 'wrap' }}>
                     <span>
                       <strong>{a.group_name}</strong> → {a.quiz_title}
                     </span>
-                    <span style={{
-                      fontSize: 12,
-                      fontWeight: 700,
-                      color: a.status === 'submitted' ? '#166534' : a.status === 'active' ? '#b45309' : '#64748b',
-                    }}>
-                      {a.status === 'submitted'
-                        ? `Done ${a.score}/${a.total}`
-                        : a.status === 'active' && a.started_by_student_id
-                          ? 'In progress'
-                          : 'Released'}
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: a.status === 'submitted' ? '#166534' : a.status === 'active' ? '#b45309' : '#64748b',
+                      }}>
+                        {a.status === 'submitted'
+                          ? `Done ${a.score}/${a.total}`
+                          : a.status === 'active' && a.started_by_student_id
+                            ? 'In progress'
+                            : 'Released'}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        style={{ color: '#b91c1c', borderColor: '#fecaca', fontSize: 11 }}
+                        onClick={async () => {
+                          const msg = a.status === 'submitted'
+                            ? `Remove submitted group quiz "${a.quiz_title}" from ${a.group_name}? Marks will be removed from the assignment list.`
+                            : `Remove group quiz "${a.quiz_title}" from ${a.group_name}?`;
+                          if (!window.confirm(msg)) return;
+                          try {
+                            await api.delete(`/classes/${id}/group-quizzes/${a.id}`, token);
+                            setGroupAssignments((prev) => prev.filter((x) => x.id !== a.id));
+                            showSuccess('Group quiz removed.');
+                          } catch (e) {
+                            setError(e.message);
+                          }
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
