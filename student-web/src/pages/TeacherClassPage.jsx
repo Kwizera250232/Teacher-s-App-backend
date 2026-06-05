@@ -24,10 +24,11 @@ import ClassDeanHelp from '../components/ClassDeanHelp';
 import GuestMarksPanel from '../components/GuestMarksPanel';
 import ClassPointsPanel from '../components/ClassPointsPanel';
 import AssignWorkToGroupModal from '../components/AssignWorkToGroupModal';
+import TeacherQuizReportsPanel from '../components/quizReflection/TeacherQuizReportsPanel';
 import '../pages/Dashboard.css';
 import '../pages/MobileDashboard.css';
 
-const TABS = ['Students', 'Feed', 'Announcements', 'Notes', 'Homework', 'Quizzes', 'Leaderboard', 'Discussion', 'C. Status'];
+const TABS = ['Students', 'Feed', 'Announcements', 'Notes', 'Homework', 'Quizzes', 'Quiz reports', 'Leaderboard', 'Discussion', 'C. Status'];
 
 export default function TeacherClassPage() {
   const { id } = useParams();
@@ -101,7 +102,7 @@ export default function TeacherClassPage() {
 
   const loadTab = async () => {
     setError('');
-    if (tab === 'Leaderboard' || tab === 'Feed' || tab === 'C. Status' || tab === 'Students') return;
+    if (tab === 'Leaderboard' || tab === 'Feed' || tab === 'C. Status' || tab === 'Students' || tab === 'Quiz reports') return;
     setTabLoading(true);
     setData([]);
     try {
@@ -722,6 +723,19 @@ export default function TeacherClassPage() {
                 </div>
               </div>
             ))}
+          </>
+        )}
+
+        {tab === 'Quiz reports' && (
+          <>
+            <div className="section-header">
+              <h2>📋 Quiz reports</h2>
+            </div>
+            <TeacherQuizReportsPanel
+              classId={id}
+              token={token}
+              highlightReportId={searchParams.get('report')}
+            />
           </>
         )}
 

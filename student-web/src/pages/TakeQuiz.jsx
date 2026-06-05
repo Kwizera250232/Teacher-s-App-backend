@@ -4,7 +4,7 @@ import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { downloadWord } from '../utils/downloadResult';
 import SharedQuizAttribution from '../components/SharedQuizAttribution';
-import AchievementCelebrateModal from '../components/AchievementCelebrateModal';
+import SoloQuizReflectionWizard from '../components/quizReflection/SoloQuizReflectionWizard';
 import '../pages/Dashboard.css';
 
 export default function TakeQuiz() {
@@ -26,7 +26,8 @@ export default function TakeQuiz() {
   const [error, setError] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [quizMeta, setQuizMeta] = useState(null);
-  const [celebrateAchievements, setCelebrateAchievements] = useState(null);
+  const [reflectionOpen, setReflectionOpen] = useState(false);
+  const [submitAchievements, setSubmitAchievements] = useState([]);
 
   useEffect(() => {
     Promise.all([
@@ -70,9 +71,8 @@ export default function TakeQuiz() {
         setResult(res);
         setSubmitted(true);
         setError('');
-        if (res.newAchievements?.length) {
-          setCelebrateAchievements(res.newAchievements.filter((a) => a?.title_key));
-        }
+        setSubmitAchievements((res.newAchievements || []).filter((a) => a?.title_key));
+        setReflectionOpen(true);
       }
     } catch (e) {
       setError(e.message);
@@ -270,14 +270,18 @@ export default function TakeQuiz() {
     const percentage = Math.round((result.score / result.total) * 100);
     return (
       <div className="class-page">
-        {celebrateAchievements && (
-          <AchievementCelebrateModal
+        {reflectionOpen && (
+          <SoloQuizReflectionWizard
             classId={classId}
+            quizId={quizId}
             token={token}
-            achievements={celebrateAchievements}
+            subject={quizMeta?.subject || quizMeta?.class_subject}
+            quizTitle={quizMeta?.title || 'Quiz'}
+            achievements={submitAchievements}
             score={result.score}
             total={result.total}
-            onDone={() => setCelebrateAchievements(null)}
+            onComplete={() => setReflectionOpen(false)}
+            onSkip={() => setReflectionOpen(false)}
           />
         )}
         <header className="dash-header">
