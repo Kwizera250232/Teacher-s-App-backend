@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import ClassDeanHelp from '../components/ClassDeanHelp';
+import AchievementCelebrateModal from '../components/AchievementCelebrateModal';
 import '../pages/Dashboard.css';
 
 export default function TakeGroupQuiz() {
@@ -18,6 +19,7 @@ export default function TakeGroupQuiz() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [className, setClassName] = useState('');
+  const [celebrateAchievements, setCelebrateAchievements] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -79,6 +81,9 @@ export default function TakeGroupQuiz() {
         token
       );
       setResult(res);
+      const mine = res.newAchievements?.find((x) => x.student_id === user?.id);
+      const earned = mine?.achievements?.filter((a) => a?.title_key) || [];
+      if (earned.length) setCelebrateAchievements(earned);
       await load();
     } catch (e) {
       setError(e.message);
@@ -99,6 +104,20 @@ export default function TakeGroupQuiz() {
 
   return (
     <div className="class-page wa-theme">
+      {celebrateAchievements && (
+        <AchievementCelebrateModal
+          classId={classId}
+          groupId={assignment?.group_id}
+          token={token}
+          achievements={celebrateAchievements}
+          score={result?.score}
+          total={result?.total}
+          onDone={() => {
+            setCelebrateAchievements(null);
+            navigate(`/student/classes/${classId}?tab=Groups&group=${assignment.group_id}`);
+          }}
+        />
+      )}
       <header className="dash-header wa-class-header">
         <button
           type="button"

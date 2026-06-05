@@ -4,6 +4,7 @@ import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { downloadWord } from '../utils/downloadResult';
 import SharedQuizAttribution from '../components/SharedQuizAttribution';
+import AchievementCelebrateModal from '../components/AchievementCelebrateModal';
 import '../pages/Dashboard.css';
 
 export default function TakeQuiz() {
@@ -25,6 +26,7 @@ export default function TakeQuiz() {
   const [error, setError] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [quizMeta, setQuizMeta] = useState(null);
+  const [celebrateAchievements, setCelebrateAchievements] = useState(null);
 
   useEffect(() => {
     Promise.all([
@@ -68,6 +70,9 @@ export default function TakeQuiz() {
         setResult(res);
         setSubmitted(true);
         setError('');
+        if (res.newAchievements?.length) {
+          setCelebrateAchievements(res.newAchievements.filter((a) => a?.title_key));
+        }
       }
     } catch (e) {
       setError(e.message);
@@ -265,6 +270,16 @@ export default function TakeQuiz() {
     const percentage = Math.round((result.score / result.total) * 100);
     return (
       <div className="class-page">
+        {celebrateAchievements && (
+          <AchievementCelebrateModal
+            classId={classId}
+            token={token}
+            achievements={celebrateAchievements}
+            score={result.score}
+            total={result.total}
+            onDone={() => setCelebrateAchievements(null)}
+          />
+        )}
         <header className="dash-header">
           <button className="btn btn-outline btn-sm" onClick={goBack}>← Back</button>
           <div className="dash-brand">🎓 UClass</div>

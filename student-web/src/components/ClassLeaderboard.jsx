@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import InyandikoPanel from './InyandikoPanel';
+import DisplayedTitleBadge from './DisplayedTitleBadge';
 import './ClassLeaderboard.css';
 
 const BADGE_META = {
@@ -19,6 +20,7 @@ export default function ClassLeaderboard({ classId }) {
   const [topStudent, setTopStudent] = useState(null);
   const [perQuiz, setPerQuiz] = useState([]);
   const [compositionEntries, setCompositionEntries] = useState([]);
+  const [displayedTitles, setDisplayedTitles] = useState({});
   const [loading, setLoading] = useState(true);
 
   const isStudent = user?.role === 'student';
@@ -31,8 +33,9 @@ export default function ClassLeaderboard({ classId }) {
       api.get(`/classes/${classId}/leaderboard`, token),
       api.get(`/classes/${classId}/top-scorers`, token).catch(() => []),
       api.get(`/classes/${classId}/composition-leaderboard`, token).catch(() => ({ entries: [] })),
+      api.get(`/classes/${classId}/achievements/displayed`, token).catch(() => ({})),
     ])
-      .then(([overall, topScorers, compositions]) => {
+      .then(([overall, topScorers, compositions, crowns]) => {
         const overallRows = overall?.student_view
           ? (overall.entries || [])
           : (Array.isArray(overall) ? overall : []);
@@ -42,6 +45,7 @@ export default function ClassLeaderboard({ classId }) {
         setPerQuiz(isStudent ? [] : (Array.isArray(topScorers) ? topScorers : []));
         const compList = compositions?.entries ?? (Array.isArray(compositions) ? compositions : []);
         setCompositionEntries(Array.isArray(compList) ? compList : []);
+        setDisplayedTitles(crowns && typeof crowns === 'object' ? crowns : {});
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -84,7 +88,14 @@ export default function ClassLeaderboard({ classId }) {
             {hasScores && (
               <div className="lb-hero">
                 <div className="lb-trophy">🏆</div>
-                <div className="lb-winner-name">{top.student_name}</div>
+                <div className="lb-winner-name">
+                  {top.student_name}
+                  {displayedTitles[top.student_id] && (
+                    <div style={{ marginTop: 6 }}>
+                      <DisplayedTitleBadge title={displayedTitles[top.student_id]} />
+                    </div>
+                  )}
+                </div>
                 <div className="lb-winner-score">{top.total_score} / {top.total_possible} amanota</div>
                 <div className="lb-kinyarwanda">
                   🎉 Umunyeshuri wagize amanota menshi ni <strong>{top.student_name}</strong> n&apos;amanota ye{' '}
@@ -159,9 +170,13 @@ export default function ClassLeaderboard({ classId }) {
                          e.rank}
                       </td>
                       <td>
-                        {e.student_name}
-                        {e.is_self && isStudent && e.is_top_student ? ' (Wowe — #1)' : ''}
-                        {e.is_self && isStudent && !e.is_top_student ? ' (Wowe)' : ''}
+                        <div>{e.student_name}
+                          {e.is_self && isStudent && e.is_top_student ? ' (Wowe — #1)' : ''}
+                          {e.is_self && isStudent && !e.is_top_student ? ' (Wowe)' : ''}
+                        </div>
+                        {displayedTitles[e.student_id] && (
+                          <DisplayedTitleBadge title={displayedTitles[e.student_id]} compact />
+                        )}
                       </td>
                       <td>{e.quizzes_taken}</td>
                       <td>{e.total_score || 0} / {e.total_possible || 0}</td>

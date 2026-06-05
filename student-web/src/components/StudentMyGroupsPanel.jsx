@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import ClassDeanHelp from './ClassDeanHelp';
+import GroupAchievementHub from './GroupAchievementHub';
+import DisplayedTitleBadge from './DisplayedTitleBadge';
 import './StudentMyGroups.css';
 
 function firstName(name) {
@@ -315,6 +317,8 @@ export default function StudentMyGroupsPanel({
 
             <EarnedPointsWall events={detail?.point_events} total={earned} />
 
+            <GroupAchievementHub classId={classId} groupId={openGroupId} token={token} />
+
             <div className="sg-dean-wrap">
               <ClassDeanHelp
                 token={token}
@@ -379,6 +383,9 @@ export default function StudentMyGroupsPanel({
               <strong className="sg-list-name">👥 {g.name}</strong>
               {g.leader_name && (
                 <span className="sg-list-leader">👑 {firstName(g.leader_name)}</span>
+              )}
+              {g.displayed_title && (
+                <DisplayedTitleBadge title={g.displayed_title} compact />
               )}
             </div>
             {(g.pending_count > 0 || g.assignment_count > 0) && (
