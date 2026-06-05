@@ -185,11 +185,38 @@ body {
   background: rgba(0,0,0,0.4);
   display: flex; align-items: center; justify-content: center;
   z-index: 1000; padding: 20px;
+  overflow-y: auto;
 }
 .modal {
   background: white; border-radius: 16px; padding: 32px;
   width: 100%; max-width: 460px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.assign-group-overlay {
+  overflow: hidden;
+  padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+}
+.assign-group-modal {
+  margin: auto;
+}
+.assign-group-modal-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+}
+@media (max-width: 640px) {
+  .assign-group-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .assign-group-modal {
+    max-height: 94vh !important;
+    height: 94vh !important;
+    border-radius: 16px 16px 0 0;
+    margin: 0;
+    width: 100% !important;
+    max-width: none !important;
+  }
 }
 .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
 .modal-header h2 { font-size: 20px; font-weight: 700; }

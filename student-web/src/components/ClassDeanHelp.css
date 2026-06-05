@@ -16,6 +16,19 @@
   background: #e0e7ff;
 }
 
+.class-dean-help-btn--header {
+  padding: 6px 10px;
+  font-size: 11px;
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  box-shadow: none;
+}
+
+.wa-class-header .class-dean-help-btn--header:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
 .class-hero .class-dean-help-wrap {
   margin-top: 10px;
   width: 100%;

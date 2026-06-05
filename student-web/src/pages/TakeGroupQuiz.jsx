@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
+import ClassDeanHelp from '../components/ClassDeanHelp';
 import '../pages/Dashboard.css';
 
 export default function TakeGroupQuiz() {
@@ -16,6 +17,7 @@ export default function TakeGroupQuiz() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+  const [className, setClassName] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -27,6 +29,7 @@ export default function TakeGroupQuiz() {
       }
       const qs = await api.get(`/classes/${classId}/quizzes/${a.quiz_id}/questions`, token);
       setQuestions(qs);
+      api.get(`/classes/${classId}`, token).then((c) => setClassName(c?.name || '')).catch(() => {});
     } catch (e) {
       setError(e.message);
     } finally {
@@ -97,11 +100,24 @@ export default function TakeGroupQuiz() {
   return (
     <div className="class-page wa-theme">
       <header className="dash-header wa-class-header">
-        <button type="button" className="wa-back-btn" onClick={() => navigate(`/student/classes/${classId}?tab=Groups`)}>←</button>
+        <button
+          type="button"
+          className="wa-back-btn"
+          onClick={() => navigate(`/student/classes/${classId}?tab=Groups&group=${assignment.group_id}`)}
+        >
+          ←
+        </button>
         <div className="wa-class-header-title">
           <strong>{assignment.group_name}</strong>
           <span>{assignment.quiz_title}</span>
         </div>
+        <ClassDeanHelp
+          token={token}
+          classId={classId}
+          className={className || assignment.group_name}
+          buttonClassName="class-dean-help-btn--header"
+          quizHint={assignment?.quiz_title ? `${assignment.quiz_title} (team ${assignment.group_name})` : ''}
+        />
       </header>
       <main className="class-main">
         <div className="item-card" style={{ flexDirection: 'column', alignItems: 'stretch' }}>

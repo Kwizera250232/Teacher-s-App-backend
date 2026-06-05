@@ -6,12 +6,12 @@ import ClassMomentsDashboardBlock from './ClassMomentsDashboardBlock';
 const STORAGE_KEY = 'student_class_updates_fold_open';
 
 /**
- * Collapsible classroom updates — kept below classes so it does not interrupt lesson work.
+ * Class Now — photos + group work in one fold, shown at top of student dashboard.
  */
 export default function ClassMomentsFold({
   preview,
   feedPath = '/student/class-moments',
-  defaultOpen = false,
+  defaultOpen = true,
   token,
   userRole = 'student',
 }) {
@@ -40,11 +40,11 @@ export default function ClassMomentsFold({
 
   const summary =
     count > 0
-      ? `${count} update${count === 1 ? '' : 's'} today`
-      : 'Photos and stories from your classes';
+      ? `${count} moment${count === 1 ? '' : 's'} today`
+      : 'Class photos & stories from your school';
 
   return (
-    <section className="cm-fold" aria-label="Classroom updates">
+    <section className="cm-fold cm-fold--class-now" id="student-class-now" aria-label="Class Now">
       <div className="cm-fold-header">
         <button
           type="button"
@@ -56,7 +56,7 @@ export default function ClassMomentsFold({
             {open ? '▼' : '▶'}
           </span>
           <span className="cm-fold-toggle-text">
-            <span className="cm-fold-title">📸 Classroom updates</span>
+            <span className="cm-fold-title">📸 Class Now</span>
             <span className="cm-fold-sub">{summary}</span>
           </span>
           {unread > 0 && (
@@ -72,10 +72,7 @@ export default function ClassMomentsFold({
         </button>
       </div>
       {open && (
-        <div className="cm-fold-body">
-          <p className="cm-fold-hint">
-            Optional — check when class is done. Homework and quizzes stay above in each class.
-          </p>
+        <div className="cm-fold-body cm-fold-body--class-now">
           <ClassMomentsHero preview={preview} feedPath={feedPath} />
           {token && (
             <ClassMomentsDashboardBlock
@@ -87,6 +84,9 @@ export default function ClassMomentsFold({
               showOpenAll={false}
             />
           )}
+          <p className="cm-fold-hint">
+            Group quizzes are inside each class → <strong>Groups</strong> tab. Homework and solo quizzes are on each class card.
+          </p>
         </div>
       )}
     </section>

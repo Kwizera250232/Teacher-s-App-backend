@@ -694,6 +694,17 @@
   color: #1e293b;
 }
 
+.mobile-student-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.student-dashboard-classic .dash-header-desktop-actions .student-notif-bell-wrap {
+  margin-right: 4px;
+}
+
 .student-dashboard-classic .mobile-nav-text-btn {
   color: #128c7e;
 }
