@@ -25,7 +25,7 @@ export default function MobileStaffHeader({
             }}
           />
         </div>
-        <AppNotificationsBell className="student-notif-bell--header" basePath={basePath} />
+        <AppNotificationsBell className="student-notif-bell--header teacher-notif-bell--prominent" basePath={basePath} />
         <Link to="/profile" className="mobile-nav-text-btn">
           Profile
         </Link>
