@@ -121,14 +121,55 @@
 .class-points-notif-wrap {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   flex-shrink: 0;
+  padding: 4px 10px 4px 6px;
+  border-radius: 999px;
+  background: #fff;
+  border: 2px solid #128c7e;
+  box-shadow: 0 2px 10px rgba(18, 140, 126, 0.18);
+}
+
+.class-points-notif-label {
+  font-size: 16px;
+  line-height: 1;
+  pointer-events: none;
 }
 
 .class-points-notif-wrap .student-notif-bell-btn {
-  background: #fff !important;
+  background: transparent !important;
   color: #128c7e !important;
-  border: 2px solid #128c7e;
-  box-shadow: 0 2px 8px rgba(18, 140, 126, 0.2) !important;
+  border: none;
+  box-shadow: none !important;
+  width: 36px;
+  height: 36px;
+}
+
+.class-points-notif-wrap .student-notif-bell-btn:hover {
+  background: #ecfdf5 !important;
+}
+
+.wa-class-header-actions {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.teacher-notif-bell--prominent .student-notif-bell-btn {
+  width: 44px;
+  height: 44px;
+  border: 2px solid rgba(255, 255, 255, 0.65);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+}
+
+.teacher-notif-bell--prominent .student-notif-bell-icon {
+  font-size: 20px;
+}
+
+.item-card--has-team {
+  border-left: 4px solid #128c7e;
+  box-shadow: 0 2px 12px rgba(18, 140, 126, 0.1);
 }
 
 .class-hero-side {

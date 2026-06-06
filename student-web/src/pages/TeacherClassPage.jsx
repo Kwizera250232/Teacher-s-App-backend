@@ -25,7 +25,9 @@ import GuestMarksPanel from '../components/GuestMarksPanel';
 import ClassPointsPanel from '../components/ClassPointsPanel';
 import AssignWorkToGroupModal from '../components/AssignWorkToGroupModal';
 import TeacherQuizReportsPanel from '../components/quizReflection/TeacherQuizReportsPanel';
+import TeacherGroupQuizSection from '../components/TeacherGroupQuizSection';
 import AppNotificationsBell from '../components/AppNotificationsBell';
+import { groupAssignmentsByQuiz, groupAssignmentStatusLabel } from '../utils/teacherGroupQuizzes';
 import '../components/StudentNotifications.css';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import '../pages/Dashboard.css';
@@ -95,14 +97,40 @@ export default function TeacherClassPage() {
     loadTab();
   }, [tab, id]);
 
+  const loadGroupAssignments = async () => {
+    if (!token || !id) return;
+    try {
+      const list = await api.get(`/classes/${id}/group-quizzes`, token);
+      setGroupAssignments(Array.isArray(list) ? list : []);
+    } catch {
+      setGroupAssignments([]);
+    }
+  };
+
   useEffect(() => {
-    if (tab !== 'Quizzes' || !token) return;
-    api.get(`/classes/${id}/group-quizzes`, token)
-      .then((list) => setGroupAssignments(Array.isArray(list) ? list : []))
-      .catch(() => setGroupAssignments([]));
-  }, [tab, id, token, data]);
+    loadGroupAssignments();
+  }, [id, token]);
+
+  useEffect(() => {
+    if (tab === 'Quizzes') loadGroupAssignments();
+  }, [tab, data]);
 
   const tCacheKey = (t) => `tclass_${id}_${t}`;
+  const groupByQuiz = groupAssignmentsByQuiz(groupAssignments);
+
+  const removeGroupAssignment = async (a) => {
+    const msg = a.status === 'submitted'
+      ? `Remove submitted group quiz "${a.quiz_title}" from ${a.group_name}? Marks will be removed from the assignment list.`
+      : `Remove group quiz "${a.quiz_title}" from ${a.group_name}?`;
+    if (!window.confirm(msg)) return;
+    try {
+      await api.delete(`/classes/${id}/group-quizzes/${a.id}`, token);
+      setGroupAssignments((prev) => prev.filter((x) => x.id !== a.id));
+      showSuccess('Group quiz removed.');
+    } catch (e) {
+      setError(e.message);
+    }
+  };
 
   const loadTab = async () => {
     setError('');
@@ -260,7 +288,9 @@ export default function TeacherClassPage() {
           <strong>{cls?.name || 'Class'}</strong>
           <span>{cls?.subject || 'UClass'}</span>
         </div>
-        <AppNotificationsBell className="student-notif-bell--header wa-class-notif" basePath={basePath} />
+        <div className="wa-class-header-actions">
+          <AppNotificationsBell className="student-notif-bell--header wa-class-notif teacher-notif-bell--prominent" basePath={basePath} />
+        </div>
       </header>
 
       <main className="class-main wa-chat-screen">
@@ -287,8 +317,15 @@ export default function TeacherClassPage() {
         )}
 
         <div className="tabs">
-          {TABS.map(t => (
-            <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>{t}</button>
+          {TABS.map((t) => (
+            <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
+              {t}
+              {t === 'Quizzes' && groupAssignments.length > 0 && (
+                <span className="teacher-tab-badge" title={`${groupAssignments.length} team quiz assignment(s)`}>
+                  {groupAssignments.length}
+                </span>
+              )}
+            </button>
           ))}
         </div>
 
@@ -608,51 +645,15 @@ export default function TeacherClassPage() {
                 <button type="button" className="btn btn-primary" onClick={() => setShowQuizModal(true)}>+ Create Quiz</button>
               </div>
             </div>
-            {groupAssignments.length > 0 && (
-              <div style={{ marginBottom: 16, background: '#f0f9ff', borderRadius: 10, padding: '12px 14px', border: '1px solid #bae6fd' }}>
-                <h3 style={{ margin: '0 0 10px', fontSize: 15, color: '#0369a1' }}>👥 Group work assigned</h3>
-                {groupAssignments.map((a) => (
-                  <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid #e0f2fe', fontSize: 14, flexWrap: 'wrap' }}>
-                    <span>
-                      <strong>{a.group_name}</strong> → {a.quiz_title}
-                    </span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{
-                        fontSize: 12,
-                        fontWeight: 700,
-                        color: a.status === 'submitted' ? '#166534' : a.status === 'active' ? '#b45309' : '#64748b',
-                      }}>
-                        {a.status === 'submitted'
-                          ? `Done ${a.score}/${a.total}`
-                          : a.status === 'active' && a.started_by_student_id
-                            ? 'In progress'
-                            : 'Released'}
-                      </span>
-                      <button
-                        type="button"
-                        className="btn btn-outline btn-sm"
-                        style={{ color: '#b91c1c', borderColor: '#fecaca', fontSize: 11 }}
-                        onClick={async () => {
-                          const msg = a.status === 'submitted'
-                            ? `Remove submitted group quiz "${a.quiz_title}" from ${a.group_name}? Marks will be removed from the assignment list.`
-                            : `Remove group quiz "${a.quiz_title}" from ${a.group_name}?`;
-                          if (!window.confirm(msg)) return;
-                          try {
-                            await api.delete(`/classes/${id}/group-quizzes/${a.id}`, token);
-                            setGroupAssignments((prev) => prev.filter((x) => x.id !== a.id));
-                            showSuccess('Group quiz removed.');
-                          } catch (e) {
-                            setError(e.message);
-                          }
-                        }}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            <TeacherGroupQuizSection
+              assignments={groupAssignments}
+              onRemove={removeGroupAssignment}
+              onViewQuiz={(a) => {
+                const el = document.getElementById(`teacher-quiz-${a.quiz_id}`);
+                el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }}
+              onViewResults={(a) => navigate(`${basePath}/classes/${id}/quizzes/${a.quiz_id}/results`)}
+            />
             <details style={{ marginBottom: 16, background: '#f8fafc', borderRadius: 10, padding: '10px 14px' }}>
               <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#075e54' }}>
                 👤 Guest marks from share links
@@ -661,12 +662,26 @@ export default function TeacherClassPage() {
                 <GuestMarksPanel token={token} classId={id} compact />
               </div>
             </details>
-            {data.map(q => (
-              <div key={q.id} className="item-card">
+            {data.map(q => {
+              const teamAssigns = groupByQuiz.get(q.id) || [];
+              return (
+              <div key={q.id} id={`teacher-quiz-${q.id}`} className={`item-card${teamAssigns.length ? ' item-card--has-team' : ''}`}>
                 <div className="item-card-body">
                   <h3>❓ {q.title}</h3>
                   <SharedQuizAttribution quiz={q} />
                   {q.description && <p>{q.description}</p>}
+                  {teamAssigns.length > 0 && (
+                    <div className="teacher-quiz-group-tags">
+                      {teamAssigns.map((a) => {
+                        const st = groupAssignmentStatusLabel(a);
+                        return (
+                          <span key={a.id} className={`teacher-quiz-group-tag teacher-quiz-group-tag--${st.tone}`}>
+                            👥 {a.group_name} · {st.text}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
                   <div className="meta" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                     <span>{new Date(q.created_at).toLocaleDateString()}</span>
                     {q.is_shared ? (
@@ -732,7 +747,8 @@ export default function TeacherClassPage() {
                   <button className="btn btn-secondary btn-sm" onClick={() => navigate(`${basePath}/classes/${id}/quizzes/${q.id}/results`)}>Results</button>
                 </div>
               </div>
-            ))}
+            );
+            })}
           </>
         )}
 
@@ -956,11 +972,14 @@ export default function TeacherClassPage() {
             setTab('Quizzes');
             setShowQuizModal(true);
           }}
-          onAssigned={() => {
-            showSuccess('Quiz released to groups — students notified.');
-            api.get(`/classes/${id}/group-quizzes`, token)
-              .then((list) => setGroupAssignments(Array.isArray(list) ? list : []))
-              .catch(() => {});
+          onAssigned={async () => {
+            await loadGroupAssignments();
+            if (tab !== 'Quizzes') {
+              setTab('Quizzes');
+            } else {
+              loadTab();
+            }
+            showSuccess('Quiz released to groups — see Team quizzes on the Quizzes tab.');
           }}
         />
       )}
