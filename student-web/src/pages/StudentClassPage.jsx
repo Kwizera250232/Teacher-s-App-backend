@@ -18,6 +18,25 @@ import StudentMyGroupsPanel from '../components/StudentMyGroupsPanel';
 import StudentGroupQuizCards from '../components/StudentGroupQuizCards';
 import StudentNotificationsBell from '../components/StudentNotificationsBell';
 import { uniqueGroupAssignments } from '../utils/groupQuizUtils';
+
+function quizRowToGroupAssignment(q) {
+  return {
+    id: q.group_assignment_id,
+    class_id: q.class_id,
+    group_id: q.group_id,
+    group_name: q.group_name,
+    quiz_id: q.id,
+    quiz_title: q.title,
+    quiz_description: q.description,
+    status: q.status || q.assignment_status,
+    score: q.score,
+    total: q.total,
+    started_by_student_id: q.started_by_student_id,
+    started_by_name: q.started_by_name,
+    submitted_by_name: q.submitted_by_name,
+    created_at: q.created_at,
+  };
+}
 import '../pages/Dashboard.css';
 
 const CLASSMATE_DEFAULT_AVATAR =
@@ -111,22 +130,34 @@ export default function StudentClassPage() {
     if (tab === 'Quizzes') {
       setQuizzesLoading(true);
       try {
-        const [solo, team] = await Promise.all([
-          api.get(`/classes/${id}/quizzes`, token),
-          api.get(`/classes/${id}/my-group-quizzes`, token).catch(() => []),
-        ]);
-        setData(Array.isArray(solo) ? solo : []);
-        setGroupQuizzes(uniqueGroupAssignments(Array.isArray(team) ? team : []));
+        const list = await api.get(`/classes/${id}/quizzes`, token);
+        const rows = Array.isArray(list) ? list : [];
+        let team = rows.filter((q) => q.is_group_quiz).map(quizRowToGroupAssignment);
+        let solo = rows.filter((q) => !q.is_group_quiz);
+
+        if (!team.length) {
+          const legacy = await api.get(`/classes/${id}/my-group-quizzes`, token).catch(() => []);
+          team = uniqueGroupAssignments(Array.isArray(legacy) ? legacy : []);
+        } else {
+          team = uniqueGroupAssignments(team);
+        }
+
+        setGroupQuizzes(team);
+        setData(solo);
         try {
-          localStorage.setItem(cacheKey('Quizzes'), JSON.stringify(solo));
+          localStorage.setItem(cacheKey('Quizzes'), JSON.stringify(rows));
           localStorage.setItem(cacheKey('Quizzes_team'), JSON.stringify(team));
         } catch {}
       } catch (e) {
         const cached = JSON.parse(localStorage.getItem(cacheKey('Quizzes')) || '[]');
         const cachedTeam = JSON.parse(localStorage.getItem(cacheKey('Quizzes_team')) || '[]');
         if (cached.length || cachedTeam.length) {
-          setData(cached);
-          setGroupQuizzes(uniqueGroupAssignments(cachedTeam));
+          const rows = Array.isArray(cached) ? cached : [];
+          const teamFromCache = cachedTeam.length
+            ? uniqueGroupAssignments(cachedTeam)
+            : rows.filter((q) => q.is_group_quiz).map(quizRowToGroupAssignment);
+          setGroupQuizzes(teamFromCache);
+          setData(rows.filter((q) => !q.is_group_quiz).length ? rows.filter((q) => !q.is_group_quiz) : cached.filter((q) => !q.is_group_quiz));
         } else if (navigator.onLine) setError(e.message);
       } finally {
         setQuizzesLoading(false);
@@ -483,6 +514,8 @@ export default function StudentClassPage() {
         {tab === 'Quizzes' && (
           quizzesLoading ? (
             <p style={{ color: '#888', textAlign: 'center', padding: 40 }}>Loading quizzes…</p>
+          ) : !groupQuizzes.length && !data.length ? (
+            <p style={{ color: '#888', textAlign: 'center', padding: 40 }}>No quizzes yet.</p>
           ) : (
             <>
               {groupQuizzes.length > 0 && (
@@ -513,9 +546,6 @@ export default function StudentClassPage() {
                     </div>
                   ))}
                 </section>
-              )}
-              {!groupQuizzes.length && !data.length && (
-                <p style={{ color: '#888', textAlign: 'center', padding: 40 }}>No quizzes yet.</p>
               )}
             </>
           )
