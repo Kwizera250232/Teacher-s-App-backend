@@ -231,6 +231,7 @@ app.listen(PORT, () => {
   ensureFeedTables().catch((e) => console.error('[startup] feed schema:', e.message));
   require('./lib/classPointsSchema').ensureClassPointsSchema().catch((e) => console.error('[startup] class points schema:', e.message));
   require('./lib/classGroupQuizzesSchema').ensureClassGroupQuizzesSchema().catch((e) => console.error('[startup] group quizzes schema:', e.message));
+  require('./lib/quizSoloRelease').ensureQuizSoloReleaseSchema().catch((e) => console.error('[startup] quiz solo release schema:', e.message));
   require('./lib/achievementsSchema').ensureAchievementsSchema().catch((e) => console.error('[startup] achievements schema:', e.message));
   const pool = require('./db');
   const { migrateSchoolLoginDomains } = require('./lib/schoolDomain');

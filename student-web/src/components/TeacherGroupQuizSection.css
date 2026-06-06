@@ -140,6 +140,32 @@
   border-color: #fecaca !important;
 }
 
+.teacher-quiz-visibility-badge {
+  display: inline-block;
+  margin: 8px 0 4px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.teacher-quiz-visibility-badge--group {
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #fed7aa;
+}
+
+.teacher-quiz-visibility-badge--class {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.item-card--group-only {
+  border-left: 4px solid #f59e0b;
+}
+
 .teacher-quiz-group-tags {
   display: flex;
   flex-wrap: wrap;

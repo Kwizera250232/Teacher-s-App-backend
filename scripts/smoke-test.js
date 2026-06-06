@@ -17,6 +17,7 @@ const modules = [
   '../lib/pushNotify',
   '../lib/classContentNotify',
   '../lib/studentClassQuizzes',
+  '../lib/quizSoloRelease',
   '../routes/pwa_push',
   '../routes/parent_hub',
 ];
