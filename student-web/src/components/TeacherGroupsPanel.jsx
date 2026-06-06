@@ -1,4 +1,3 @@
-import { groupAssignmentStatusLabel } from '../utils/teacherGroupQuizzes';
 import './TeacherGroupsPanel.css';
 
 const AVATAR_COLORS = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
@@ -18,41 +17,28 @@ function initials(name) {
     .slice(0, 2) || '?';
 }
 
-/**
- * Rich teacher view of class groups — members, points, quizzes, quick actions.
- */
+/** Teacher view of class groups — members, points, quick actions. */
 export default function TeacherGroupsPanel({
   groups,
   students,
-  groupAssignments = [],
   onAwardGroup,
-  onAssignQuiz,
   onEditGroup,
   onDeleteGroup,
   onAddGroup,
-  onAssignWorkToAll,
-  onEditQuiz,
 }) {
-  const assignmentsByGroup = new Map();
-  for (const a of groupAssignments) {
-    const list = assignmentsByGroup.get(a.group_id) || [];
-    list.push(a);
-    assignmentsByGroup.set(a.group_id, list);
-  }
-
   const studentMap = new Map((students || []).map((s) => [s.id, s]));
   const totalMembers = groups.reduce((n, g) => n + (g.student_ids?.length || 0), 0);
-  const activeQuizzes = groupAssignments.filter((a) => a.status !== 'submitted').length;
 
   if (!groups.length) {
     return (
       <div className="tg-empty">
         <div className="tg-empty-icon" aria-hidden>👥</div>
-        <h3>No teams yet</h3>
-        <p>Create groups so students can work together on quizzes and earn team points.</p>
-        <button type="button" className="btn btn-primary" onClick={onAddGroup}>
-          + Add first group
-        </button>
+        <p>No groups yet. Use <strong>Add group</strong> to create teams for behavior points.</p>
+        {onAddGroup && (
+          <button type="button" className="btn btn-primary btn-sm" onClick={onAddGroup}>
+            + Add group
+          </button>
+        )}
       </div>
     );
   }
@@ -68,21 +54,12 @@ export default function TeacherGroupsPanel({
           <span className="tg-stat-num">{totalMembers}</span>
           <span className="tg-stat-label">Members</span>
         </div>
-        <div className="tg-stat">
-          <span className="tg-stat-num">{groupAssignments.length}</span>
-          <span className="tg-stat-label">Team quizzes</span>
-        </div>
-        <div className="tg-stat tg-stat--highlight">
-          <span className="tg-stat-num">{activeQuizzes}</span>
-          <span className="tg-stat-label">In progress</span>
-        </div>
       </div>
 
       <div className="tg-grid">
         {groups.map((g, idx) => {
           const memberIds = g.student_ids || [];
           const members = memberIds.map((sid) => studentMap.get(sid)).filter(Boolean);
-          const teamAssigns = assignmentsByGroup.get(g.id) || [];
           const accent = AVATAR_COLORS[idx % AVATAR_COLORS.length];
 
           return (
@@ -128,41 +105,7 @@ export default function TeacherGroupsPanel({
                 )}
               </div>
 
-              {teamAssigns.length > 0 && (
-                <div className="tg-quiz-strip">
-                  <span className="tg-quiz-strip-label">Quizzes</span>
-                  <div className="tg-quiz-chips">
-                    {teamAssigns.map((a) => {
-                      const st = groupAssignmentStatusLabel(a);
-                      return (
-                        <div key={a.id} className="tg-quiz-chip-row">
-                          <span className={`tg-quiz-chip tg-quiz-chip--${st.tone}`}>
-                            {st.emoji} {a.quiz_title} · {st.text}
-                          </span>
-                          <div className="tg-quiz-chip-actions">
-                            {onEditQuiz && (
-                              <button type="button" className="btn btn-outline btn-sm" onClick={() => onEditQuiz(a.quiz_id)}>
-                                Edit
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
               <div className="tg-card-actions">
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm tg-btn-assign"
-                  onClick={() => onAssignQuiz?.(g)}
-                  disabled={!memberIds.length}
-                  title={memberIds.length ? 'Assign a quiz to this team' : 'Add students first'}
-                >
-                  📝 Assign quiz
-                </button>
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"
@@ -185,12 +128,6 @@ export default function TeacherGroupsPanel({
           );
         })}
       </div>
-
-      {onAssignWorkToAll && (
-        <p className="tg-footer-hint">
-          Tip: use <button type="button" className="btn btn-link tg-link-btn" onClick={onAssignWorkToAll}>Assign work to group</button> to release one quiz to several teams at once. Students see team quizzes on their <strong>Quizzes</strong> tab.
-        </p>
-      )}
     </div>
   );
 }

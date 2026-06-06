@@ -15,28 +15,7 @@ import VerifiedBadge from '../components/VerifiedBadge';
 import SharedQuizAttribution from '../components/SharedQuizAttribution';
 import SharedNoteAttribution from '../components/SharedNoteAttribution';
 import StudentMyGroupsPanel from '../components/StudentMyGroupsPanel';
-import StudentGroupQuizCards from '../components/StudentGroupQuizCards';
 import StudentNotificationsBell from '../components/StudentNotificationsBell';
-import { uniqueGroupAssignments } from '../utils/groupQuizUtils';
-
-function quizRowToGroupAssignment(q) {
-  return {
-    id: q.group_assignment_id,
-    class_id: q.class_id,
-    group_id: q.group_id,
-    group_name: q.group_name,
-    quiz_id: q.id,
-    quiz_title: q.title,
-    quiz_description: q.description,
-    status: q.status || q.assignment_status,
-    score: q.score,
-    total: q.total,
-    started_by_student_id: q.started_by_student_id,
-    started_by_name: q.started_by_name,
-    submitted_by_name: q.submitted_by_name,
-    created_at: q.created_at,
-  };
-}
 import '../pages/Dashboard.css';
 
 const CLASSMATE_DEFAULT_AVATAR =
@@ -65,7 +44,6 @@ export default function StudentClassPage() {
   const [myGroups, setMyGroups] = useState([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [groupsError, setGroupsError] = useState('');
-  const [groupQuizzes, setGroupQuizzes] = useState([]);
   const [quizzesLoading, setQuizzesLoading] = useState(false);
   const showSuccess = (msg) => { setSuccess(msg); setTimeout(() => setSuccess(''), 3000); };
 
@@ -132,39 +110,20 @@ export default function StudentClassPage() {
       try {
         const list = await api.get(`/classes/${id}/quizzes`, token);
         const rows = Array.isArray(list) ? list : [];
-        let team = rows.filter((q) => q.is_group_quiz).map(quizRowToGroupAssignment);
-        const seenSolo = new Set();
-        let solo = rows.filter((q) => {
-          if (q.is_group_quiz) return false;
-          if (seenSolo.has(q.id)) return false;
-          seenSolo.add(q.id);
+        const seen = new Set();
+        const quizzes = rows.filter((q) => {
+          if (seen.has(q.id)) return false;
+          seen.add(q.id);
           return true;
         });
-
-        if (!team.length) {
-          const legacy = await api.get(`/classes/${id}/my-group-quizzes`, token).catch(() => []);
-          team = uniqueGroupAssignments(Array.isArray(legacy) ? legacy : []);
-        } else {
-          team = uniqueGroupAssignments(team);
-        }
-
-        setGroupQuizzes(team);
-        setData(solo);
+        setData(quizzes);
         try {
-          localStorage.setItem(cacheKey('Quizzes'), JSON.stringify(rows));
-          localStorage.setItem(cacheKey('Quizzes_team'), JSON.stringify(team));
+          localStorage.setItem(cacheKey('Quizzes'), JSON.stringify(quizzes));
         } catch {}
       } catch (e) {
         const cached = JSON.parse(localStorage.getItem(cacheKey('Quizzes')) || '[]');
-        const cachedTeam = JSON.parse(localStorage.getItem(cacheKey('Quizzes_team')) || '[]');
-        if (cached.length || cachedTeam.length) {
-          const rows = Array.isArray(cached) ? cached : [];
-          const teamFromCache = cachedTeam.length
-            ? uniqueGroupAssignments(cachedTeam)
-            : rows.filter((q) => q.is_group_quiz).map(quizRowToGroupAssignment);
-          setGroupQuizzes(teamFromCache);
-          setData(rows.filter((q) => !q.is_group_quiz).length ? rows.filter((q) => !q.is_group_quiz) : cached.filter((q) => !q.is_group_quiz));
-        } else if (navigator.onLine) setError(e.message);
+        if (cached.length) setData(cached);
+        else if (navigator.onLine) setError(e.message);
       } finally {
         setQuizzesLoading(false);
       }
@@ -520,40 +479,22 @@ export default function StudentClassPage() {
         {tab === 'Quizzes' && (
           quizzesLoading ? (
             <p style={{ color: '#888', textAlign: 'center', padding: 40 }}>Loading quizzes…</p>
-          ) : !groupQuizzes.length && !data.length ? (
+          ) : !data.length ? (
             <p style={{ color: '#888', textAlign: 'center', padding: 40 }}>No quizzes yet.</p>
           ) : (
-            <>
-              {groupQuizzes.length > 0 && (
-                <section style={{ marginBottom: 24 }}>
-                  <h3 style={{ margin: '0 0 12px', fontSize: 17, color: '#065f46' }}>👥 Team quizzes</h3>
-                  <p style={{ margin: '0 0 14px', fontSize: 13, color: '#64748b' }}>
-                    Work with your group — open, answer together, and submit once.
-                  </p>
-                  <StudentGroupQuizCards assignments={groupQuizzes} classId={id} />
-                </section>
-              )}
-              {data.length > 0 && (
-                <section>
-                  {groupQuizzes.length > 0 && (
-                    <h3 style={{ margin: '0 0 12px', fontSize: 17, color: '#1e293b' }}>❓ Class quizzes</h3>
-                  )}
-                  {data.map((q) => (
-                    <div key={q.id} className="item-card">
-                      <div className="item-card-body">
-                        <h3>❓ {q.title}</h3>
-                        <SharedQuizAttribution quiz={q} />
-                        {q.description && <p>{q.description}</p>}
-                        <div className="meta">{new Date(q.created_at).toLocaleDateString()}</div>
-                      </div>
-                      <button type="button" className="btn btn-primary btn-sm" onClick={() => navigate(`/student/classes/${id}/quizzes/${q.id}`)}>
-                        Take Quiz
-                      </button>
-                    </div>
-                  ))}
-                </section>
-              )}
-            </>
+            data.map((q) => (
+              <div key={q.id} className="item-card">
+                <div className="item-card-body">
+                  <h3>❓ {q.title}</h3>
+                  <SharedQuizAttribution quiz={q} />
+                  {q.description && <p>{q.description}</p>}
+                  <div className="meta">{new Date(q.created_at).toLocaleDateString()}</div>
+                </div>
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => navigate(`/student/classes/${id}/quizzes/${q.id}`)}>
+                  Take Quiz
+                </button>
+              </div>
+            ))
           )
         )}
 
