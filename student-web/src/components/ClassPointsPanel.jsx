@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import VerifiedBadge from './VerifiedBadge';
-import AppNotificationsBell from './AppNotificationsBell';
-import './StudentNotifications.css';
+import TeacherGroupsPanel from './TeacherGroupsPanel';
 
 const AVATAR_COLORS = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
 
@@ -38,6 +37,7 @@ export default function ClassPointsPanel({
   onStudentClick,
   onParentInvite,
   onAssignWorkToGroup,
+  groupAssignments = [],
   basePath = '/teacher',
 }) {
   const [loading, setLoading] = useState(true);
@@ -335,10 +335,6 @@ export default function ClassPointsPanel({
         Tap a student to award <strong>+1</strong> points. Use <strong>Whole class</strong>, <strong>Groups</strong>, or the tools below.
       </p>
       <div className="class-roster-toolbar" style={{ flexWrap: 'wrap', gap: 8 }}>
-        <div className="class-points-notif-wrap" title="Student activity notifications">
-          <span className="class-points-notif-label" aria-hidden>🔔</span>
-          <AppNotificationsBell className="student-notif-bell--header teacher-notif-bell--prominent" basePath={basePath} />
-        </div>
         <div className="tabs" style={{ marginBottom: 0, flex: '1 1 auto', minWidth: 200 }}>
           <button type="button" className={`tab ${view === 'students' ? 'active' : ''}`} onClick={() => setView('students')}>
             Students
@@ -417,73 +413,17 @@ export default function ClassPointsPanel({
           )}
 
           {view === 'groups' && (
-            <div className="class-roster-grid">
-              {groups.map((g) => (
-                <div key={g.id} className="class-roster-card" style={{ position: 'relative' }}>
-                  <div
-                    onClick={() => setGroupAward(g)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(ev) => ev.key === 'Enter' && setGroupAward(g)}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    <div className="class-roster-avatar class-roster-avatar--group">
-                      {(g.points || 0) > 0 && <span className="class-roster-point-badge">{g.points}</span>}
-                      {g.leader_id ? '👑' : (g.student_ids?.length || 0)}
-                    </div>
-                    <div className="class-roster-name">{g.name}</div>
-                    {g.leader_name && (
-                      <div style={{ fontSize: 10, color: '#b45309', fontWeight: 700, marginTop: 2 }}>
-                        👑 {firstName(g.leader_name)}
-                      </div>
-                    )}
-                    {(g.points || 0) > 0 && (
-                      <div style={{ fontSize: 10, color: '#059669', fontWeight: 600 }}>Team stickers inside group</div>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
-                    {onAssignWorkToGroup && (
-                      <button
-                        type="button"
-                        className="btn btn-outline btn-sm"
-                        style={{ fontSize: 10, padding: '4px 6px', width: '100%' }}
-                        onClick={(ev) => {
-                          ev.stopPropagation();
-                          onAssignWorkToGroup(g);
-                        }}
-                      >
-                        Assign quiz
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      style={{ fontSize: 10, padding: '4px 6px', width: '100%' }}
-                      onClick={(ev) => {
-                        ev.stopPropagation();
-                        openEditGroup(g);
-                      }}
-                    >
-                      Edit group
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-outline btn-sm"
-                      style={{ fontSize: 10, padding: '4px 6px', width: '100%', color: '#b91c1c', borderColor: '#fecaca' }}
-                      onClick={(ev) => {
-                        ev.stopPropagation();
-                        deleteGroup(g);
-                      }}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {!groups.length && (
-                <p style={{ padding: 20, color: '#888', width: '100%' }}>No groups yet. Use Add group above.</p>
-              )}
-            </div>
+            <TeacherGroupsPanel
+              groups={groups}
+              students={students}
+              groupAssignments={groupAssignments}
+              onAwardGroup={setGroupAward}
+              onAssignQuiz={onAssignWorkToGroup}
+              onEditGroup={openEditGroup}
+              onDeleteGroup={deleteGroup}
+              onAddGroup={() => setShowGroupModal(true)}
+              onAssignWorkToAll={onAssignWorkToGroup ? () => onAssignWorkToGroup() : undefined}
+            />
           )}
 
           {!students.length && view === 'students' && (

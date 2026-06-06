@@ -55,7 +55,7 @@ export default function StaffDashboard({ roleLabel, basePath }) {
   const isHeadTeacher = roleLabel === 'Head Teacher';
   const hasSchool = Boolean(user?.school_id);
   const momentsFeedPath = `${basePath}/class-moments`;
-  usePushNotifications(token, user?.role);
+  usePushNotifications(token);
 
   const dismissAnnouncement = (id) => {
     const updated = [...dismissed, id];
@@ -117,7 +117,6 @@ export default function StaffDashboard({ roleLabel, basePath }) {
           <span className="phub-logo">UClass</span>
           <span className="phub-sub">{roleLabel}</span>
         </div>
-        <AppNotificationsBell className="student-notif-bell--header staff-header-bell-mobile" basePath={basePath} />
         <MobileStaffHeader
           basePath={basePath}
           user={user}

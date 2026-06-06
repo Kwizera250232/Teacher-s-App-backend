@@ -15,7 +15,9 @@ import VerifiedBadge from '../components/VerifiedBadge';
 import SharedQuizAttribution from '../components/SharedQuizAttribution';
 import SharedNoteAttribution from '../components/SharedNoteAttribution';
 import StudentMyGroupsPanel from '../components/StudentMyGroupsPanel';
+import StudentGroupQuizCards from '../components/StudentGroupQuizCards';
 import StudentNotificationsBell from '../components/StudentNotificationsBell';
+import { uniqueGroupAssignments } from '../utils/groupQuizUtils';
 import '../pages/Dashboard.css';
 
 const CLASSMATE_DEFAULT_AVATAR =
@@ -44,6 +46,8 @@ export default function StudentClassPage() {
   const [myGroups, setMyGroups] = useState([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [groupsError, setGroupsError] = useState('');
+  const [groupQuizzes, setGroupQuizzes] = useState([]);
+  const [quizzesLoading, setQuizzesLoading] = useState(false);
   const showSuccess = (msg) => { setSuccess(msg); setTimeout(() => setSuccess(''), 3000); };
 
   useEffect(() => {
@@ -104,12 +108,36 @@ export default function StudentClassPage() {
       }
       return;
     }
+    if (tab === 'Quizzes') {
+      setQuizzesLoading(true);
+      try {
+        const [solo, team] = await Promise.all([
+          api.get(`/classes/${id}/quizzes`, token),
+          api.get(`/classes/${id}/my-group-quizzes`, token).catch(() => []),
+        ]);
+        setData(Array.isArray(solo) ? solo : []);
+        setGroupQuizzes(uniqueGroupAssignments(Array.isArray(team) ? team : []));
+        try {
+          localStorage.setItem(cacheKey('Quizzes'), JSON.stringify(solo));
+          localStorage.setItem(cacheKey('Quizzes_team'), JSON.stringify(team));
+        } catch {}
+      } catch (e) {
+        const cached = JSON.parse(localStorage.getItem(cacheKey('Quizzes')) || '[]');
+        const cachedTeam = JSON.parse(localStorage.getItem(cacheKey('Quizzes_team')) || '[]');
+        if (cached.length || cachedTeam.length) {
+          setData(cached);
+          setGroupQuizzes(uniqueGroupAssignments(cachedTeam));
+        } else if (navigator.onLine) setError(e.message);
+      } finally {
+        setQuizzesLoading(false);
+      }
+      return;
+    }
     try {
       const map = {
         Announcements: `/classes/${id}/announcements`,
         Notes: `/classes/${id}/notes`,
         Homework: `/classes/${id}/homework`,
-        Quizzes: `/classes/${id}/quizzes`,
         Discussion: `/classes/${id}/discussions`,
       };
       const res = await api.get(map[tab], token);
@@ -453,21 +481,44 @@ export default function StudentClassPage() {
         )}
 
         {tab === 'Quizzes' && (
-          data.length === 0
-            ? <p style={{ color: '#888', textAlign: 'center', padding: 40 }}>No quizzes yet.</p>
-            : data.map(q => (
-              <div key={q.id} className="item-card">
-                <div className="item-card-body">
-                  <h3>❓ {q.title}</h3>
-                  <SharedQuizAttribution quiz={q} />
-                  {q.description && <p>{q.description}</p>}
-                  <div className="meta">{new Date(q.created_at).toLocaleDateString()}</div>
-                </div>
-                <button className="btn btn-primary btn-sm" onClick={() => navigate(`/student/classes/${id}/quizzes/${q.id}`)}>
-                  Take Quiz
-                </button>
-              </div>
-            ))
+          quizzesLoading ? (
+            <p style={{ color: '#888', textAlign: 'center', padding: 40 }}>Loading quizzes…</p>
+          ) : (
+            <>
+              {groupQuizzes.length > 0 && (
+                <section style={{ marginBottom: 24 }}>
+                  <h3 style={{ margin: '0 0 12px', fontSize: 17, color: '#065f46' }}>👥 Team quizzes</h3>
+                  <p style={{ margin: '0 0 14px', fontSize: 13, color: '#64748b' }}>
+                    Work with your group — open, answer together, and submit once.
+                  </p>
+                  <StudentGroupQuizCards assignments={groupQuizzes} classId={id} />
+                </section>
+              )}
+              {data.length > 0 && (
+                <section>
+                  {groupQuizzes.length > 0 && (
+                    <h3 style={{ margin: '0 0 12px', fontSize: 17, color: '#1e293b' }}>❓ Solo quizzes</h3>
+                  )}
+                  {data.map((q) => (
+                    <div key={q.id} className="item-card">
+                      <div className="item-card-body">
+                        <h3>❓ {q.title}</h3>
+                        <SharedQuizAttribution quiz={q} />
+                        {q.description && <p>{q.description}</p>}
+                        <div className="meta">{new Date(q.created_at).toLocaleDateString()}</div>
+                      </div>
+                      <button type="button" className="btn btn-primary btn-sm" onClick={() => navigate(`/student/classes/${id}/quizzes/${q.id}`)}>
+                        Take Quiz
+                      </button>
+                    </div>
+                  ))}
+                </section>
+              )}
+              {!groupQuizzes.length && !data.length && (
+                <p style={{ color: '#888', textAlign: 'center', padding: 40 }}>No quizzes yet.</p>
+              )}
+            </>
+          )
         )}
 
         {tab === 'Leaderboard' && (

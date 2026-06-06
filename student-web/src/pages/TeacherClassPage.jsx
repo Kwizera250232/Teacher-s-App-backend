@@ -305,9 +305,6 @@ export default function TeacherClassPage() {
               </div>
             </div>
             <div className="class-hero-side">
-              <div className="class-hero-notif">
-                <AppNotificationsBell className="student-notif-bell--header" basePath={basePath} />
-              </div>
               <div className="class-hero-code">
                 <span className="code-label">Class Code</span>
                 <div className="code-big">{cls.class_code}</div>
@@ -830,6 +827,7 @@ export default function TeacherClassPage() {
               onAssignWorkToGroup={(group) => setAssignWorkToGroup({
                 groupIds: group ? [group.id] : undefined,
               })}
+              groupAssignments={groupAssignments}
             />
           </div>
         )}
