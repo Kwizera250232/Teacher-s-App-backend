@@ -1019,6 +1019,15 @@ export default function TeacherClassPage() {
             }
             showSuccess('Quiz released to groups — see Team quizzes on the Quizzes tab.');
           }}
+          onClassAssigned={async () => {
+            await loadGroupAssignments();
+            if (tab !== 'Quizzes') {
+              setTab('Quizzes');
+            } else {
+              loadTab();
+            }
+            showSuccess('Quiz assigned to class — every student can see it on their Quizzes tab.');
+          }}
         />
       )}
 
