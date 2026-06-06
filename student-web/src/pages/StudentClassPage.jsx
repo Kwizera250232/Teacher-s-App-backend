@@ -133,7 +133,13 @@ export default function StudentClassPage() {
         const list = await api.get(`/classes/${id}/quizzes`, token);
         const rows = Array.isArray(list) ? list : [];
         let team = rows.filter((q) => q.is_group_quiz).map(quizRowToGroupAssignment);
-        let solo = rows.filter((q) => !q.is_group_quiz);
+        const seenSolo = new Set();
+        let solo = rows.filter((q) => {
+          if (q.is_group_quiz) return false;
+          if (seenSolo.has(q.id)) return false;
+          seenSolo.add(q.id);
+          return true;
+        });
 
         if (!team.length) {
           const legacy = await api.get(`/classes/${id}/my-group-quizzes`, token).catch(() => []);
@@ -530,7 +536,7 @@ export default function StudentClassPage() {
               {data.length > 0 && (
                 <section>
                   {groupQuizzes.length > 0 && (
-                    <h3 style={{ margin: '0 0 12px', fontSize: 17, color: '#1e293b' }}>❓ Solo quizzes</h3>
+                    <h3 style={{ margin: '0 0 12px', fontSize: 17, color: '#1e293b' }}>❓ Class quizzes</h3>
                   )}
                   {data.map((q) => (
                     <div key={q.id} className="item-card">

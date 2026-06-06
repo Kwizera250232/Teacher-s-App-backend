@@ -39,8 +39,6 @@ export default function ClassPointsPanel({
   onAssignWorkToGroup,
   groupAssignments = [],
   onEditQuiz,
-  onReleaseSolo,
-  isGroupOnly,
   basePath = '/teacher',
 }) {
   const [loading, setLoading] = useState(true);
@@ -427,8 +425,6 @@ export default function ClassPointsPanel({
               onAddGroup={() => setShowGroupModal(true)}
               onAssignWorkToAll={onAssignWorkToGroup ? () => onAssignWorkToGroup() : undefined}
               onEditQuiz={onEditQuiz}
-              onReleaseSolo={onReleaseSolo}
-              isGroupOnly={isGroupOnly}
             />
           )}
 
