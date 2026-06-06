@@ -11,6 +11,7 @@ export default function AssignWorkToGroupModal({
   presetGroupIds,
   onClose,
   onAssigned,
+  onClassAssigned,
   onCreateQuiz,
 }) {
   const [quizzes, setQuizzes] = useState([]);
@@ -19,6 +20,7 @@ export default function AssignWorkToGroupModal({
   const [selectedGroups, setSelectedGroups] = useState(() => new Set(presetGroupIds || []));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [classSaving, setClassSaving] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -50,7 +52,9 @@ export default function AssignWorkToGroupModal({
   };
 
   const selectedQuiz = quizzes.find((q) => q.id === selectedQuizId) || presetQuiz;
-  const canSubmit = Boolean(selectedQuizId && selectedGroups.size && !saving);
+  const busy = saving || classSaving;
+  const canSubmit = Boolean(selectedQuizId && selectedGroups.size && !busy);
+  const canAssignClass = Boolean(selectedQuizId && !busy);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -79,6 +83,24 @@ export default function AssignWorkToGroupModal({
     }
   };
 
+  const assignToClass = async () => {
+    if (!selectedQuizId) {
+      setError('Choose a quiz first.');
+      return;
+    }
+    setClassSaving(true);
+    setError('');
+    try {
+      await api.post(`/classes/${classId}/quizzes/${selectedQuizId}/release-solo`, {}, token);
+      onClassAssigned?.();
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setClassSaving(false);
+    }
+  };
+
   return (
     <div
       className="modal-overlay assign-group-overlay"
@@ -104,7 +126,7 @@ export default function AssignWorkToGroupModal({
             <button type="button" className="modal-close" onClick={onClose}>×</button>
           </div>
           <p style={{ margin: 0, color: '#64748b', fontSize: 14 }}>
-            Pick a <strong>quiz</strong> and <strong>group(s)</strong>. Students are notified immediately when you release.
+            Pick a <strong>quiz</strong> for your <strong>group(s)</strong>, or assign it to the <strong>whole class</strong> so every student sees it on Quizzes.
           </p>
         </div>
 
@@ -242,9 +264,23 @@ export default function AssignWorkToGroupModal({
               >
                 {saving ? 'Releasing…' : 'Release quiz to selected groups'}
               </button>
-              {!canSubmit && !saving && (
+              <div style={{ margin: '12px 0', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+                <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 600 }}>or</span>
+                <span style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-full"
+                disabled={!canAssignClass}
+                onClick={assignToClass}
+                style={{ minHeight: 48, fontSize: 15, fontWeight: 700 }}
+              >
+                {classSaving ? 'Assigning…' : '📋 Assign it to class so all may see it'}
+              </button>
+              {!canSubmit && !busy && (
                 <p style={{ margin: '8px 0 0', fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>
-                  Select a quiz and at least one group with students
+                  For groups: select a quiz and at least one group with students. For class: pick a quiz only.
                 </p>
               )}
             </div>
