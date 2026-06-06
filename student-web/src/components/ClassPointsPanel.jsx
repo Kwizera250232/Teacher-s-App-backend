@@ -36,9 +36,6 @@ export default function ClassPointsPanel({
   onSuccess,
   onStudentClick,
   onParentInvite,
-  onAssignWorkToGroup,
-  groupAssignments = [],
-  onEditQuiz,
   basePath = '/teacher',
 }) {
   const [loading, setLoading] = useState(true);
@@ -350,11 +347,6 @@ export default function ClassPointsPanel({
         <button type="button" className="btn btn-outline btn-sm" onClick={() => setShowGroupModal(true)}>
           Add group
         </button>
-        {onAssignWorkToGroup && (
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => onAssignWorkToGroup()}>
-            Assign work to group
-          </button>
-        )}
         <button type="button" className="btn btn-outline btn-sm" onClick={resetPoints}>
           Reset points
         </button>
@@ -417,14 +409,10 @@ export default function ClassPointsPanel({
             <TeacherGroupsPanel
               groups={groups}
               students={students}
-              groupAssignments={groupAssignments}
               onAwardGroup={setGroupAward}
-              onAssignQuiz={onAssignWorkToGroup}
               onEditGroup={openEditGroup}
               onDeleteGroup={deleteGroup}
               onAddGroup={() => setShowGroupModal(true)}
-              onAssignWorkToAll={onAssignWorkToGroup ? () => onAssignWorkToGroup() : undefined}
-              onEditQuiz={onEditQuiz}
             />
           )}
 

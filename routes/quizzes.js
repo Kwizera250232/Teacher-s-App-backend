@@ -65,15 +65,7 @@ router.get('/:classId/quizzes', authenticateToken, async (req, res) => {
   try {
     let rows = await listQuizzesForClass(req.params.classId);
     if (req.user.role === 'student') {
-      const classId = parseInt(req.params.classId, 10);
-      const studentId = req.user.id;
-      const {
-        fetchStudentGroupAssignments,
-        mergeStudentQuizList,
-      } = require('../lib/studentClassQuizzes');
-
-      const groupRows = await fetchStudentGroupAssignments(classId, studentId);
-      rows = mergeStudentQuizList(rows, groupRows);
+      rows = rows.map((q) => ({ ...q, is_group_quiz: false }));
     } else if (req.user.role === 'teacher' || req.user.role === 'head_teacher') {
       const classId = parseInt(req.params.classId, 10);
       const { annotateTeacherQuizzes } = require('../lib/quizSoloRelease');
