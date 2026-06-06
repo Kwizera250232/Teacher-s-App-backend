@@ -72,16 +72,17 @@ router.get('/:classId/quizzes', authenticateToken, async (req, res) => {
         mergeStudentQuizList,
       } = require('../lib/studentClassQuizzes');
 
-      const [groupRows, groupQuizIds] = await Promise.all([
+      const { studentSoloHiddenQuizIds } = require('../lib/quizSoloRelease');
+      const [groupRows, hide] = await Promise.all([
         fetchStudentGroupAssignments(classId, studentId),
-        pool.query(
-          `SELECT DISTINCT quiz_id FROM class_group_quiz_assignments WHERE class_id = $1`,
-          [classId]
-        ),
+        studentSoloHiddenQuizIds(classId),
       ]);
-      const hide = new Set(groupQuizIds.rows.map((r) => r.quiz_id));
       const solo = rows.filter((q) => !hide.has(q.id));
       rows = mergeStudentQuizList(solo, groupRows);
+    } else if (req.user.role === 'teacher' || req.user.role === 'head_teacher') {
+      const classId = parseInt(req.params.classId, 10);
+      const { annotateTeacherQuizzes } = require('../lib/quizSoloRelease');
+      rows = await annotateTeacherQuizzes(classId, rows);
     }
     res.json(rows);
   } catch (err) {
@@ -144,6 +145,45 @@ router.post('/:classId/quizzes', authenticateToken, requireRole('teacher'), asyn
     client.release();
   }
 });
+
+// POST release quiz to whole class (solo Quizzes tab) — for group-only quizzes
+router.post(
+  '/:classId/quizzes/:quizId/release-solo',
+  authenticateToken,
+  requireRole('teacher', 'head_teacher'),
+  async (req, res) => {
+    const classId = parseInt(req.params.classId, 10);
+    const quizId = parseInt(req.params.quizId, 10);
+    try {
+      const { userCanManageClass } = require('../lib/classAccess');
+      const manage = await userCanManageClass(req.user, classId);
+      if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
+
+      const quiz = await pool.query(
+        'SELECT id, title FROM quizzes WHERE id = $1 AND class_id = $2',
+        [quizId, classId]
+      );
+      if (!quiz.rows.length) return res.status(404).json({ error: 'Quiz not found in this class.' });
+
+      const { releaseQuizToClassSolo } = require('../lib/quizSoloRelease');
+      await releaseQuizToClassSolo(classId, quizId, req.user.id);
+
+      notifyClassAudiencePush({
+        classId,
+        excludeUserId: req.user.id,
+        title: '📝 Quiz available',
+        body: `"${quiz.rows[0].title}" is on your class Quizzes tab.`,
+        contentType: 'quiz',
+        tag: `quiz-solo-${quizId}`,
+      }).catch(() => {});
+
+      res.json({ ok: true, quiz_id: quizId, solo_released: true });
+    } catch (err) {
+      console.error('[quizzes/release-solo]', err);
+      res.status(500).json({ error: 'Internal server error.' });
+    }
+  }
+);
 
 // GET quiz questions for teacher (includes correct_answer for editing)
 router.get('/:classId/quizzes/:quizId/questions-edit', authenticateToken, requireRole('teacher'), async (req, res) => {

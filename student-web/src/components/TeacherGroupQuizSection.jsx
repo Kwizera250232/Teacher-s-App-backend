@@ -9,6 +9,9 @@ export default function TeacherGroupQuizSection({
   onRemove,
   onViewQuiz,
   onViewResults,
+  onEditQuiz,
+  onReleaseSolo,
+  isGroupOnly,
 }) {
   if (!assignments?.length) return null;
 
@@ -40,13 +43,31 @@ export default function TeacherGroupQuizSection({
                 <p className="teacher-group-quiz-desc">{a.quiz_description}</p>
               )}
               <div className="teacher-group-quiz-card-actions">
-                {onViewQuiz && (
+                {onEditQuiz && (
                   <button
                     type="button"
                     className="btn btn-secondary btn-sm"
+                    onClick={() => onEditQuiz(a)}
+                  >
+                    ✏️ Edit quiz
+                  </button>
+                )}
+                {onReleaseSolo && isGroupOnly?.(a.quiz_id) && (
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={() => onReleaseSolo(a.quiz_id)}
+                  >
+                    ➕ Add to class quizzes
+                  </button>
+                )}
+                {onViewQuiz && (
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm"
                     onClick={() => onViewQuiz(a)}
                   >
-                    Open quiz
+                    Open in list
                   </button>
                 )}
                 {a.status === 'submitted' && onViewResults && (

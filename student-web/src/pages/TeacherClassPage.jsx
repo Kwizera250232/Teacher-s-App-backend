@@ -118,6 +118,39 @@ export default function TeacherClassPage() {
   const tCacheKey = (t) => `tclass_${id}_${t}`;
   const groupByQuiz = groupAssignmentsByQuiz(groupAssignments);
 
+  const quizById = (quizId) => data.find((q) => Number(q.id) === Number(quizId));
+
+  const isQuizGroupOnly = (quizId) => {
+    const q = quizById(quizId);
+    if (q && typeof q.group_only === 'boolean') return q.group_only;
+    return groupAssignments.some((a) => a.quiz_id === quizId);
+  };
+
+  const editQuizById = (quizIdOrAssignment) => {
+    const quizId = typeof quizIdOrAssignment === 'object' ? quizIdOrAssignment.quiz_id : quizIdOrAssignment;
+    const a = groupAssignments.find((x) => x.quiz_id === quizId);
+    const q = quizById(quizId);
+    setEditQuiz(q || { id: quizId, title: a?.quiz_title, description: a?.quiz_description });
+    setTab('Quizzes');
+  };
+
+  const releaseQuizToClass = async (quizId) => {
+    try {
+      await api.post(`/classes/${id}/quizzes/${quizId}/release-solo`, {}, token);
+      await loadGroupAssignments();
+      loadTab();
+      showSuccess('Quiz added to class Quizzes — all students can take it on their Quizzes tab.');
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const listedQuizIds = new Set(data.map((q) => q.id));
+  const orphanGroupQuizzes = [...groupAssignments.reduce((map, a) => {
+    if (!listedQuizIds.has(a.quiz_id) && !map.has(a.quiz_id)) map.set(a.quiz_id, a);
+    return map;
+  }, new Map()).values()];
+
   const removeGroupAssignment = async (a) => {
     const msg = a.status === 'submitted'
       ? `Remove submitted group quiz "${a.quiz_title}" from ${a.group_name}? Marks will be removed from the assignment list.`
@@ -645,9 +678,13 @@ export default function TeacherClassPage() {
             <TeacherGroupQuizSection
               assignments={groupAssignments}
               onRemove={removeGroupAssignment}
+              onEditQuiz={editQuizById}
+              onReleaseSolo={releaseQuizToClass}
+              isGroupOnly={isQuizGroupOnly}
               onViewQuiz={(a) => {
                 const el = document.getElementById(`teacher-quiz-${a.quiz_id}`);
-                el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                else editQuizById(a);
               }}
               onViewResults={(a) => navigate(`${basePath}/classes/${id}/quizzes/${a.quiz_id}/results`)}
             />
@@ -659,13 +696,40 @@ export default function TeacherClassPage() {
                 <GuestMarksPanel token={token} classId={id} compact />
               </div>
             </details>
+            {orphanGroupQuizzes.map((a) => (
+              <div key={`orphan-${a.quiz_id}`} id={`teacher-quiz-${a.quiz_id}`} className="item-card item-card--has-team item-card--group-only">
+                <div className="item-card-body">
+                  <h3>❓ {a.quiz_title}</h3>
+                  <span className="teacher-quiz-visibility-badge teacher-quiz-visibility-badge--group">👥 Group only — not on class Quizzes yet</span>
+                  {a.quiz_description && <p>{a.quiz_description}</p>}
+                  <div className="teacher-quiz-group-tags">
+                    <span className="teacher-quiz-group-tag">👥 {a.group_name}</span>
+                  </div>
+                </div>
+                <div className="item-card-actions">
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => editQuizById(a.quiz_id)}>✏️ Edit</button>
+                  <button type="button" className="btn btn-primary btn-sm" onClick={() => releaseQuizToClass(a.quiz_id)}>➕ Add to class quizzes</button>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAssignWorkToGroup({ quiz: { id: a.quiz_id, title: a.quiz_title } })}>Assign to group</button>
+                </div>
+              </div>
+            ))}
             {data.map(q => {
               const teamAssigns = groupByQuiz.get(q.id) || [];
               return (
-              <div key={q.id} id={`teacher-quiz-${q.id}`} className={`item-card${teamAssigns.length ? ' item-card--has-team' : ''}`}>
+              <div key={q.id} id={`teacher-quiz-${q.id}`} className={`item-card${teamAssigns.length ? ' item-card--has-team' : ''}${q.group_only ? ' item-card--group-only' : ''}`}>
                 <div className="item-card-body">
                   <h3>❓ {q.title}</h3>
                   <SharedQuizAttribution quiz={q} />
+                  {q.group_only && (
+                    <span className="teacher-quiz-visibility-badge teacher-quiz-visibility-badge--group">
+                      👥 Group only — students not in the team cannot see it on Quizzes yet
+                    </span>
+                  )}
+                  {q.has_group_assignments && q.solo_released && !q.group_only && (
+                    <span className="teacher-quiz-visibility-badge teacher-quiz-visibility-badge--class">
+                      ✓ On class Quizzes tab + team groups
+                    </span>
+                  )}
                   {q.description && <p>{q.description}</p>}
                   {teamAssigns.length > 0 && (
                     <div className="teacher-quiz-group-tags">
@@ -698,7 +762,16 @@ export default function TeacherClassPage() {
                     onClick={() => setEditQuiz(q)}
                     disabled={q.attempt_count > 0}
                     title={q.attempt_count > 0 ? 'Cannot edit after students have attempted' : 'Edit quiz questions'}
-                  >Edit</button>
+                  >✏️ Edit</button>
+                  {q.group_only && (
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => releaseQuizToClass(q.id)}
+                    >
+                      ➕ Add to class quizzes
+                    </button>
+                  )}
                   <button
                     className="btn btn-secondary btn-sm"
                     onClick={async () => {
@@ -828,6 +901,9 @@ export default function TeacherClassPage() {
                 groupIds: group ? [group.id] : undefined,
               })}
               groupAssignments={groupAssignments}
+              onEditQuiz={editQuizById}
+              onReleaseSolo={releaseQuizToClass}
+              isGroupOnly={isQuizGroupOnly}
             />
           </div>
         )}

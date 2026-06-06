@@ -31,6 +31,9 @@ export default function TeacherGroupsPanel({
   onDeleteGroup,
   onAddGroup,
   onAssignWorkToAll,
+  onEditQuiz,
+  onReleaseSolo,
+  isGroupOnly,
 }) {
   const assignmentsByGroup = new Map();
   for (const a of groupAssignments) {
@@ -134,9 +137,23 @@ export default function TeacherGroupsPanel({
                     {teamAssigns.map((a) => {
                       const st = groupAssignmentStatusLabel(a);
                       return (
-                        <span key={a.id} className={`tg-quiz-chip tg-quiz-chip--${st.tone}`}>
-                          {st.emoji} {a.quiz_title} · {st.text}
-                        </span>
+                        <div key={a.id} className="tg-quiz-chip-row">
+                          <span className={`tg-quiz-chip tg-quiz-chip--${st.tone}`}>
+                            {st.emoji} {a.quiz_title} · {st.text}
+                          </span>
+                          <div className="tg-quiz-chip-actions">
+                            {onEditQuiz && (
+                              <button type="button" className="btn btn-outline btn-sm" onClick={() => onEditQuiz(a.quiz_id)}>
+                                Edit
+                              </button>
+                            )}
+                            {onReleaseSolo && isGroupOnly?.(a.quiz_id) && (
+                              <button type="button" className="btn btn-primary btn-sm" onClick={() => onReleaseSolo(a.quiz_id)}>
+                                + Class quiz
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       );
                     })}
                   </div>
