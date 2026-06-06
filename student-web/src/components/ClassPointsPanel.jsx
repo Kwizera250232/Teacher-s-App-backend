@@ -336,7 +336,8 @@ export default function ClassPointsPanel({
       </p>
       <div className="class-roster-toolbar" style={{ flexWrap: 'wrap', gap: 8 }}>
         <div className="class-points-notif-wrap" title="Student activity notifications">
-          <AppNotificationsBell className="student-notif-bell--header" basePath={basePath} />
+          <span className="class-points-notif-label" aria-hidden>🔔</span>
+          <AppNotificationsBell className="student-notif-bell--header teacher-notif-bell--prominent" basePath={basePath} />
         </div>
         <div className="tabs" style={{ marginBottom: 0, flex: '1 1 auto', minWidth: 200 }}>
           <button type="button" className={`tab ${view === 'students' ? 'active' : ''}`} onClick={() => setView('students')}>
