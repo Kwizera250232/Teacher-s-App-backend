@@ -66,12 +66,22 @@ router.get('/:classId/quizzes', authenticateToken, async (req, res) => {
     let rows = await listQuizzesForClass(req.params.classId);
     if (req.user.role === 'student') {
       const classId = parseInt(req.params.classId, 10);
-      const groupQuizIds = await pool.query(
-        `SELECT DISTINCT quiz_id FROM class_group_quiz_assignments WHERE class_id = $1`,
-        [classId]
-      );
+      const studentId = req.user.id;
+      const {
+        fetchStudentGroupAssignments,
+        mergeStudentQuizList,
+      } = require('../lib/studentClassQuizzes');
+
+      const [groupRows, groupQuizIds] = await Promise.all([
+        fetchStudentGroupAssignments(classId, studentId),
+        pool.query(
+          `SELECT DISTINCT quiz_id FROM class_group_quiz_assignments WHERE class_id = $1`,
+          [classId]
+        ),
+      ]);
       const hide = new Set(groupQuizIds.rows.map((r) => r.quiz_id));
-      rows = rows.filter((q) => !hide.has(q.id));
+      const solo = rows.filter((q) => !hide.has(q.id));
+      rows = mergeStudentQuizList(solo, groupRows);
     }
     res.json(rows);
   } catch (err) {
