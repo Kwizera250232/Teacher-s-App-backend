@@ -363,6 +363,11 @@ router.post('/:classId/group-quizzes', authenticateToken, requireRole('teacher',
       return res.status(400).json({ error: 'No valid groups with students selected.' });
     }
 
+    const { releaseQuizToClassSolo } = require('../lib/quizSoloRelease');
+    await releaseQuizToClassSolo(classId, quizId, req.user.id).catch((e) => {
+      console.error('[group-quizzes solo-release]', e.message);
+    });
+
     const listed = await pool.query(
       `SELECT a.*, g.name AS group_name, q.title AS quiz_title, q.description AS quiz_description
        FROM class_group_quiz_assignments a

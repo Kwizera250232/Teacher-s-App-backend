@@ -10,8 +10,6 @@ export default function TeacherGroupQuizSection({
   onViewQuiz,
   onViewResults,
   onEditQuiz,
-  onReleaseSolo,
-  isGroupOnly,
 }) {
   if (!assignments?.length) return null;
 
@@ -20,7 +18,7 @@ export default function TeacherGroupQuizSection({
       <div className="teacher-group-quiz-section-head">
         <div>
           <h3>👥 Team quizzes</h3>
-          <p>Released to groups — also listed on each quiz card below.</p>
+          <p>Also on class Quizzes for every student — teams can collaborate here too.</p>
         </div>
         <span className="teacher-group-quiz-count">{assignments.length}</span>
       </div>
@@ -50,15 +48,6 @@ export default function TeacherGroupQuizSection({
                     onClick={() => onEditQuiz(a)}
                   >
                     ✏️ Edit quiz
-                  </button>
-                )}
-                {onReleaseSolo && isGroupOnly?.(a.quiz_id) && (
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-sm"
-                    onClick={() => onReleaseSolo(a.quiz_id)}
-                  >
-                    ➕ Add to class quizzes
                   </button>
                 )}
                 {onViewQuiz && (
