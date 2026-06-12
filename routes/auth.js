@@ -34,6 +34,7 @@ function userPayload(row) {
     role: row.role,
     school_id: row.school_id,
     is_approved: row.is_approved !== false,
+    email_confirmed: row.email_confirmed !== false,
   };
   if (row.school_name) payload.school_name = row.school_name;
   return payload;
@@ -143,6 +144,19 @@ pool.query(`
 pool.query(`
   ALTER TABLE schools ADD COLUMN IF NOT EXISTS email_domain VARCHAR(255);
   ALTER TABLE schools ADD COLUMN IF NOT EXISTS welcome_message TEXT;
+`).catch(console.error);
+
+// Email confirmation for HT / Teacher / Guest self-signups.
+// Existing accounts default to confirmed (TRUE) so nobody is locked out.
+pool.query(`
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS email_confirmed BOOLEAN NOT NULL DEFAULT TRUE;
+  CREATE TABLE IF NOT EXISTS email_confirm_tokens (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash VARCHAR(64) NOT NULL UNIQUE,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );
 `).catch(console.error);
 
 // GET all schools (for dropdown)
@@ -595,7 +609,21 @@ router.post('/register', authLimiter, async (req, res) => {
     const isStaffRole = role === 'teacher' || role === 'head_teacher';
     let forwardTo = null;
 
-    if (isStaffRole) {
+    if (isStaffRole && !schoolEmailLocal && email) {
+      // Personal email signup (e.g. Gmail) for Head Teacher / Teacher
+      if (!isValidEmail(email)) {
+        return res.status(400).json({ error: 'Invalid email address.' });
+      }
+      const emailCheck = await validateEmailForSignup(email, {
+        schoolDomain: schoolDomainForEmail,
+        strict: STRICT_EMAIL,
+        role,
+        skipMailbox: true,
+      });
+      if (!emailCheck.valid) {
+        return res.status(400).json({ error: emailCheck.reason });
+      }
+    } else if (isStaffRole) {
       if (!schoolEmailLocal) {
         return res.status(400).json({
           error: 'Create your school email username (e.g. john for john@school.edu).',
@@ -652,12 +680,19 @@ router.post('/register', authLimiter, async (req, res) => {
       const guestLocal = normalizeLocalPart(
         req.body.guest_email_local || req.body.school_email_local || req.body.email_local
       );
-      if (!guestLocal) {
-        return res.status(400).json({ error: 'Choose a username for your guest login.' });
-      }
-      email = buildSchoolEmail(guestLocal, GUEST_EMAIL_DOMAIN);
-      if (!email) {
-        return res.status(400).json({ error: 'Invalid guest username.' });
+      if (!guestLocal && email) {
+        // Personal email signup for guests
+        if (!isValidEmail(email)) {
+          return res.status(400).json({ error: 'Invalid email address.' });
+        }
+      } else {
+        if (!guestLocal) {
+          return res.status(400).json({ error: 'Enter your email for your guest login.' });
+        }
+        email = buildSchoolEmail(guestLocal, GUEST_EMAIL_DOMAIN);
+        if (!email) {
+          return res.status(400).json({ error: 'Invalid guest username.' });
+        }
       }
       resolvedSchoolId = null;
     } else {
@@ -686,13 +721,39 @@ router.post('/register', authLimiter, async (req, res) => {
     const hashed = await bcrypt.hash(password, 12);
     const needsSchoolApproval = role === 'teacher' && resolvedSchoolId && codeBasedSignup;
     const isApproved = !needsSchoolApproval;
+    // HT / Teacher / Guest self-signups must confirm their email before acting
+    const needsEmailConfirm =
+      !inviteRow && !parentInviteRow && ['head_teacher', 'teacher', 'guest'].includes(role);
     const result = await pool.query(
-      `INSERT INTO users (name, email, password, role, school_id, is_approved, phone)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
-       RETURNING id, name, email, role, school_id, is_approved`,
-      [name, email, hashed, role, resolvedSchoolId, isApproved, phone || null]
+      `INSERT INTO users (name, email, password, role, school_id, is_approved, phone, email_confirmed)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING id, name, email, role, school_id, is_approved, email_confirmed`,
+      [name, email, hashed, role, resolvedSchoolId, isApproved, phone || null, !needsEmailConfirm]
     );
     const user = result.rows[0];
+
+    let confirmEmailSent = false;
+    if (needsEmailConfirm) {
+      try {
+        const { sendConfirmationEmail, newConfirmToken, hashToken } = require('../lib/confirmationEmail');
+        const confirmToken = newConfirmToken();
+        await pool.query(
+          `INSERT INTO email_confirm_tokens (user_id, token_hash, expires_at)
+           VALUES ($1,$2,NOW() + INTERVAL '7 days')`,
+          [user.id, hashToken(confirmToken)]
+        );
+        const mailed = await sendConfirmationEmail({
+          to: email,
+          name: user.name,
+          role,
+          token: confirmToken,
+        });
+        confirmEmailSent = Boolean(mailed.sent);
+        audit('confirm_email_send', { email, role, sent: confirmEmailSent });
+      } catch (mailErr) {
+        console.error('[register confirm-email]', mailErr.message);
+      }
+    }
 
     if (inviteRow) {
       await pool.query('UPDATE invite_tokens SET used=TRUE WHERE id=$1', [inviteRow.id]);
@@ -782,6 +843,8 @@ router.post('/register', authLimiter, async (req, res) => {
       login_email: email,
       capabilities: emailCapabilities,
       guest_share_redirect: guestShareRedirect,
+      confirm_email_sent: confirmEmailSent,
+      email_confirmed: user.email_confirmed !== false,
     });
   } catch (err) {
     console.error('[register]', err);
@@ -976,6 +1039,71 @@ const { handleStudentParentInvite } = require('../lib/studentParentInvite');
 
 router.get('/parent-invite', authenticateToken, handleStudentParentInvite);
 router.post('/parent-invite', authenticateToken, handleStudentParentInvite);
+
+// ── Email confirmation (HT / Teacher / Guest self-signup) ────────────────────
+
+// GET /api/auth/confirm-email?token=… — clicked from the confirmation email
+router.get('/confirm-email', async (req, res) => {
+  const { hashToken, FRONTEND_URL } = require('../lib/confirmationEmail');
+  const token = String(req.query.token || '').trim();
+  const redirect = (status) =>
+    res.redirect(`${FRONTEND_URL}/email-confirmed?status=${status}`);
+  if (!token || token.length < 32) return redirect('invalid');
+  try {
+    const row = await pool.query(
+      `SELECT ect.id, ect.user_id, ect.expires_at, u.email_confirmed
+       FROM email_confirm_tokens ect JOIN users u ON u.id = ect.user_id
+       WHERE ect.token_hash = $1 LIMIT 1`,
+      [hashToken(token)]
+    );
+    if (!row.rows.length) return redirect('invalid');
+    const rec = row.rows[0];
+    if (new Date(rec.expires_at) < new Date()) {
+      return redirect('expired');
+    }
+    await pool.query('UPDATE users SET email_confirmed = TRUE WHERE id = $1', [rec.user_id]);
+    await pool.query('DELETE FROM email_confirm_tokens WHERE user_id = $1', [rec.user_id]);
+    audit('confirm_email_ok', { user_id: rec.user_id });
+    return redirect('ok');
+  } catch (err) {
+    console.error('[confirm-email]', err);
+    return redirect('error');
+  }
+});
+
+// POST /api/auth/resend-confirmation — logged-in user asks for a new email
+router.post('/resend-confirmation', forgotLimiter, authenticateToken, async (req, res) => {
+  try {
+    const u = await pool.query(
+      'SELECT id, name, email, role, email_confirmed FROM users WHERE id = $1',
+      [req.user.id]
+    );
+    if (!u.rows.length) return res.status(404).json({ error: 'User not found.' });
+    const user = u.rows[0];
+    if (user.email_confirmed !== false) {
+      return res.json({ ok: true, already_confirmed: true });
+    }
+    const { sendConfirmationEmail, newConfirmToken, hashToken } = require('../lib/confirmationEmail');
+    const confirmToken = newConfirmToken();
+    await pool.query('DELETE FROM email_confirm_tokens WHERE user_id = $1', [user.id]);
+    await pool.query(
+      `INSERT INTO email_confirm_tokens (user_id, token_hash, expires_at)
+       VALUES ($1,$2,NOW() + INTERVAL '7 days')`,
+      [user.id, hashToken(confirmToken)]
+    );
+    const mailed = await sendConfirmationEmail({
+      to: user.email,
+      name: user.name,
+      role: user.role,
+      token: confirmToken,
+    });
+    audit('confirm_email_resend', { email: user.email, sent: Boolean(mailed.sent) });
+    res.json({ ok: true, sent: Boolean(mailed.sent) });
+  } catch (err) {
+    console.error('[resend-confirmation]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
 
 // GET current user
 router.get('/me', authenticateToken, async (req, res) => {
