@@ -122,6 +122,8 @@ app.use('/api/staff', require('./routes/staff_notifications'));
 app.use('/api/donate', donateRoutes);
 app.use('/api/hooks', require('./routes/hooks'));
 app.use('/api/mail', require('./routes/mail'));
+app.use('/api/alumni', require('./routes/alumni'));
+app.use('/api/alumni', require('./routes/alumni-compositions'));
 
 // Serve avatars
 app.use('/uploads/avatars', express.static(require('path').join(__dirname, 'uploads/avatars')));
@@ -163,6 +165,7 @@ app.get('/api/health', (req, res) => {
       group_quizzes: true,
       my_groups: true,
       student_achievements: true,
+      alumni: true,
     },
   });
 });
@@ -233,6 +236,7 @@ app.listen(PORT, () => {
   require('./lib/classGroupQuizzesSchema').ensureClassGroupQuizzesSchema().catch((e) => console.error('[startup] group quizzes schema:', e.message));
   require('./lib/quizSoloRelease').ensureQuizSoloReleaseSchema().catch((e) => console.error('[startup] quiz solo release schema:', e.message));
   require('./lib/achievementsSchema').ensureAchievementsSchema().catch((e) => console.error('[startup] achievements schema:', e.message));
+  require('./lib/alumniSchema').ensureAlumniSchema(require('./db')).catch((e) => console.error('[startup] alumni schema:', e.message));
   const pool = require('./db');
   const { migrateSchoolLoginDomains } = require('./lib/schoolDomain');
   migrateSchoolLoginDomains(pool).catch((e) => console.error('[startup] school login domains:', e.message));

@@ -137,7 +137,7 @@ pool.query(`
 // Add head teacher role support at the DB constraint level
 pool.query(`
   ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
-  ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('teacher', 'student', 'admin', 'head_teacher', 'parent', 'guest'));
+  ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('teacher', 'student', 'admin', 'head_teacher', 'parent', 'guest', 'alumni'));
 `).catch(console.error);
 
 // Add school metadata columns if missing for head teacher / school code flows
@@ -157,6 +157,14 @@ pool.query(`
     expires_at TIMESTAMP NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
   );
+`).catch(console.error);
+
+// Alumni columns migration
+pool.query(`
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS is_alumni BOOLEAN DEFAULT FALSE;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS graduation_year INTEGER;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS graduated_at TIMESTAMP;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS alumni_status VARCHAR(20) DEFAULT 'active';
 `).catch(console.error);
 
 // GET all schools (for dropdown)
@@ -1046,9 +1054,12 @@ router.post('/parent-invite', authenticateToken, handleStudentParentInvite);
 router.get('/confirm-email', async (req, res) => {
   const { hashToken, FRONTEND_URL } = require('../lib/confirmationEmail');
   const token = String(req.query.token || '').trim();
-  const redirect = (status) =>
-    res.redirect(`${FRONTEND_URL}/email-confirmed?status=${status}`);
-  if (!token || token.length < 32) return redirect('invalid');
+  const useJson = req.query.json === '1';
+  const respond = (status) =>
+    useJson
+      ? res.json({ status })
+      : res.redirect(`${FRONTEND_URL}/email-confirmed?status=${status}`);
+  if (!token || token.length < 32) return respond('invalid');
   try {
     const row = await pool.query(
       `SELECT ect.id, ect.user_id, ect.expires_at, u.email_confirmed
@@ -1056,18 +1067,18 @@ router.get('/confirm-email', async (req, res) => {
        WHERE ect.token_hash = $1 LIMIT 1`,
       [hashToken(token)]
     );
-    if (!row.rows.length) return redirect('invalid');
+    if (!row.rows.length) return respond('invalid');
     const rec = row.rows[0];
     if (new Date(rec.expires_at) < new Date()) {
-      return redirect('expired');
+      return respond('expired');
     }
     await pool.query('UPDATE users SET email_confirmed = TRUE WHERE id = $1', [rec.user_id]);
     await pool.query('DELETE FROM email_confirm_tokens WHERE user_id = $1', [rec.user_id]);
     audit('confirm_email_ok', { user_id: rec.user_id });
-    return redirect('ok');
+    return respond('ok');
   } catch (err) {
     console.error('[confirm-email]', err);
-    return redirect('error');
+    return respond('error');
   }
 });
 
