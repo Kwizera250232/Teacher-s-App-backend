@@ -562,6 +562,79 @@ CREATE TABLE IF NOT EXISTS alumni_recognitions (
 CREATE INDEX IF NOT EXISTS idx_recognitions_user ON alumni_recognitions(user_id);
 CREATE INDEX IF NOT EXISTS idx_recognitions_badge ON alumni_recognitions(badge_type);
 
+-- Alumni groups (U-Class Groups - WhatsApp-like group chat)
+CREATE TABLE IF NOT EXISTS alumni_groups (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  image_path VARCHAR(500),
+  creator_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  is_public BOOLEAN DEFAULT TRUE,
+  member_count INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_alumni_groups_creator ON alumni_groups(creator_id);
+
+-- Alumni group members
+CREATE TABLE IF NOT EXISTS alumni_group_members (
+  id SERIAL PRIMARY KEY,
+  group_id INTEGER NOT NULL REFERENCES alumni_groups(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role VARCHAR(20) NOT NULL DEFAULT 'member' CHECK (role IN ('admin','member')),
+  joined_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(group_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_group_members_group ON alumni_group_members(group_id);
+CREATE INDEX IF NOT EXISTS idx_group_members_user ON alumni_group_members(user_id);
+
+-- Alumni group messages (chat messages)
+CREATE TABLE IF NOT EXISTS alumni_group_messages (
+  id SERIAL PRIMARY KEY,
+  group_id INTEGER NOT NULL REFERENCES alumni_groups(id) ON DELETE CASCADE,
+  sender_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT,
+  image_path VARCHAR(500),
+  message_type VARCHAR(20) NOT NULL DEFAULT 'text' CHECK (message_type IN ('text','image','composition','file')),
+  reply_to_id INTEGER REFERENCES alumni_group_messages(id) ON DELETE SET NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_group_messages_group ON alumni_group_messages(group_id);
+CREATE INDEX IF NOT EXISTS idx_group_messages_created ON alumni_group_messages(created_at);
+
+-- Alumni feed posts (social feed - what I learned, images, etc)
+CREATE TABLE IF NOT EXISTS alumni_feed_posts (
+  id SERIAL PRIMARY KEY,
+  author_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT,
+  image_paths TEXT[],
+  post_type VARCHAR(20) NOT NULL DEFAULT 'text' CHECK (post_type IN ('text','image','composition_link','achievement')),
+  likes_count INTEGER DEFAULT 0,
+  comments_count INTEGER DEFAULT 0,
+  is_pinned BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_feed_posts_author ON alumni_feed_posts(author_id);
+CREATE INDEX IF NOT EXISTS idx_feed_posts_created ON alumni_feed_posts(created_at);
+
+-- Feed post likes
+CREATE TABLE IF NOT EXISTS alumni_feed_likes (
+  id SERIAL PRIMARY KEY,
+  post_id INTEGER NOT NULL REFERENCES alumni_feed_posts(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(post_id, user_id)
+);
+
+-- Feed post comments
+CREATE TABLE IF NOT EXISTS alumni_feed_comments (
+  id SERIAL PRIMARY KEY,
+  post_id INTEGER NOT NULL REFERENCES alumni_feed_posts(id) ON DELETE CASCADE,
+  author_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_feed_comments_post ON alumni_feed_comments(post_id);
+
 -- ── Migration helpers (safe to run on existing DB) ─────────────────────────
 
 -- Add alumni role to users check constraint (handled in auth.js migrations)

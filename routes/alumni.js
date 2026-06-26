@@ -7,6 +7,35 @@ function audit(event, details) {
   console.log(JSON.stringify({ ts: new Date().toISOString(), event, ...details }));
 }
 
+// ── Student Self-Join Alumni ────────────────────────────────────────────────
+
+router.post('/join', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'student') {
+    return res.status(403).json({ error: 'Only students can join Alumni.' });
+  }
+  const yr = new Date().getFullYear();
+  try {
+    const result = await pool.query(
+      `UPDATE users SET role='alumni', is_alumni=TRUE, graduation_year=$1, graduated_at=NOW(), alumni_status='active'
+       WHERE id=$2 AND role='student' RETURNING id, name, email, graduation_year, graduated_at, school_id`,
+      [yr, req.user.id]
+    );
+    if (result.rows.length === 0) return res.status(400).json({ error: 'Already an alumni or not a student.' });
+    const user = result.rows[0];
+    await pool.query(
+      `INSERT INTO alumni_profiles (user_id, graduation_year, username)
+       VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET graduation_year=EXCLUDED.graduation_year`,
+      [user.id, yr, user.email.split('@')[0] + '-' + user.id]
+    );
+    await pool.query(`INSERT INTO alumni_wallets (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`, [user.id]);
+    audit('alumni_self_join', { user_id: req.user.id, year: yr });
+    res.json({ success: true, alumni: user });
+  } catch (err) {
+    console.error('[alumni/join]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // ── Graduation Management ───────────────────────────────────────────────────
 
 router.post('/graduate', authenticateToken, requireRole('admin', 'head_teacher', 'teacher'), async (req, res) => {

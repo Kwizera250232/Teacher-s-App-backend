@@ -124,6 +124,7 @@ app.use('/api/hooks', require('./routes/hooks'));
 app.use('/api/mail', require('./routes/mail'));
 app.use('/api/alumni', require('./routes/alumni'));
 app.use('/api/alumni', require('./routes/alumni-compositions'));
+app.use('/api/alumni', require('./routes/alumni-social'));
 
 // Serve avatars
 app.use('/uploads/avatars', express.static(require('path').join(__dirname, 'uploads/avatars')));
