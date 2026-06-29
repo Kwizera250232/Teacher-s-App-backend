@@ -2,6 +2,38 @@ const express = require('express');
 const router = express.Router();
 const { pool } = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+// Generic file upload
+const uploadDir = process.env.VERCEL ? path.join('/tmp', 'uploads', 'files') : path.join(__dirname, '../uploads/files');
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+const fileStorage = multer.diskStorage({
+  destination: uploadDir,
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase().replace(/[^a-z0-9.]/g, '');
+    cb(null, `file_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`);
+  },
+});
+
+const fileUpload = multer({
+  storage: fileStorage,
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ['.pdf', '.epub', '.doc', '.docx', '.jpg', '.jpeg', '.png', '.gif'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowed.includes(ext)) cb(null, true);
+    else cb(new Error('Only PDF, EPUB, DOC, DOCX, and image files allowed.'));
+  },
+});
+
+router.post('/upload', authenticateToken, fileUpload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
+  const url = `/uploads/files/${req.file.filename}`;
+  res.json({ url, filename: req.file.filename, size: req.file.size });
+});
 
 function audit(event, details) {
   console.log(JSON.stringify({ ts: new Date().toISOString(), event, ...details }));
@@ -424,6 +456,115 @@ router.post('/recognitions', authenticateToken, requireRole('admin', 'head_teach
   } catch (err) {
     console.error('[alumni/recognitions POST]', err);
     res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── Public Content Routes ──
+
+router.get('/library', authenticateToken, async (req, res) => {
+  try {
+    const books = await pool.query('SELECT * FROM alumni_library ORDER BY created_at DESC');
+    res.json({ books: books.rows });
+  } catch (err) {
+    console.error('[alumni/library]', err);
+    res.status(500).json({ error: 'Failed to load books' });
+  }
+});
+
+router.post('/library', authenticateToken, requireRole('admin', 'head_teacher'), fileUpload.single('file'), async (req, res) => {
+  const { title, author, category, description } = req.body;
+  if (!title) return res.status(400).json({ error: 'Title required.' });
+  try {
+    const file_url = req.file ? `/uploads/files/${req.file.filename}` : null;
+    const result = await pool.query(
+      'INSERT INTO alumni_library (title, author, category, description, file_url, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+      [title, author || null, category || null, description || null, file_url, req.user.id]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('[alumni/library POST]', err);
+    res.status(500).json({ error: 'Failed to add book' });
+  }
+});
+
+router.delete('/library/:id', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  try {
+    await pool.query('DELETE FROM alumni_library WHERE id=$1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[alumni/library DELETE]', err);
+    res.status(500).json({ error: 'Failed to delete book' });
+  }
+});
+
+router.get('/opportunities', authenticateToken, async (req, res) => {
+  try {
+    const opps = await pool.query('SELECT * FROM alumni_opportunities ORDER BY created_at DESC');
+    res.json({ opportunities: opps.rows });
+  } catch (err) {
+    console.error('[alumni/opportunities]', err);
+    res.status(500).json({ error: 'Failed to load opportunities' });
+  }
+});
+
+router.post('/opportunities', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  const { title, company, location, type, description, deadline, link } = req.body;
+  if (!title) return res.status(400).json({ error: 'Title required.' });
+  try {
+    const result = await pool.query(
+      'INSERT INTO alumni_opportunities (title, company, location, type, description, deadline, link, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
+      [title, company || null, location || null, type || null, description || null, deadline || null, link || null, req.user.id]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('[alumni/opportunities POST]', err);
+    res.status(500).json({ error: 'Failed to add opportunity' });
+  }
+});
+
+router.delete('/opportunities/:id', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  try {
+    await pool.query('DELETE FROM alumni_opportunities WHERE id=$1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[alumni/opportunities DELETE]', err);
+    res.status(500).json({ error: 'Failed to delete opportunity' });
+  }
+});
+
+router.get('/past-papers', authenticateToken, async (req, res) => {
+  try {
+    const papers = await pool.query('SELECT * FROM alumni_past_papers ORDER BY created_at DESC');
+    res.json({ papers: papers.rows });
+  } catch (err) {
+    console.error('[alumni/past-papers]', err);
+    res.status(500).json({ error: 'Failed to load past papers' });
+  }
+});
+
+router.post('/past-papers', authenticateToken, requireRole('admin', 'head_teacher'), fileUpload.single('file'), async (req, res) => {
+  const { title, subject, year, description } = req.body;
+  if (!title) return res.status(400).json({ error: 'Title required.' });
+  try {
+    const file_url = req.file ? `/uploads/files/${req.file.filename}` : null;
+    const result = await pool.query(
+      'INSERT INTO alumni_past_papers (title, subject, year, description, file_url, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+      [title, subject || null, year || null, description || null, file_url, req.user.id]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('[alumni/past-papers POST]', err);
+    res.status(500).json({ error: 'Failed to add past paper' });
+  }
+});
+
+router.delete('/past-papers/:id', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  try {
+    await pool.query('DELETE FROM alumni_past_papers WHERE id=$1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[alumni/past-papers DELETE]', err);
+    res.status(500).json({ error: 'Failed to delete past paper' });
   }
 });
 
