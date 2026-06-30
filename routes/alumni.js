@@ -624,4 +624,141 @@ router.get('/dean-quizzes', authenticateToken, requireRole('admin', 'head_teache
   }
 });
 
+// ── Primary Things: Historical class data for alumni ────────────────────────
+router.get('/primary-things', authenticateToken, requireRole('alumni', 'admin', 'head_teacher'), async (req, res) => {
+  try {
+    const userId = req.user.id;
+    // Get class_id from alumni_profiles or users table
+    const profileRes = await pool.query(
+      `SELECT ap.class_id, u.class_id AS user_class_id, u.school_id, u.name, c.name AS class_name,
+              c.subject AS class_subject, s.name AS school_name
+       FROM users u
+       LEFT JOIN alumni_profiles ap ON ap.user_id = u.id
+       LEFT JOIN classes c ON c.id = COALESCE(ap.class_id, u.class_id)
+       LEFT JOIN schools s ON s.id = u.school_id
+       WHERE u.id = $1`,
+      [userId]
+    );
+    if (profileRes.rows.length === 0) return res.status(404).json({ error: 'Profile not found.' });
+    const profile = profileRes.rows[0];
+    const classId = profile.class_id || profile.user_class_id;
+    if (!classId) return res.json({ classInfo: null, quizzes: [], homework: [], notes: [], announcements: [], leaderboard: [], discussions: [], cstatus: [], inyandiko: [] });
+
+    // Fetch all data in parallel — using student_id directly, no class_members check
+    const [quizzesRes, homeworkRes, notesRes, announcementsRes, leaderboardRes, discussionsRes, cstatusRes, inyandikoRes] = await Promise.all([
+      // Quizzes with this student's best score
+      pool.query(
+        `SELECT q.id, q.title, q.description, q.created_at,
+                (SELECT qa.score FROM quiz_attempts qa WHERE qa.quiz_id = q.id AND qa.student_id = $2 ORDER BY qa.score DESC LIMIT 1) AS my_score,
+                (SELECT qa.total FROM quiz_attempts qa WHERE qa.quiz_id = q.id AND qa.student_id = $2 ORDER BY qa.score DESC LIMIT 1) AS my_total,
+                (SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.quiz_id = q.id AND qa.student_id = $2) AS attempt_count,
+                (SELECT COUNT(*) FROM quiz_questions qq WHERE qq.quiz_id = q.id) AS question_count
+         FROM quizzes q WHERE q.class_id = $1 ORDER BY q.created_at DESC`,
+        [classId, userId]
+      ).catch(() => ({ rows: [] })),
+
+      // Homework with this student's submission/grade
+      pool.query(
+        `SELECT hw.id, hw.title, hw.description, hw.due_date, hw.created_at,
+                hs.grade, hs.submitted_at, hs.feedback
+         FROM homework hw
+         LEFT JOIN homework_submissions hs ON hs.homework_id = hw.id AND hs.student_id = $2
+         WHERE hw.class_id = $1 ORDER BY hw.created_at DESC`,
+        [classId, userId]
+      ).catch(() => ({ rows: [] })),
+
+      // Notes from teachers
+      pool.query(
+        `SELECT n.id, n.title, n.file_path, n.file_name, n.created_at,
+                u.name AS teacher_name
+         FROM notes n
+         LEFT JOIN classes c ON c.id = n.class_id
+         LEFT JOIN users u ON u.id = c.teacher_id
+         WHERE n.class_id = $1 ORDER BY n.created_at DESC`,
+        [classId]
+      ).catch(() => ({ rows: [] })),
+
+      // Announcements
+      pool.query(
+        `SELECT a.id, a.content, a.created_at, u.name AS teacher_name
+         FROM announcements a LEFT JOIN users u ON u.id = a.teacher_id
+         WHERE a.class_id = $1 ORDER BY a.created_at DESC`,
+        [classId]
+      ).catch(() => ({ rows: [] })),
+
+      // Leaderboard — all students who were in this class (including graduated)
+      pool.query(
+        `WITH best_attempts AS (
+           SELECT DISTINCT ON (quiz_id, student_id)
+             quiz_id, student_id, score, total
+           FROM quiz_attempts
+           WHERE quiz_id IN (SELECT id FROM quizzes WHERE class_id = $1)
+           ORDER BY quiz_id, student_id, score DESC, attempted_at ASC
+         )
+         SELECT u.id AS student_id, u.name AS student_name,
+                COALESCE(SUM(ba.score), 0) AS total_points,
+                COUNT(ba.quiz_id) AS quizzes_taken
+         FROM users u
+         LEFT JOIN best_attempts ba ON ba.student_id = u.id
+         WHERE u.id IN (SELECT student_id FROM quiz_attempts WHERE quiz_id IN (SELECT id FROM quizzes WHERE class_id = $1))
+            OR u.id IN (SELECT student_id FROM homework_submissions hs JOIN homework hw ON hw.id = hs.homework_id WHERE hw.class_id = $1)
+         GROUP BY u.id, u.name
+         ORDER BY total_points DESC LIMIT 50`,
+        [classId]
+      ).catch(() => ({ rows: [] })),
+
+      // Discussions
+      pool.query(
+        `SELECT d.id, d.content, d.created_at, u.name AS author_name, u.role AS author_role
+         FROM discussions d LEFT JOIN users u ON u.id = d.user_id
+         WHERE d.class_id = $1 ORDER BY d.created_at DESC`,
+        [classId]
+      ).catch(() => ({ rows: [] })),
+
+      // Composition statuses (Innyandiko / student shares)
+      pool.query(
+        `SELECT cs.id, cs.created_at, cs.expires_at, s.content, s.type, s.status AS share_status,
+                u.name AS student_name,
+                (SELECT COUNT(*)::int FROM composition_status_views v WHERE v.status_id = cs.id) AS view_count
+         FROM composition_statuses cs
+         JOIN student_shares s ON s.id = cs.share_id
+         JOIN users u ON u.id = cs.student_id
+         WHERE cs.class_id = $1
+         ORDER BY cs.created_at DESC`,
+        [classId]
+      ).catch(() => ({ rows: [] })),
+
+      // Inyandiko documents (commitment + school reports)
+      pool.query(
+        `SELECT d.id, d.doc_type, d.title, d.file_path, d.file_name, d.uploaded_at,
+                u.name AS student_name
+         FROM student_class_documents d
+         JOIN users u ON u.id = d.student_id
+         WHERE d.class_id = $1
+         ORDER BY d.uploaded_at DESC`,
+        [classId]
+      ).catch(() => ({ rows: [] })),
+    ]);
+
+    res.json({
+      classInfo: {
+        name: profile.class_name || 'My Class',
+        subject: profile.class_subject,
+        school_name: profile.school_name,
+      },
+      quizzes: quizzesRes.rows,
+      homework: homeworkRes.rows,
+      notes: notesRes.rows,
+      announcements: announcementsRes.rows,
+      leaderboard: leaderboardRes.rows,
+      discussions: discussionsRes.rows,
+      cstatus: cstatusRes.rows,
+      inyandiko: inyandikoRes.rows,
+    });
+  } catch (err) {
+    console.error('[alumni/primary-things]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 module.exports = router;
