@@ -635,6 +635,20 @@ CREATE TABLE IF NOT EXISTS alumni_feed_comments (
 );
 CREATE INDEX IF NOT EXISTS idx_feed_comments_post ON alumni_feed_comments(post_id);
 
+-- Alumni past papers (uploaded by admin/head_teacher for alumni practice)
+CREATE TABLE IF NOT EXISTS alumni_past_papers (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  subject VARCHAR(100),
+  year INTEGER,
+  description TEXT,
+  file_url VARCHAR(500),
+  created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_past_papers_subject ON alumni_past_papers(subject);
+CREATE INDEX IF NOT EXISTS idx_past_papers_year ON alumni_past_papers(year);
+
 -- ── Migration helpers (safe to run on existing DB) ─────────────────────────
 
 -- Add alumni role to users check constraint (handled in auth.js migrations)

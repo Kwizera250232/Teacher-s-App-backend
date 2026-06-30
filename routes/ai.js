@@ -1,11 +1,44 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
-const Groq = require('groq-sdk');
 const pool = require('../db');
 const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
 const VALID_ROLES = ['user', 'assistant'];
+
+// Gemini AI helper - uses REST API directly (no SDK needed)
+async function callGemini(systemPrompt, messages, maxTokens = 1024, temperature = 0.3) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY not configured');
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+  // Build the full conversation text for Gemini
+  const parts = [systemPrompt];
+  for (const msg of messages) {
+    if (msg.role === 'user') parts.push(`User: ${msg.content}`);
+    else if (msg.role === 'assistant') parts.push(`Assistant: ${msg.content}`);
+  }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: parts.join('\n\n') }] }],
+      generationConfig: { maxOutputTokens: maxTokens, temperature },
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error('[Gemini API error]', res.status, errText);
+    throw new Error(`Gemini API error: ${res.status}`);
+  }
+
+  const data = await res.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  return text || '';
+}
 
 const aiRateLimit = rateLimit({
   windowMs: 60 * 1000,
@@ -27,10 +60,9 @@ router.post('/chat', authenticateToken, aiRateLimit, async (req, res) => {
   if (!Array.isArray(history) || history.length > 20)
     return res.status(400).json({ error: 'Invalid history.' });
 
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey)
     return res.status(503).json({ error: 'AI service not configured.' });
-  const groq = new Groq({ apiKey });
 
   try {
     const classResult = await pool.query(
@@ -160,29 +192,22 @@ router.post('/chat', authenticateToken, aiRateLimit, async (req, res) => {
     ].join('\n');
 
     // Validate history entries to prevent role injection
-    const messages = [{ role: 'system', content: systemPrompt }];
+    const chatMessages = [];
     for (const msg of history.slice(-10)) {
       if (VALID_ROLES.includes(msg.role) && typeof msg.content === 'string' && msg.content.trim().length > 0) {
-        messages.push({ role: msg.role, content: msg.content });
+        chatMessages.push({ role: msg.role, content: msg.content });
       }
     }
-    messages.push({ role: 'user', content: cleanMessage });
+    chatMessages.push({ role: 'user', content: cleanMessage });
 
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages,
-      max_tokens: 1024,
-      temperature: 0.3,
-    });
-
-    const replyText = completion.choices[0]?.message?.content?.trim();
+    const replyText = await callGemini(systemPrompt, chatMessages, 1024, 0.3);
 
     if (!replyText)
       return res.json({ reply: 'Ntabwo nabonye igisubizo cyumvikana neza. Ongera ubaze neza.' });
 
     res.json({ reply: replyText });
   } catch (err) {
-    console.error('Groq SDK error:', err?.status, err?.message);
+    console.error('Gemini AI error:', err?.message);
     res.status(502).json({ error: 'AI service error. Gerageza nanone.' });
   }
 });
@@ -194,9 +219,8 @@ router.post('/dean', authenticateToken, aiRateLimit, async (req, res) => {
   if (!cleanMessage) return res.status(400).json({ error: 'message is required.' });
   if (cleanMessage.length > 1000) return res.status(400).json({ error: 'Message too long.' });
 
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return res.status(503).json({ error: 'AI service not configured.' });
-  const groq = new Groq({ apiKey });
 
   const systemPrompt = [
     'You are Dean, the UClass (Umunsi) app assistant — "Our AI Support".',
@@ -214,21 +238,15 @@ router.post('/dean', authenticateToken, aiRateLimit, async (req, res) => {
   ].join('\n');
 
   try {
-    const messages = [{ role: 'system', content: systemPrompt }];
+    const chatMessages = [];
     for (const msg of history.slice(-10)) {
       if (VALID_ROLES.includes(msg.role) && typeof msg.content === 'string' && msg.content.trim()) {
-        messages.push({ role: msg.role, content: msg.content });
+        chatMessages.push({ role: msg.role, content: msg.content });
       }
     }
-    messages.push({ role: 'user', content: cleanMessage });
+    chatMessages.push({ role: 'user', content: cleanMessage });
 
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages,
-      max_tokens: 800,
-      temperature: 0.35,
-    });
-    const replyText = completion.choices[0]?.message?.content?.trim();
+    const replyText = await callGemini(systemPrompt, chatMessages, 800, 0.35);
     res.json({ reply: replyText || 'Sorry, I could not answer that. Try again.' });
   } catch (err) {
     console.error('[ai/dean]', err?.message);
