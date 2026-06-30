@@ -1,0 +1,13 @@
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS cover_url TEXT;
+ALTER TABLE alumni_profiles ADD COLUMN IF NOT EXISTS username TEXT;
+ALTER TABLE alumni_profiles ADD COLUMN IF NOT EXISTS headline TEXT;
+ALTER TABLE alumni_profiles ADD COLUMN IF NOT EXISTS location TEXT;
+ALTER TABLE alumni_profiles ADD COLUMN IF NOT EXISTS website TEXT;
+ALTER TABLE alumni_compositions ADD COLUMN IF NOT EXISTS slug TEXT;
+ALTER TABLE alumni_compositions ADD COLUMN IF NOT EXISTS content TEXT;
+ALTER TABLE alumni_compositions ADD COLUMN IF NOT EXISTS excerpt TEXT;
+ALTER TABLE alumni_compositions ADD COLUMN IF NOT EXISTS published_at TIMESTAMP;
+ALTER TABLE alumni_compositions ADD COLUMN IF NOT EXISTS category TEXT;
+ALTER TABLE alumni_compositions ADD COLUMN IF NOT EXISTS read_time INTEGER;
+SELECT 'Done' as status;

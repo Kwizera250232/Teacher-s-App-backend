@@ -1,0 +1,44 @@
+--- a/src/pages/StudentDashboard.jsx
++++ b/src/pages/StudentDashboard.jsx
+@@ -13,6 +13,7 @@ import StudentNotificationsBell from '../components/StudentNotificationsBell';
+ import QuizTeacherCommentPopup from '../components/quizReflection/QuizTeacherCommentPopup';
+ import { useClassMomentAlerts } from '../hooks/useClassMomentAlerts';
+ import { classMomentDetailPath } from '../utils/classMomentPaths';
++import AlumniOnboarding from '../pages/alumni/AlumniOnboarding';
+ import '../components/classMoments/ClassMoments.css';
+ import './Dashboard.css';
+ import './MobileDashboard.css';
+@@ -42,6 +43,7 @@ export default function StudentDashboard() {
+   const [showParentInvite, setShowParentInvite] = useState(false);
+   const [showCompositionStatus, setShowCompositionStatus] = useState(false);
+   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
++  const [showOnboarding, setShowOnboarding] = useState(false);
+   const classesRef = useRef(null);
+   const classNowRef = useRef(null);
+
+@@ -85,6 +87,10 @@ export default function StudentDashboard() {
+       api.get('/admin/user-announcements', token).then(setAnnouncements).catch(() => {});
+       api.get('/class-moments/preview', token).then(setMomentPreview).catch(() => {});
+     }
++    
++    if (user?.role === 'student' && !localStorage.getItem('alumni_dismissed')) {
++      setShowOnboarding(true);
++    }
+   }, [token]);
+
+   // ── Quick note from query param ──
+@@ -280,6 +286,12 @@ export default function StudentDashboard() {
+       {showParentInvite && (
+         <ParentInviteModal token={token} selfStudentId={user.id} studentName={user.name} onClose={() => setShowParentInvite(false)} />
+       )}
++      
++      {showOnboarding && (
++        <AlumniOnboarding 
++          onClose={() => { setShowOnboarding(false); localStorage.setItem('alumni_dismissed', '1'); }} 
++          onComplete={() => setShowOnboarding(false)} 
++        />
++      )}
+
+       {showCompositionStatus && (
+         <CompositionStatusPanel token={token} openPickerInitially={statusPickerOpen} onClose={() => setShowCompositionStatus(false)} />
+       )}

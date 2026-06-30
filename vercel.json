@@ -1,13 +1,46 @@
 {
-  "experimentalServices": {
-    "frontend": {
-      "entrypoint": "frontend",
-      "routePrefix": "/",
-      "framework": "vite"
+  "buildCommand": "cd frontend && npm run build",
+  "outputDirectory": "frontend/dist",
+  "installCommand": "cd frontend && npm install",
+  "framework": null,
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://studentapi.umunsi.com/api/:path*"
     },
-    "backend": {
-      "entrypoint": "backend",
-      "routePrefix": "/_/backend"
+    {
+      "source": "/download/:path*",
+      "destination": "https://studentapi.umunsi.com/download/:path*"
+    },
+    {
+      "source": "/uploads/:path*",
+      "destination": "https://studentapi.umunsi.com/uploads/:path*"
+    },
+    {
+      "source": "/share/moment/:token/preview.jpg",
+      "destination": "https://studentapi.umunsi.com/share/moment/:token/preview.jpg"
+    },
+    {
+      "source": "/share/moment/:token",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(facebookexternalhit|Facebot|Twitterbot|WhatsApp|LinkedInBot|Slackbot|TelegramBot|Discordbot).*"
+        }
+      ],
+      "destination": "https://studentapi.umunsi.com/share/moment/:token"
+    },
+    { "source": "/((?!assets|uploads|favicon.ico).*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "X-XSS-Protection", "value": "1; mode=block" }
+      ]
     }
-  }
+  ]
 }
