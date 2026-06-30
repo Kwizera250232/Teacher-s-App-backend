@@ -635,6 +635,18 @@ CREATE TABLE IF NOT EXISTS alumni_feed_comments (
 );
 CREATE INDEX IF NOT EXISTS idx_feed_comments_post ON alumni_feed_comments(post_id);
 
+-- Feed post views (track who viewed each post)
+CREATE TABLE IF NOT EXISTS alumni_feed_views (
+  post_id INTEGER NOT NULL REFERENCES alumni_feed_posts(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  viewed_at TIMESTAMP DEFAULT NOW(),
+  PRIMARY KEY (post_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_feed_views_post ON alumni_feed_views(post_id);
+
+-- Add views_count column to alumni_feed_posts
+ALTER TABLE alumni_feed_posts ADD COLUMN IF NOT EXISTS views_count INTEGER DEFAULT 0;
+
 -- Alumni past papers (uploaded by admin/head_teacher for alumni practice)
 CREATE TABLE IF NOT EXISTS alumni_past_papers (
   id SERIAL PRIMARY KEY,

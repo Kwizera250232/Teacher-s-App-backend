@@ -3,6 +3,18 @@ const router = express.Router();
 const pool = require('../db');
 const { authenticateToken } = require('../middleware/auth');
 
+// Ensure feed views table and views_count column exist
+pool.query(`
+  CREATE TABLE IF NOT EXISTS alumni_feed_views (
+    post_id INTEGER NOT NULL REFERENCES alumni_feed_posts(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    viewed_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (post_id, user_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_feed_views_post ON alumni_feed_views(post_id);
+  ALTER TABLE alumni_feed_posts ADD COLUMN IF NOT EXISTS views_count INTEGER DEFAULT 0;
+`).catch((e) => console.warn('[alumni-social] views table:', e.message.slice(0, 80)));
+
 function audit(event, details) {
   console.log(JSON.stringify({ ts: new Date().toISOString(), event, ...details }));
 }
@@ -173,9 +185,47 @@ router.get('/feed', authenticateToken, async (req, res) => {
     }
     query += ` ORDER BY p.created_at DESC LIMIT 20`;
     const posts = await pool.query(query, params);
-    res.json(posts.rows);
+    res.json({ posts: posts.rows });
   } catch (err) {
     console.error('[alumni/feed]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// Get single feed post with comments (for post detail page)
+router.get('/feed/:id', authenticateToken, async (req, res) => {
+  try {
+    const postRes = await pool.query(
+      `SELECT p.*, u.name as author_name, u.email as author_email,
+        EXISTS(SELECT 1 FROM alumni_feed_likes l WHERE l.post_id=p.id AND l.user_id=$2) as liked_by_me
+       FROM alumni_feed_posts p
+       JOIN users u ON u.id=p.author_id
+       WHERE p.id=$1`, [req.params.id, req.user.id]
+    );
+    if (postRes.rows.length === 0) return res.status(404).json({ error: 'Post not found.' });
+    const post = postRes.rows[0];
+
+    // Track view — insert if not already viewed by this user
+    await pool.query(
+      `INSERT INTO alumni_feed_views (post_id, user_id) VALUES ($1,$2)
+       ON CONFLICT (post_id, user_id) DO UPDATE SET viewed_at=NOW()`,
+      [post.id, req.user.id]
+    ).catch(() => {});
+    // Update views_count
+    await pool.query(
+      `UPDATE alumni_feed_posts SET views_count=(SELECT COUNT(*) FROM alumni_feed_views WHERE post_id=$1) WHERE id=$1`,
+      [post.id]
+    ).catch(() => {});
+    post.views_count = await pool.query('SELECT COUNT(*)::int AS c FROM alumni_feed_views WHERE post_id=$1', [post.id]).then(r => r.rows[0].c).catch(() => 0);
+
+    const comments = await pool.query(
+      `SELECT c.*, u.name as author_name FROM alumni_feed_comments c
+       JOIN users u ON u.id=c.author_id WHERE c.post_id=$1 ORDER BY c.created_at ASC`,
+      [req.params.id]
+    );
+    res.json({ post, comments: comments.rows });
+  } catch (err) {
+    console.error('[alumni/feed/:id]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
@@ -184,10 +234,12 @@ router.get('/feed', authenticateToken, async (req, res) => {
 router.post('/feed', authenticateToken, async (req, res) => {
   const { content, image_paths, post_type } = req.body;
   try {
+    // image_paths in DB is TEXT[] — wrap single string in array
+    const imgArr = image_paths ? (Array.isArray(image_paths) ? image_paths : [image_paths]) : null;
     const result = await pool.query(
       `INSERT INTO alumni_feed_posts (author_id, content, image_paths, post_type)
        VALUES ($1,$2,$3,$4) RETURNING *`,
-      [req.user.id, content || null, image_paths || null, post_type || 'text']
+      [req.user.id, content || null, imgArr, post_type || (imgArr ? 'image' : 'text')]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -233,7 +285,7 @@ router.get('/feed/:id/comments', authenticateToken, async (req, res) => {
       WHERE c.post_id=$1
       ORDER BY c.created_at ASC
     `, [req.params.id]);
-    res.json(comments.rows);
+    res.json({ comments: comments.rows });
   } catch (err) {
     console.error('[alumni/feed/comments]', err);
     res.status(500).json({ error: 'Internal server error.' });
