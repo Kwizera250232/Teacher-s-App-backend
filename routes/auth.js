@@ -35,6 +35,8 @@ function userPayload(row) {
     school_id: row.school_id,
     is_approved: row.is_approved !== false,
     email_confirmed: row.email_confirmed !== false,
+    is_alumni: row.is_alumni === true,
+    graduation_year: row.graduation_year || null,
   };
   if (row.school_name) payload.school_name = row.school_name;
   return payload;

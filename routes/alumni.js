@@ -60,8 +60,13 @@ router.post('/join', authenticateToken, async (req, res) => {
       [user.id, yr, user.email.split('@')[0] + '-' + user.id]
     );
     await pool.query(`INSERT INTO alumni_wallets (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`, [user.id]);
+    // Remove from all class_members so they no longer appear in class lists
+    await pool.query('DELETE FROM class_members WHERE student_id=$1', [user.id]);
     audit('alumni_self_join', { user_id: req.user.id, year: yr });
-    res.json({ success: true, alumni: user });
+    // Generate new token with updated role
+    const jwt = require('jsonwebtoken');
+    const token = jwt.sign({ id: user.id, role: 'alumni', email: user.email }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    res.json({ success: true, alumni: user, token, user: { id: user.id, name: user.name, email: user.email, role: 'alumni', is_alumni: true, graduation_year: yr, school_id: user.school_id } });
   } catch (err) {
     console.error('[alumni/join]', err);
     res.status(500).json({ error: 'Internal server error.' });
@@ -88,6 +93,8 @@ router.post('/graduate', authenticateToken, requireRole('admin', 'head_teacher',
       [user.id, yr, user.email.split('@')[0] + '-' + user.id, user.class_id, user.school_id]
     );
     await pool.query(`INSERT INTO alumni_wallets (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`, [user.id]);
+    // Remove from all class_members so graduated student no longer appears in class lists
+    await pool.query('DELETE FROM class_members WHERE student_id=$1', [user.id]);
     audit('graduate_student', { by: req.user.id, student_id, year: yr });
     res.json({ success: true, alumni: user });
   } catch (err) {
@@ -113,6 +120,8 @@ router.post('/graduate-bulk', authenticateToken, requireRole('admin', 'head_teac
         [user.id, yr, user.email.split('@')[0] + '-' + user.id, user.class_id, user.school_id]
       );
       await pool.query(`INSERT INTO alumni_wallets (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`, [user.id]);
+      // Remove from all class_members so graduated students no longer appear in class lists
+      await pool.query('DELETE FROM class_members WHERE student_id=$1', [user.id]);
     }
     audit('graduate_bulk', { by: req.user.id, count: result.rows.length });
     res.json({ success: true, graduated: result.rows.length });
