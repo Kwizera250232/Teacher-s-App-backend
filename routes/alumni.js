@@ -609,4 +609,19 @@ router.delete('/admin/alumni/past-papers/:id', authenticateToken, requireRole('a
   }
 });
 
+// ── Dean AI Quizzes (for admin panel) ───────────────────────────────────────
+router.get('/dean-quizzes', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  try {
+    const quizzes = await pool.query(
+      `SELECT q.id, q.title, q.subject, q.grade_level, q.description, q.created_at,
+              (SELECT COUNT(*) FROM quiz_questions WHERE quiz_id = q.id) as question_count
+       FROM quizzes q ORDER BY q.created_at DESC LIMIT 50`
+    );
+    res.json({ quizzes: quizzes.rows });
+  } catch (err) {
+    console.error('[alumni/dean-quizzes]', err);
+    res.status(500).json({ error: 'Failed to load quizzes' });
+  }
+});
+
 module.exports = router;

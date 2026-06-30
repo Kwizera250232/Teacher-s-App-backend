@@ -268,4 +268,63 @@ router.delete('/feed/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// ── DIRECT MESSAGES (1-on-1 colleague chat) ────────────────────────────────
+
+// Ensure table exists
+pool.query(`
+  CREATE TABLE IF NOT EXISTS alumni_direct_messages (
+    id SERIAL PRIMARY KEY,
+    sender_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    receiver_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content TEXT,
+    image_path VARCHAR(500),
+    read_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_adm_sender ON alumni_direct_messages(sender_id);
+  CREATE INDEX IF NOT EXISTS idx_adm_receiver ON alumni_direct_messages(receiver_id);
+`).catch(() => {});
+
+// Get conversation between current user and target user
+router.get('/direct-messages/:userId', authenticateToken, async (req, res) => {
+  const otherId = parseInt(req.params.userId, 10);
+  try {
+    const msgs = await pool.query(
+      `SELECT * FROM alumni_direct_messages
+       WHERE (sender_id=$1 AND receiver_id=$2) OR (sender_id=$2 AND receiver_id=$1)
+       ORDER BY created_at ASC LIMIT 200`,
+      [req.user.id, otherId]
+    );
+    // Mark received messages as read
+    await pool.query(
+      `UPDATE alumni_direct_messages SET read_at=NOW() WHERE receiver_id=$1 AND sender_id=$2 AND read_at IS NULL`,
+      [req.user.id, otherId]
+    );
+    res.json({ messages: msgs.rows });
+  } catch (err) {
+    console.error('[alumni/direct-messages/get]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// Send a direct message
+router.post('/direct-messages/:userId', authenticateToken, async (req, res) => {
+  const otherId = parseInt(req.params.userId, 10);
+  const { content, image_path } = req.body;
+  if (!content?.trim() && !image_path) {
+    return res.status(400).json({ error: 'Message content or image required.' });
+  }
+  try {
+    const result = await pool.query(
+      `INSERT INTO alumni_direct_messages (sender_id, receiver_id, content, image_path)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [req.user.id, otherId, content?.trim() || null, image_path || null]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('[alumni/direct-messages/send]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 module.exports = router;
