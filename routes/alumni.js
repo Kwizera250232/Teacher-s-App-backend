@@ -192,7 +192,7 @@ router.put('/profile/me', authenticateToken, async (req, res) => {
   const allowed = ['bio','current_school_or_uni','current_location','skills','interests','languages',
     'social_links','portfolio_links','favorite_subject','favorite_teacher','favorite_teacher_reason',
     'favorite_club','dream_career','current_occupation','volunteer_experience','projects',
-    'certificates','awards','reading_list','learning_goals','personal_motto'];
+    'certificates','awards','reading_list','learning_goals','personal_motto','avatar_url'];
   const updates = {};
   for (const key of allowed) if (req.body[key] !== undefined) updates[key] = req.body[key];
   if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No valid fields.' });
@@ -219,16 +219,98 @@ router.get('/profile/:identifier', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT ap.*, u.name, u.email, u.role, u.school_id, s.name AS school_name,
-              u.graduation_year, u.graduated_at
+              u.graduation_year, u.graduated_at, u.class_id
        FROM users u LEFT JOIN alumni_profiles ap ON ap.user_id=u.id
        LEFT JOIN schools s ON s.id=u.school_id
        WHERE (u.id=$1 OR ap.username=$2) AND u.role='alumni'`,
       [!isNaN(identifier) ? parseInt(identifier) : 0, identifier]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Alumni not found.' });
-    res.json(result.rows[0]);
+    const profile = result.rows[0];
+    // Check if current user is following this profile
+    const followRes = await pool.query(
+      'SELECT 1 FROM alumni_follows WHERE follower_id=$1 AND following_id=$2',
+      [req.user.id, profile.user_id]
+    );
+    profile.is_following = followRes.rows.length > 0;
+    res.json(profile);
   } catch (err) {
     console.error('[alumni/profile/:id]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── Verification info (class joined, teacher, points) ──────────────────────
+router.get('/verify-info/:userId', authenticateToken, async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    const result = await pool.query(
+      `SELECT u.id, u.name, u.role, u.graduation_year, u.class_id,
+              c.name AS class_name, c.subject AS class_subject,
+              t.name AS teacher_name,
+              s.name AS school_name,
+              ap.followers_count, ap.total_compositions, ap.total_reads, ap.total_likes,
+              COALESCE(ap.total_rewards, 0) AS total_rewards,
+              (SELECT COALESCE(SUM(score), 0) FROM quiz_attempts WHERE student_id = u.id) AS quiz_points,
+              (SELECT COUNT(*) FROM homework_submissions WHERE student_id = u.id AND grade IS NOT NULL) AS homework_graded
+       FROM users u
+       LEFT JOIN classes c ON c.id = COALESCE(u.class_id, (SELECT class_id FROM alumni_profiles WHERE user_id = u.id))
+       LEFT JOIN users t ON t.id = c.teacher_id
+       LEFT JOIN schools s ON s.id = u.school_id
+       LEFT JOIN alumni_profiles ap ON ap.user_id = u.id
+       WHERE u.id = $1`,
+      [userId]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'User not found.' });
+    const info = result.rows[0];
+    const points = (info.quiz_points || 0) + (info.total_likes || 0) + (info.total_reads || 0) + (info.total_rewards || 0);
+    res.json({
+      ...info,
+      points,
+      verified: info.role === 'alumni' || info.role === 'student',
+    });
+  } catch (err) {
+    console.error('[alumni/verify-info]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── Upload avatar ───────────────────────────────────────────────────────────
+router.post('/profile/avatar', authenticateToken, requireRole('alumni', 'admin', 'head_teacher'), fileUpload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
+  try {
+    const url = `/uploads/files/${req.file.filename}`;
+    await pool.query(
+      `INSERT INTO alumni_profiles (user_id, cover_photo_path) VALUES ($1, $2)
+       ON CONFLICT (user_id) DO UPDATE SET cover_photo_path = EXCLUDED.cover_photo_path, updated_at = NOW()`,
+      [req.user.id, url]
+    );
+    res.json({ url });
+  } catch (err) {
+    console.error('[alumni/profile/avatar]', err);
+    res.status(500).json({ error: 'Failed to upload avatar.' });
+  }
+});
+
+// ── Suggested alumni ─────────────────────────────────────────────────────────
+router.get('/suggested-alumni', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT u.id, u.name, u.email, ap.bio, ap.current_occupation, ap.graduation_year,
+              s.name AS school_name,
+              ap.followers_count, ap.total_compositions,
+              EXISTS(SELECT 1 FROM alumni_follows f WHERE f.follower_id = $1 AND f.following_id = u.id) AS is_following
+       FROM users u
+       JOIN alumni_profiles ap ON ap.user_id = u.id
+       LEFT JOIN schools s ON s.id = u.school_id
+       WHERE u.role = 'alumni' AND u.id != $1
+       ORDER BY ap.followers_count DESC NULLS LAST, ap.total_compositions DESC NULLS LAST
+       LIMIT 8`,
+      [req.user.id]
+    );
+    res.json({ suggested: result.rows });
+  } catch (err) {
+    console.error('[alumni/suggested-alumni]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });

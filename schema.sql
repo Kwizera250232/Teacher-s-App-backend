@@ -295,6 +295,7 @@ CREATE TABLE IF NOT EXISTS alumni_profiles (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
   cover_photo_path VARCHAR(500),
+  avatar_url VARCHAR(500),
   username VARCHAR(50) UNIQUE,
   bio TEXT,
   current_school_or_uni VARCHAR(255),
