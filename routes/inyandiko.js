@@ -16,7 +16,7 @@ pool.query(`
     id SERIAL PRIMARY KEY,
     class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
     student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    doc_type VARCHAR(32) NOT NULL CHECK (doc_type IN ('commitment', 'school_report')),
+    doc_type VARCHAR(32) NOT NULL,
     title TEXT,
     file_path TEXT NOT NULL,
     file_name TEXT,

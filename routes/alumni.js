@@ -742,6 +742,7 @@ router.get('/primary-things', authenticateToken, requireRole('alumni', 'admin', 
 
     res.json({
       classInfo: {
+        class_id: classId,
         name: profile.class_name || 'My Class',
         subject: profile.class_subject,
         school_name: profile.school_name,
@@ -758,6 +759,184 @@ router.get('/primary-things', authenticateToken, requireRole('alumni', 'admin', 
   } catch (err) {
     console.error('[alumni/primary-things]', err);
     res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── Quiz detail for alumni (questions + their answers + correct answers) ────
+router.get('/quiz/:quizId/detail', authenticateToken, requireRole('alumni', 'admin', 'head_teacher'), async (req, res) => {
+  try {
+    const quizId = req.params.quizId;
+    const userId = req.user.id;
+
+    // Get quiz info
+    const quizRes = await pool.query(
+      `SELECT q.*, c.name AS class_name, c.subject AS class_subject
+       FROM quizzes q JOIN classes c ON c.id = q.class_id WHERE q.id = $1`,
+      [quizId]
+    );
+    if (quizRes.rows.length === 0) return res.status(404).json({ error: 'Quiz not found.' });
+    const quiz = quizRes.rows[0];
+
+    // Get questions
+    const questionsRes = await pool.query(
+      `SELECT id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, order_num
+       FROM quiz_questions WHERE quiz_id = $1 ORDER BY order_num`,
+      [quizId]
+    );
+
+    // Get student's best attempt
+    const attemptRes = await pool.query(
+      `SELECT * FROM quiz_attempts WHERE quiz_id = $1 AND student_id = $2 ORDER BY score DESC LIMIT 1`,
+      [quizId, userId]
+    );
+    const attempt = attemptRes.rows[0] || null;
+    const answers = attempt?.answers || {};
+
+    const optionMap = { a: 'option_a', b: 'option_b', c: 'option_c', d: 'option_d' };
+    const detailed = questionsRes.rows.map((q) => {
+      const studentAnswer = String(answers[String(q.id)] ?? '');
+      const correctAnswer = q.correct_answer;
+      const qtype = q.question_type || 'multiple_choice';
+      let isCorrect = false;
+      if (qtype === 'fill_blank') {
+        isCorrect = studentAnswer.trim().toLowerCase() === (correctAnswer || '').trim().toLowerCase();
+      } else {
+        isCorrect = studentAnswer.toLowerCase() === (correctAnswer || '').toLowerCase();
+      }
+      return {
+        id: q.id,
+        question: q.question,
+        option_a: q.option_a,
+        option_b: q.option_b,
+        option_c: q.option_c,
+        option_d: q.option_d,
+        correct_answer: q.correct_answer,
+        question_type: qtype,
+        student_answer: studentAnswer,
+        is_correct: isCorrect,
+      };
+    });
+
+    res.json({
+      quiz: { id: quiz.id, title: quiz.title, description: quiz.description, class_name: quiz.class_name, class_subject: quiz.class_subject, created_at: quiz.created_at },
+      attempt: attempt ? { score: attempt.score, total: attempt.total, attempted_at: attempt.attempted_at } : null,
+      questions: detailed,
+    });
+  } catch (err) {
+    console.error('[alumni/quiz/:quizId/detail]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── Homework detail for alumni (with their submission) ──────────────────────
+router.get('/homework/:hwId/detail', authenticateToken, requireRole('alumni', 'admin', 'head_teacher'), async (req, res) => {
+  try {
+    const hwId = req.params.hwId;
+    const userId = req.user.id;
+
+    const hwRes = await pool.query(
+      `SELECT hw.*, c.name AS class_name, c.subject AS class_subject
+       FROM homework hw JOIN classes c ON c.id = hw.class_id WHERE hw.id = $1`,
+      [hwId]
+    );
+    if (hwRes.rows.length === 0) return res.status(404).json({ error: 'Homework not found.' });
+    const hw = hwRes.rows[0];
+
+    const subRes = await pool.query(
+      `SELECT * FROM homework_submissions WHERE homework_id = $1 AND student_id = $2`,
+      [hwId, userId]
+    );
+    const submission = subRes.rows[0] || null;
+
+    res.json({
+      homework: { id: hw.id, title: hw.title, description: hw.description, due_date: hw.due_date, created_at: hw.created_at, file_path: hw.file_path, file_name: hw.file_name, class_name: hw.class_name, class_subject: hw.class_subject },
+      submission: submission ? { grade: submission.grade, feedback: submission.feedback, text_response: submission.text_response, file_path: submission.file_path, file_name: submission.file_name, submitted_at: submission.submitted_at, graded_at: submission.graded_at, teacher_answer: submission.teacher_answer } : null,
+    });
+  } catch (err) {
+    console.error('[alumni/homework/:hwId/detail]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── Inyandiko: alumni upload their own document ─────────────────────────────
+router.post('/inyandiko/upload', authenticateToken, requireRole('alumni', 'admin', 'head_teacher'), fileUpload.single('file'), async (req, res) => {
+  const { class_id, doc_type, title } = req.body;
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
+  if (!class_id) return res.status(400).json({ error: 'class_id is required.' });
+  const validTypes = ['commitment', 'school_report', 'other'];
+  if (!validTypes.includes(doc_type)) return res.status(400).json({ error: 'Invalid doc_type.' });
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO student_class_documents (class_id, student_id, doc_type, title, file_path, file_name)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [class_id, req.user.id, doc_type, title || null, `/uploads/files/${req.file.filename}`, req.file.filename]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('[alumni/inyandiko/upload]', err);
+    res.status(500).json({ error: 'Failed to upload document.' });
+  }
+});
+
+// ── Digital Library: admin add library item ─────────────────────────────────
+router.post('/admin/alumni/library-items', authenticateToken, requireRole('admin', 'head_teacher'), fileUpload.single('file'), async (req, res) => {
+  const { title, description, category, grade_level, subject, language, cover_image_path } = req.body;
+  if (!title) return res.status(400).json({ error: 'Title required.' });
+  const validCategories = ['primary_book','secondary_book','past_paper','revision_note','teacher_resource','university_resource','research_paper','career_guide','government_doc','other'];
+  if (!validCategories.includes(category)) return res.status(400).json({ error: 'Invalid category.' });
+
+  try {
+    const filePath = req.file ? `/uploads/files/${req.file.filename}` : null;
+    const result = await pool.query(
+      `INSERT INTO alumni_library_items (title, description, category, file_path, file_name, file_size, cover_image_path, uploader_id, grade_level, subject, language, is_approved, approved_by, approved_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,TRUE,$12,NOW()) RETURNING *`,
+      [title, description || null, category, filePath, req.file?.filename || null, req.file?.size || null, cover_image_path || null, req.user.id, grade_level || null, subject || null, language || null, req.user.id]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('[alumni/admin/library-items POST]', err);
+    res.status(500).json({ error: 'Failed to add library item.' });
+  }
+});
+
+// ── Digital Library: list all items ─────────────────────────────────────────
+router.get('/library-items', authenticateToken, async (req, res) => {
+  try {
+    const items = await pool.query(
+      `SELECT li.*, u.name AS uploader_name FROM alumni_library_items li
+       JOIN users u ON u.id = li.uploader_id
+       WHERE li.is_approved = TRUE ORDER BY li.created_at DESC`
+    );
+    res.json({ items: items.rows });
+  } catch (err) {
+    console.error('[alumni/library-items]', err);
+    res.status(500).json({ error: 'Failed to load library items.' });
+  }
+});
+
+// ── Digital Library: admin list (all, including unapproved) ─────────────────
+router.get('/admin/alumni/library-items', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  try {
+    const items = await pool.query(
+      `SELECT li.*, u.name AS uploader_name FROM alumni_library_items li
+       JOIN users u ON u.id = li.uploader_id ORDER BY li.created_at DESC`
+    );
+    res.json({ items: items.rows });
+  } catch (err) {
+    console.error('[alumni/admin/library-items GET]', err);
+    res.status(500).json({ error: 'Failed to load library items.' });
+  }
+});
+
+// ── Digital Library: admin delete item ──────────────────────────────────────
+router.delete('/admin/alumni/library-items/:id', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  try {
+    await pool.query('DELETE FROM alumni_library_items WHERE id=$1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[alumni/admin/library-items DELETE]', err);
+    res.status(500).json({ error: 'Failed to delete.' });
   }
 });
 
