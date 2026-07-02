@@ -672,3 +672,37 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS graduated_at TIMESTAMP;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS alumni_status VARCHAR(20) DEFAULT 'active' CHECK (alumni_status IN ('active','inactive','suspended'));
 
 -- Update role constraint to include alumni (will be handled by auth.js on startup)
+
+-- ── Daily Composition Challenges ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS composition_challenges (
+  id SERIAL PRIMARY KEY,
+  topic VARCHAR(500) NOT NULL,
+  prompt TEXT NOT NULL,
+  category VARCHAR(100) DEFAULT 'general',
+  min_words INTEGER DEFAULT 150,
+  max_words INTEGER DEFAULT 500,
+  guidelines TEXT,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS composition_submissions (
+  id SERIAL PRIMARY KEY,
+  challenge_id INTEGER NOT NULL REFERENCES composition_challenges(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title VARCHAR(255),
+  content TEXT NOT NULL,
+  word_count INTEGER DEFAULT 0,
+  gmail_address VARCHAR(255),
+  momo_number VARCHAR(20),
+  status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending','reviewed','amazing','rewarded','rejected')),
+  admin_feedback TEXT,
+  reward_amount INTEGER DEFAULT 0,
+  reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  reviewed_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_comp_submissions_user ON composition_submissions(user_id);
+CREATE INDEX IF NOT EXISTS idx_comp_submissions_status ON composition_submissions(status);
+CREATE INDEX IF NOT EXISTS idx_comp_submissions_challenge ON composition_submissions(challenge_id);

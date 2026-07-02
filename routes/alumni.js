@@ -1022,4 +1022,171 @@ router.delete('/admin/alumni/library-items/:id', authenticateToken, requireRole(
   }
 });
 
+// ── Daily Composition Challenges ─────────────────────────────────────────────
+
+// GET random active challenge for alumni
+router.get('/composition-challenge/random', authenticateToken, requireRole('alumni', 'admin', 'head_teacher'), async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM composition_challenges WHERE is_active = TRUE ORDER BY RANDOM() LIMIT 1`
+    );
+    if (result.rows.length === 0) return res.json({ challenge: null });
+    res.json({ challenge: result.rows[0] });
+  } catch (err) {
+    console.error('[alumni/challenge/random]', err);
+    res.status(500).json({ error: 'Failed to load challenge.' });
+  }
+});
+
+// GET today's challenge (deterministic — same for the day)
+router.get('/composition-challenge/today', authenticateToken, requireRole('alumni', 'admin', 'head_teacher'), async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM composition_challenges WHERE is_active = TRUE ORDER BY RANDOM() LIMIT 1`
+    );
+    if (result.rows.length === 0) return res.json({ challenge: null });
+    const challenge = result.rows[0];
+    // Check if user already submitted for this challenge
+    const submitted = await pool.query(
+      `SELECT id, status FROM composition_submissions WHERE challenge_id=$1 AND user_id=$2 ORDER BY created_at DESC LIMIT 1`,
+      [challenge.id, req.user.id]
+    );
+    res.json({ challenge, alreadySubmitted: submitted.rows[0] || null });
+  } catch (err) {
+    console.error('[alumni/challenge/today]', err);
+    res.status(500).json({ error: 'Failed to load challenge.' });
+  }
+});
+
+// POST submit a composition
+router.post('/composition-challenge/:challengeId/submit', authenticateToken, requireRole('alumni', 'admin', 'head_teacher'), async (req, res) => {
+  const { challengeId } = req.params;
+  const { title, content, gmail_address, momo_number } = req.body;
+  if (!content || content.trim().length < 50) return res.status(400).json({ error: 'Composition must be at least 50 characters.' });
+  try {
+    const wordCount = content.trim().split(/\s+/).length;
+    const result = await pool.query(
+      `INSERT INTO composition_submissions (challenge_id, user_id, title, content, word_count, gmail_address, momo_number, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'pending') RETURNING *`,
+      [challengeId, req.user.id, title || null, content, wordCount, gmail_address || null, momo_number || null]
+    );
+    res.json({ submission: result.rows[0] });
+  } catch (err) {
+    console.error('[alumni/challenge/submit]', err);
+    res.status(500).json({ error: 'Failed to submit composition.' });
+  }
+});
+
+// GET my submissions
+router.get('/composition-challenge/my-submissions', authenticateToken, requireRole('alumni', 'admin', 'head_teacher'), async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT s.*, c.topic, c.category, c.prompt FROM composition_submissions s
+       JOIN composition_challenges c ON c.id = s.challenge_id
+       WHERE s.user_id = $1 ORDER BY s.created_at DESC`,
+      [req.user.id]
+    );
+    res.json({ submissions: result.rows });
+  } catch (err) {
+    console.error('[alumni/challenge/my-submissions]', err);
+    res.status(500).json({ error: 'Failed to load submissions.' });
+  }
+});
+
+// ── Admin: manage challenges ─────────────────────────────────────────────────
+
+// GET all challenges (admin)
+router.get('/admin/composition-challenges', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  try {
+    const result = await pool.query(`SELECT * FROM composition_challenges ORDER BY created_at DESC`);
+    res.json({ challenges: result.rows });
+  } catch (err) {
+    console.error('[alumni/admin/challenges]', err);
+    res.status(500).json({ error: 'Failed to load challenges.' });
+  }
+});
+
+// POST create challenge (admin)
+router.post('/admin/composition-challenges', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  const { topic, prompt, category, guidelines, min_words, max_words } = req.body;
+  if (!topic || !prompt) return res.status(400).json({ error: 'Topic and prompt are required.' });
+  try {
+    const result = await pool.query(
+      `INSERT INTO composition_challenges (topic, prompt, category, guidelines, min_words, max_words, is_active, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,TRUE,$7) RETURNING *`,
+      [topic, prompt, category || 'general', guidelines || null, min_words || 150, max_words || 500, req.user.id]
+    );
+    res.json({ challenge: result.rows[0] });
+  } catch (err) {
+    console.error('[alumni/admin/challenges/create]', err);
+    res.status(500).json({ error: 'Failed to create challenge.' });
+  }
+});
+
+// PUT toggle challenge active status (admin)
+router.put('/admin/composition-challenges/:id/toggle', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  try {
+    const result = await pool.query(
+      `UPDATE composition_challenges SET is_active = NOT is_active WHERE id=$1 RETURNING *`,
+      [req.params.id]
+    );
+    res.json({ challenge: result.rows[0] });
+  } catch (err) {
+    console.error('[alumni/admin/challenges/toggle]', err);
+    res.status(500).json({ error: 'Failed to toggle challenge.' });
+  }
+});
+
+// DELETE challenge (admin)
+router.delete('/admin/composition-challenges/:id', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  try {
+    await pool.query('DELETE FROM composition_challenges WHERE id=$1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[alumni/admin/challenges/delete]', err);
+    res.status(500).json({ error: 'Failed to delete challenge.' });
+  }
+});
+
+// GET all submissions (admin)
+router.get('/admin/composition-submissions', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  try {
+    const { status } = req.query;
+    const filter = status ? `WHERE s.status = $1` : '';
+    const params = status ? [status] : [];
+    const result = await pool.query(
+      `SELECT s.*, c.topic, c.category, c.prompt, u.name AS author_name, u.email AS author_email
+       FROM composition_submissions s
+       JOIN composition_challenges c ON c.id = s.challenge_id
+       JOIN users u ON u.id = s.user_id
+       ${filter} ORDER BY s.created_at DESC`,
+      params
+    );
+    res.json({ submissions: result.rows });
+  } catch (err) {
+    console.error('[alumni/admin/submissions]', err);
+    res.status(500).json({ error: 'Failed to load submissions.' });
+  }
+});
+
+// PUT review submission (admin) — mark as amazing/reviewed/rejected + set reward
+router.put('/admin/composition-submissions/:id/review', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  const { status, admin_feedback, reward_amount } = req.body;
+  if (!['pending','reviewed','amazing','rewarded','rejected'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status.' });
+  }
+  try {
+    const result = await pool.query(
+      `UPDATE composition_submissions
+       SET status=$1, admin_feedback=$2, reward_amount=$3, reviewed_by=$4, reviewed_at=NOW()
+       WHERE id=$5 RETURNING *`,
+      [status, admin_feedback || null, reward_amount || 0, req.user.id, req.params.id]
+    );
+    res.json({ submission: result.rows[0] });
+  } catch (err) {
+    console.error('[alumni/admin/submissions/review]', err);
+    res.status(500).json({ error: 'Failed to review submission.' });
+  }
+});
+
 module.exports = router;
