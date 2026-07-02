@@ -1061,14 +1061,14 @@ router.get('/composition-challenge/today', authenticateToken, requireRole('alumn
 // POST submit a composition
 router.post('/composition-challenge/:challengeId/submit', authenticateToken, requireRole('alumni', 'admin', 'head_teacher'), async (req, res) => {
   const { challengeId } = req.params;
-  const { title, content, gmail_address, momo_number } = req.body;
+  const { title, content, gmail_address, momo_number, names } = req.body;
   if (!content || content.trim().length < 50) return res.status(400).json({ error: 'Composition must be at least 50 characters.' });
   try {
     const wordCount = content.trim().split(/\s+/).length;
     const result = await pool.query(
-      `INSERT INTO composition_submissions (challenge_id, user_id, title, content, word_count, gmail_address, momo_number, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'pending') RETURNING *`,
-      [challengeId, req.user.id, title || null, content, wordCount, gmail_address || null, momo_number || null]
+      `INSERT INTO composition_submissions (challenge_id, user_id, title, content, word_count, gmail_address, momo_number, names, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending') RETURNING *`,
+      [challengeId, req.user.id, title || null, content, wordCount, gmail_address || null, momo_number || null, names || null]
     );
     res.json({ submission: result.rows[0] });
   } catch (err) {
