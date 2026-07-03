@@ -166,6 +166,70 @@ router.post('/groups/:id/messages', authenticateToken, async (req, res) => {
   }
 });
 
+// ── ALUMNI STORIES ─────────────────────────────────────────────────────────
+
+router.get('/stories', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT s.*, u.name as author_name, u.avatar_url,
+        EXISTS(SELECT 1 FROM alumni_story_views v WHERE v.story_id=s.id AND v.user_id=$1) as viewed_by_me
+       FROM alumni_stories s
+       JOIN users u ON u.id=s.user_id
+       WHERE s.expires_at > NOW()
+       ORDER BY s.created_at DESC
+       LIMIT 100`,
+      [req.user.id]
+    );
+    res.json({ stories: result.rows });
+  } catch (err) {
+    console.error('[alumni/stories]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.post('/stories', authenticateToken, requireRole('alumni', 'admin', 'head_teacher', 'student'), async (req, res) => {
+  const { content, media_url, background_color } = req.body;
+  if (!content && !media_url) return res.status(400).json({ error: 'Content or media required.' });
+  try {
+    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const result = await pool.query(
+      `INSERT INTO alumni_stories (user_id, content, media_url, background_color, expires_at)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [req.user.id, content || null, media_url || null, background_color || '#7c3aed', expires]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('[alumni/stories/create]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.post('/stories/:id/view', authenticateToken, async (req, res) => {
+  try {
+    await pool.query(
+      `INSERT INTO alumni_story_views (story_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+      [req.params.id, req.user.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[alumni/stories/view]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.delete('/stories/:id', authenticateToken, async (req, res) => {
+  try {
+    await pool.query(
+      `DELETE FROM alumni_stories WHERE id=$1 AND user_id=$2`,
+      [req.params.id, req.user.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[alumni/stories/delete]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // ── ALUMNI FEED ────────────────────────────────────────────────────────────
 
 // Get feed posts
@@ -173,10 +237,12 @@ router.get('/feed', authenticateToken, async (req, res) => {
   const { cursor } = req.query;
   try {
     let query = `
-      SELECT p.*, u.name as author_name, u.email as author_email,
+      SELECT p.*, u.name as author_name, u.email as author_email, u.graduation_year,
+        s.name as school_name,
         EXISTS(SELECT 1 FROM alumni_feed_likes l WHERE l.post_id=p.id AND l.user_id=$1) as liked_by_me
       FROM alumni_feed_posts p
       JOIN users u ON u.id=p.author_id
+      LEFT JOIN schools s ON s.id=u.school_id
     `;
     const params = [req.user.id];
     if (cursor) {
@@ -196,10 +262,12 @@ router.get('/feed', authenticateToken, async (req, res) => {
 router.get('/feed/:id', authenticateToken, async (req, res) => {
   try {
     const postRes = await pool.query(
-      `SELECT p.*, u.name as author_name, u.email as author_email,
+      `SELECT p.*, u.name as author_name, u.email as author_email, u.graduation_year,
+        s.name as school_name,
         EXISTS(SELECT 1 FROM alumni_feed_likes l WHERE l.post_id=p.id AND l.user_id=$2) as liked_by_me
        FROM alumni_feed_posts p
        JOIN users u ON u.id=p.author_id
+       LEFT JOIN schools s ON s.id=u.school_id
        WHERE p.id=$1`, [req.params.id, req.user.id]
     );
     if (postRes.rows.length === 0) return res.status(404).json({ error: 'Post not found.' });
@@ -236,12 +304,21 @@ router.post('/feed', authenticateToken, async (req, res) => {
   try {
     // image_paths in DB is TEXT[] — wrap single string in array
     const imgArr = image_paths ? (Array.isArray(image_paths) ? image_paths : [image_paths]) : null;
-    const result = await pool.query(
+    const insertRes = await pool.query(
       `INSERT INTO alumni_feed_posts (author_id, content, image_paths, post_type)
        VALUES ($1,$2,$3,$4) RETURNING *`,
       [req.user.id, content || null, imgArr, post_type || (imgArr ? 'image' : 'text')]
     );
-    res.status(201).json(result.rows[0]);
+    const post = insertRes.rows[0];
+    const enrichRes = await pool.query(
+      `SELECT p.*, u.name as author_name, u.email as author_email, u.graduation_year,
+        s.name as school_name
+       FROM alumni_feed_posts p
+       JOIN users u ON u.id=p.author_id
+       LEFT JOIN schools s ON s.id=u.school_id
+       WHERE p.id=$1`, [post.id]
+    );
+    res.status(201).json(enrichRes.rows[0] || post);
   } catch (err) {
     console.error('[alumni/feed/create]', err);
     res.status(500).json({ error: 'Internal server error.' });

@@ -196,8 +196,29 @@ CREATE TABLE IF NOT EXISTS alumni_recognitions (
   description TEXT,
   awarded_at TIMESTAMP DEFAULT NOW()
 );
+ALTER TABLE alumni_recognitions ADD COLUMN IF NOT EXISTS school_id INTEGER REFERENCES schools(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_recognitions_user ON alumni_recognitions(user_id);
 CREATE INDEX IF NOT EXISTS idx_recognitions_badge ON alumni_recognitions(badge_type);
+
+CREATE TABLE IF NOT EXISTS alumni_stories (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT,
+  media_url TEXT,
+  background_color VARCHAR(20) DEFAULT '#7c3aed',
+  expires_at TIMESTAMP NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_alumni_stories_user ON alumni_stories(user_id);
+CREATE INDEX IF NOT EXISTS idx_alumni_stories_expires ON alumni_stories(expires_at);
+CREATE INDEX IF NOT EXISTS idx_alumni_stories_active ON alumni_stories(expires_at) WHERE expires_at > NOW();
+
+CREATE TABLE IF NOT EXISTS alumni_story_views (
+  story_id INTEGER NOT NULL REFERENCES alumni_stories(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  viewed_at TIMESTAMP DEFAULT NOW(),
+  PRIMARY KEY (story_id, user_id)
+);
 
 CREATE TABLE IF NOT EXISTS alumni_groups (
   id SERIAL PRIMARY KEY,
