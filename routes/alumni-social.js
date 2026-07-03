@@ -234,7 +234,7 @@ router.delete('/stories/:id', authenticateToken, async (req, res) => {
 
 // Get feed posts
 router.get('/feed', authenticateToken, async (req, res) => {
-  const { cursor } = req.query;
+  const { cursor, author_id } = req.query;
   try {
     let query = `
       SELECT p.*, u.name as author_name, u.email as author_email, u.graduation_year,
@@ -245,9 +245,17 @@ router.get('/feed', authenticateToken, async (req, res) => {
       LEFT JOIN schools s ON s.id=u.school_id
     `;
     const params = [req.user.id];
+    const filters = [];
     if (cursor) {
-      query += ` WHERE p.id < $2`;
+      filters.push(`p.id < $${params.length + 1}`);
       params.push(cursor);
+    }
+    if (author_id) {
+      filters.push(`p.author_id = $${params.length + 1}`);
+      params.push(author_id);
+    }
+    if (filters.length) {
+      query += ` WHERE ${filters.join(' AND ')}`;
     }
     query += ` ORDER BY p.created_at DESC LIMIT 20`;
     const posts = await pool.query(query, params);
