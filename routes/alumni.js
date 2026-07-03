@@ -222,7 +222,7 @@ router.get('/profile/:identifier', authenticateToken, async (req, res) => {
               u.graduation_year, u.graduated_at, u.class_id
        FROM users u LEFT JOIN alumni_profiles ap ON ap.user_id=u.id
        LEFT JOIN schools s ON s.id=u.school_id
-       WHERE (u.id=$1 OR ap.username=$2) AND u.role='alumni'`,
+       WHERE (u.id=$1 OR ap.username=$2)`,
       [!isNaN(identifier) ? parseInt(identifier) : 0, identifier]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Alumni not found.' });
