@@ -26,6 +26,10 @@ pool.query(`
     created_at TIMESTAMP DEFAULT NOW(),
     UNIQUE(post_id, user_id)
   );
+  CREATE TABLE IF NOT EXISTS user_online_status (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    last_seen TIMESTAMP DEFAULT NOW()
+  );
 `).catch((e) => console.warn('[alumni-social] schema fix:', e.message.slice(0, 120)));
 
 // Migrate user_id -> author_id in alumni_feed_comments if needed
@@ -255,14 +259,70 @@ router.delete('/stories/:id', authenticateToken, async (req, res) => {
 
 // ── ALUMNI FEED ────────────────────────────────────────────────────────────
 
+// ── ONLINE STATUS ───────────────────────────────────────────────────────────
+
+// Heartbeat — update last_seen
+router.post('/online/heartbeat', authenticateToken, async (req, res) => {
+  try {
+    await pool.query(
+      `INSERT INTO user_online_status (user_id, last_seen) VALUES ($1, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET last_seen=NOW()`,
+      [req.user.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// Get online status for a list of user IDs (or all alumni)
+router.get('/online/status', authenticateToken, async (req, res) => {
+  const { user_ids } = req.query;
+  try {
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+    let result;
+    if (user_ids) {
+      const ids = String(user_ids).split(',').map(Number).filter(Boolean);
+      if (ids.length === 0) return res.json({ online: [], offline: [] });
+      result = await pool.query(
+        `SELECT user_id, last_seen,
+         (last_seen > $2) as is_online
+         FROM user_online_status WHERE user_id = ANY($1::int[])
+         ORDER BY last_seen DESC`,
+        [ids, fiveMinAgo]
+      );
+    } else {
+      result = await pool.query(
+        `SELECT s.user_id, s.last_seen,
+         (s.last_seen > $1) as is_online,
+         u.name, u.avatar_url, u.role, u.graduation_year
+         FROM user_online_status s
+         JOIN users u ON u.id = s.user_id
+         WHERE u.role IN ('alumni','admin','head_teacher')
+         ORDER BY s.last_seen DESC LIMIT 200`,
+        [fiveMinAgo]
+      );
+    }
+    const online = result.rows.filter(r => r.is_online);
+    const offline = result.rows.filter(r => !r.is_online);
+    res.json({ online, offline });
+  } catch (err) {
+    console.error('[alumni/online/status]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // Get feed posts
 router.get('/feed', authenticateToken, async (req, res) => {
   const { cursor, author_id } = req.query;
   try {
     let query = `
       SELECT p.*, u.name as author_name, u.email as author_email, u.graduation_year,
+        u.avatar_url as author_avatar,
         s.name as school_name,
-        EXISTS(SELECT 1 FROM alumni_feed_likes l WHERE l.post_id=p.id AND l.user_id=$1) as liked_by_me
+        EXISTS(SELECT 1 FROM alumni_feed_likes l WHERE l.post_id=p.id AND l.user_id=$1) as liked_by_me,
+        (SELECT COUNT(*)::int FROM alumni_feed_views v WHERE v.post_id=p.id) as views_count,
+        EXISTS(SELECT 1 FROM user_online_status os WHERE os.user_id=p.author_id AND os.last_seen > NOW() - INTERVAL '5 minutes') as author_online
       FROM alumni_feed_posts p
       JOIN users u ON u.id=p.author_id
       LEFT JOIN schools s ON s.id=u.school_id
@@ -367,6 +427,44 @@ router.post('/feed/:id/like', authenticateToken, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('[alumni/feed/like]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// Get likers of a post
+router.get('/feed/:id/likers', authenticateToken, async (req, res) => {
+  try {
+    const likers = await pool.query(
+      `SELECT l.user_id, u.name, u.avatar_url, u.graduation_year, u.role,
+              s.name as school_name,
+              EXISTS(SELECT 1 FROM user_online_status os WHERE os.user_id=l.user_id AND os.last_seen > NOW() - INTERVAL '5 minutes') as is_online
+       FROM alumni_feed_likes l
+       JOIN users u ON u.id=l.user_id
+       LEFT JOIN schools s ON s.id=u.school_id
+       WHERE l.post_id=$1 ORDER BY l.created_at DESC`,
+      [req.params.id]
+    );
+    res.json({ likers: likers.rows });
+  } catch (err) {
+    console.error('[alumni/feed/likers]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// Get viewers of a post
+router.get('/feed/:id/viewers', authenticateToken, async (req, res) => {
+  try {
+    const viewers = await pool.query(
+      `SELECT v.user_id, u.name, u.avatar_url, u.graduation_year, v.viewed_at,
+              EXISTS(SELECT 1 FROM user_online_status os WHERE os.user_id=v.user_id AND os.last_seen > NOW() - INTERVAL '5 minutes') as is_online
+       FROM alumni_feed_views v
+       JOIN users u ON u.id=v.user_id
+       WHERE v.post_id=$1 ORDER BY v.viewed_at DESC`,
+      [req.params.id]
+    );
+    res.json({ viewers: viewers.rows });
+  } catch (err) {
+    console.error('[alumni/feed/viewers]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
