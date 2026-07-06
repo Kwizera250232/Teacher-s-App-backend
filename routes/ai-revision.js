@@ -23,6 +23,10 @@ pool.query(`
     grade_label VARCHAR(5),
     answers JSONB,
     ai_feedback TEXT,
+    summary_notes TEXT,
+    reflection_difficulty TEXT,
+    reflection_improvement TEXT,
+    reflection_question TEXT,
     time_taken_seconds INTEGER,
     started_at TIMESTAMP DEFAULT NOW(),
     completed_at TIMESTAMP
@@ -30,6 +34,12 @@ pool.query(`
   CREATE INDEX IF NOT EXISTS idx_ai_rev_student ON ai_revision_sessions(student_id);
   CREATE INDEX IF NOT EXISTS idx_ai_rev_subject ON ai_revision_sessions(subject);
 `).catch(e => console.error('[ai-revision] schema:', e.message));
+
+// Add columns if they don't exist (for existing tables)
+pool.query(`ALTER TABLE ai_revision_sessions ADD COLUMN IF NOT EXISTS summary_notes TEXT`).catch(() => {});
+pool.query(`ALTER TABLE ai_revision_sessions ADD COLUMN IF NOT EXISTS reflection_difficulty TEXT`).catch(() => {});
+pool.query(`ALTER TABLE ai_revision_sessions ADD COLUMN IF NOT EXISTS reflection_improvement TEXT`).catch(() => {});
+pool.query(`ALTER TABLE ai_revision_sessions ADD COLUMN IF NOT EXISTS reflection_question TEXT`).catch(() => {});
 
 // ── Gemini AI helper ──────────────────────────────────────────────────────────
 async function callGemini(prompt, maxTokens = 1024) {
@@ -353,14 +363,48 @@ Keep it encouraging and specific. Use simple English that a ${session.grade} stu
       aiFeedback = `You scored ${percentage}%. ${performanceLevel} performance. ${percentage >= 60 ? 'Keep up the good work!' : 'Keep practicing to improve your scores.'} ${wrongCount > 0 ? `Review the ${wrongCount} questions you got wrong and try again.` : ''}`;
     }
 
+    // Generate AI summary notes for difficult topics
+    let summaryNotes = '';
+    try {
+      const wrongFull = detailed.filter(d => !d.is_correct);
+      if (wrongFull.length > 0) {
+        const wrongList = wrongFull.map(d =>
+          `Question: ${d.question}\nCorrect answer: ${d.correct_answer}\nYour answer: ${d.student_answer || '(blank)'}\nType: ${d.question_type}`
+        ).join('\n---\n');
+
+        const notesPrompt = `You are an education AI assistant creating study notes for a ${session.grade} student in ${session.subject}. The student got these questions wrong on a quiz. Create concise summary notes (max 400 words) that explain the concepts they struggled with.
+
+Wrong questions:
+${wrongList}
+
+Format the notes as:
+## Summary Notes: Difficult Topics
+
+For each topic/concept the student struggled with:
+- Topic name as a heading (##)
+- Brief explanation of the concept (2-3 sentences)
+- Key points to remember (bullet points)
+- A simple example
+
+End with "### Next Steps" and 2-3 specific study recommendations.
+Use simple English that a ${session.grade} student can understand.`;
+
+        summaryNotes = await callGemini(notesPrompt, 1200);
+      } else {
+        summaryNotes = '## Summary Notes\n\nExcellent work! You answered all questions correctly. No difficult topics to review. Keep up the great work!';
+      }
+    } catch (e) {
+      console.error('[ai-revision/summary-notes]', e.message);
+    }
+
     // Update session
     await pool.query(
       `UPDATE ai_revision_sessions
        SET score=$1, total=$2, percentage=$3, grade_label=$4, answers=$5,
-           ai_feedback=$6, time_taken_seconds=$7, completed_at=NOW()
-       WHERE id=$8`,
+           ai_feedback=$6, summary_notes=$7, time_taken_seconds=$8, completed_at=NOW()
+       WHERE id=$9`,
       [score, total, percentage, gradeLabel, JSON.stringify(answers), aiFeedback,
-       time_taken_seconds || null, session_id]
+       summaryNotes, time_taken_seconds || null, session_id]
     );
 
     res.json({
@@ -372,6 +416,7 @@ Keep it encouraging and specific. Use simple English that a ${session.grade} stu
       performance_level: performanceLevel,
       detailed,
       ai_feedback: aiFeedback,
+      summary_notes: summaryNotes,
       correct_count: score,
       wrong_count: wrongCount,
     });
@@ -381,12 +426,35 @@ Keep it encouraging and specific. Use simple English that a ${session.grade} stu
   }
 });
 
+// ── POST reflection after quiz ───────────────────────────────────────────────
+router.post('/reflection', authenticateToken, requireRole('student', 'alumni'), async (req, res) => {
+  const { session_id, difficulty, improvement, student_question } = req.body;
+  if (!session_id) {
+    return res.status(400).json({ error: 'Session ID is required.' });
+  }
+  try {
+    const result = await pool.query(
+      `UPDATE ai_revision_sessions
+       SET reflection_difficulty=$1, reflection_improvement=$2, reflection_question=$3
+       WHERE id=$4 AND student_id=$5 RETURNING id`,
+      [difficulty || null, improvement || null, student_question || null, session_id, req.user.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Session not found.' });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[ai-revision/reflection]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // ── GET progress history ──────────────────────────────────────────────────────
 router.get('/progress', authenticateToken, requireRole('student', 'alumni'), async (req, res) => {
   try {
     const sessions = await pool.query(
       `SELECT id, subject, quiz_type, difficulty, score, total, percentage, grade_label,
-              ai_feedback, time_taken_seconds, started_at, completed_at
+              ai_feedback, summary_notes, time_taken_seconds, started_at, completed_at
        FROM ai_revision_sessions
        WHERE student_id=$1 AND completed_at IS NOT NULL
        ORDER BY completed_at DESC LIMIT 50`,
