@@ -1,0 +1,566 @@
+const express = require('express');
+const pool = require('../db');
+const { authenticateToken, requireRole } = require('../middleware/auth');
+
+const router = express.Router();
+
+// ── Schema migration (safe to run on existing DB) ────────────────────────────
+pool.query(`
+  CREATE TABLE IF NOT EXISTS ai_revision_sessions (
+    id SERIAL PRIMARY KEY,
+    student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    education_level VARCHAR(20) NOT NULL,
+    grade VARCHAR(20) NOT NULL,
+    subject VARCHAR(100) NOT NULL,
+    quiz_type VARCHAR(50) NOT NULL,
+    difficulty VARCHAR(20) NOT NULL,
+    num_questions INTEGER NOT NULL,
+    question_ids INTEGER[] NOT NULL,
+    source_quiz_ids INTEGER[] NOT NULL,
+    score INTEGER DEFAULT 0,
+    total INTEGER DEFAULT 0,
+    percentage INTEGER DEFAULT 0,
+    grade_label VARCHAR(5),
+    answers JSONB,
+    ai_feedback TEXT,
+    time_taken_seconds INTEGER,
+    started_at TIMESTAMP DEFAULT NOW(),
+    completed_at TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_ai_rev_student ON ai_revision_sessions(student_id);
+  CREATE INDEX IF NOT EXISTS idx_ai_rev_subject ON ai_revision_sessions(subject);
+`).catch(e => console.error('[ai-revision] schema:', e.message));
+
+// ── Gemini AI helper ──────────────────────────────────────────────────────────
+async function callGemini(prompt, maxTokens = 1024) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY not configured');
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: maxTokens, temperature: 0.4 },
+    }),
+  });
+  if (!res.ok) throw new Error(`Gemini API error: ${res.status}`);
+  const data = await res.json();
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+}
+
+// ── GET subjects and grades available ─────────────────────────────────────────
+router.get('/options', authenticateToken, async (req, res) => {
+  try {
+    const subjects = await pool.query(
+      `SELECT DISTINCT c.subject FROM classes c
+       JOIN class_members cm ON cm.class_id = c.id
+       WHERE cm.student_id = $1 AND c.subject IS NOT NULL
+       ORDER BY c.subject`,
+      [req.user.id]
+    );
+    const classes = await pool.query(
+      `SELECT c.id, c.name, c.subject FROM classes c
+       JOIN class_members cm ON cm.class_id = c.id
+       WHERE cm.student_id = $1 ORDER BY c.name`,
+      [req.user.id]
+    );
+    res.json({
+      subjects: subjects.rows.map(r => r.subject),
+      classes: classes.rows,
+    });
+  } catch (err) {
+    console.error('[ai-revision/options]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── POST generate a revision quiz ─────────────────────────────────────────────
+router.post('/generate', authenticateToken, requireRole('student'), async (req, res) => {
+  const { education_level, grade, subject, quiz_type, difficulty, num_questions } = req.body;
+
+  if (!education_level || !grade || !subject || !quiz_type || !difficulty || !num_questions) {
+    return res.status(400).json({ error: 'All selection fields are required.' });
+  }
+
+  const targetCount = Math.min(Math.max(parseInt(num_questions) || 10, 5), 100);
+
+  try {
+    // Find the student's classes that match the subject
+    const studentClasses = await pool.query(
+      `SELECT c.id, c.name, c.subject FROM classes c
+       JOIN class_members cm ON cm.class_id = c.id
+       WHERE cm.student_id = $1 AND c.subject ILIKE $2
+       ORDER BY c.name`,
+      [req.user.id, `%${subject}%`]
+    );
+
+    const classIds = studentClasses.rows.map(c => c.id);
+
+    // Also search all classes with matching subject (broader pool for revision)
+    const allMatchingClasses = await pool.query(
+      `SELECT id FROM classes WHERE subject ILIKE $1`,
+      [`%${subject}%`]
+    );
+    const allClassIds = allMatchingClasses.rows.map(c => c.id);
+
+    // Search pool: all class IDs with matching subject
+    const searchClassIds = allClassIds.length > 0 ? allClassIds : classIds;
+    if (searchClassIds.length === 0) {
+      return res.status(404).json({ error: 'No quizzes found for this subject. Ask your teacher to create some quizzes first!' });
+    }
+
+    // Build the question query based on quiz_type
+    let quizFilter = '';
+    let queryParams = [searchClassIds];
+
+    if (quiz_type === 'past_papers') {
+      // Prioritize quizzes whose title suggests past papers / national exams
+      quizFilter = `AND (q.title ILIKE '%past%' OR q.title ILIKE '%exam%' OR q.title ILIKE '%national%' OR q.title ILIKE '%paper%')`;
+    } else if (quiz_type === 'practice') {
+      quizFilter = `AND (q.title NOT ILIKE '%past%' AND q.title NOT ILIKE '%exam%' AND q.title NOT ILIKE '%national%')`;
+    }
+    // mixed_revision and topic_based: no extra filter
+
+    // Fetch questions from matching quizzes
+    const questionsRes = await pool.query(
+      `SELECT qq.id, qq.question, qq.option_a, qq.option_b, qq.option_c, qq.option_d,
+              qq.correct_answer, qq.question_type, qq.passage, qq.order_num,
+              q.id as quiz_id, q.title as quiz_title, q.class_id
+       FROM quiz_questions qq
+       JOIN quizzes q ON q.id = qq.quiz_id
+       WHERE q.class_id = ANY($1::int[]) ${quizFilter}
+       ORDER BY RANDOM()
+       LIMIT $2`,
+      [searchClassIds, targetCount * 3] // fetch more than needed for filtering
+    );
+
+    let questions = questionsRes.rows;
+
+    if (questions.length === 0) {
+      // Fallback: try without the quiz_type filter
+      const fallbackRes = await pool.query(
+        `SELECT qq.id, qq.question, qq.option_a, qq.option_b, qq.option_c, qq.option_d,
+                qq.correct_answer, qq.question_type, qq.passage, qq.order_num,
+                q.id as quiz_id, q.title as quiz_title, q.class_id
+         FROM quiz_questions qq
+         JOIN quizzes q ON q.id = qq.quiz_id
+         WHERE q.class_id = ANY($1::int[])
+         ORDER BY RANDOM()
+         LIMIT $2`,
+        [searchClassIds, targetCount]
+      );
+      questions = fallbackRes.rows;
+    }
+
+    if (questions.length === 0) {
+      return res.status(404).json({ error: 'No questions available for this subject yet. Your teachers need to create some quizzes first!' });
+    }
+
+    // Difficulty filtering (simple heuristic: shuffle and pick)
+    // In a real system, questions would have a difficulty tag. For now, we use randomization.
+    // Shuffle questions
+    questions = questions.sort(() => Math.random() - 0.5);
+
+    // Limit to target count
+    const selectedQuestions = questions.slice(0, targetCount);
+
+    // Re-number questions
+    const numberedQuestions = selectedQuestions.map((q, i) => ({
+      ...q,
+      display_number: i + 1,
+    }));
+
+    // Collect source quiz IDs
+    const sourceQuizIds = [...new Set(selectedQuestions.map(q => q.quiz_id))];
+
+    // Create a session record
+    const sessionRes = await pool.query(
+      `INSERT INTO ai_revision_sessions
+       (student_id, education_level, grade, subject, quiz_type, difficulty, num_questions, question_ids, source_quiz_ids)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      [
+        req.user.id, education_level, grade, subject, quiz_type, difficulty,
+        selectedQuestions.length,
+        selectedQuestions.map(q => q.id),
+        sourceQuizIds,
+      ]
+    );
+    const sessionId = sessionRes.rows[0].id;
+
+    // Strip correct_answer from questions sent to frontend
+    const safeQuestions = numberedQuestions.map(q => ({
+      id: q.id,
+      question: q.question,
+      option_a: q.option_a,
+      option_b: q.option_b,
+      option_c: q.option_c,
+      option_d: q.option_d,
+      question_type: q.question_type,
+      passage: q.passage,
+      display_number: q.display_number,
+      quiz_title: q.quiz_title,
+    }));
+
+    res.json({
+      session_id: sessionId,
+      questions: safeQuestions,
+      source_quizzes: sourceQuizIds.length,
+      total_questions: safeQuestions.length,
+    });
+  } catch (err) {
+    console.error('[ai-revision/generate]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── POST submit revision quiz ─────────────────────────────────────────────────
+router.post('/submit', authenticateToken, requireRole('student'), async (req, res) => {
+  const { session_id, answers, time_taken_seconds } = req.body;
+
+  if (!session_id || !answers || typeof answers !== 'object') {
+    return res.status(400).json({ error: 'Session ID and answers are required.' });
+  }
+
+  try {
+    // Get the session
+    const sessionRes = await pool.query(
+      'SELECT * FROM ai_revision_sessions WHERE id=$1 AND student_id=$2',
+      [session_id, req.user.id]
+    );
+    if (sessionRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Session not found.' });
+    }
+    const session = sessionRes.rows[0];
+
+    if (session.completed_at) {
+      return res.status(409).json({ error: 'This revision session has already been submitted.' });
+    }
+
+    // Get the questions with correct answers
+    const questionIds = session.question_ids;
+    const questionsRes = await pool.query(
+      `SELECT id, question, option_a, option_b, option_c, option_d,
+              correct_answer, question_type, passage, order_num
+       FROM quiz_questions WHERE id = ANY($1::int[])`,
+      [questionIds]
+    );
+
+    // Build a map for ordering by original question_ids order
+    const qMap = {};
+    questionsRes.rows.forEach(q => { qMap[q.id] = q; });
+
+    let score = 0;
+    const detailed = [];
+
+    for (let i = 0; i < questionIds.length; i++) {
+      const qid = questionIds[i];
+      const q = qMap[qid];
+      if (!q) continue;
+
+      const given = String(answers[qid] ?? '');
+      const correct = q.correct_answer;
+      let isCorrect = false;
+
+      if (q.question_type === 'fill_blank') {
+        isCorrect = given.trim().toLowerCase() === (correct || '').trim().toLowerCase();
+      } else if (q.question_type === 'matching') {
+        try {
+          const pairs = JSON.parse(q.passage || '[]');
+          const givenParts = given.split('|');
+          isCorrect = pairs.length > 0 && pairs.every((pair, idx) =>
+            (givenParts[idx] || '').trim().toLowerCase() === pair.right.trim().toLowerCase()
+          );
+        } catch { isCorrect = false; }
+      } else {
+        isCorrect = given.toLowerCase() === (correct || '').toLowerCase();
+      }
+
+      if (isCorrect) score++;
+
+      detailed.push({
+        question_id: q.id,
+        number: i + 1,
+        question: q.question,
+        option_a: q.option_a,
+        option_b: q.option_b,
+        option_c: q.option_c,
+        option_d: q.option_d,
+        correct_answer: q.correct_answer,
+        student_answer: given,
+        question_type: q.question_type,
+        passage: q.passage,
+        is_correct: isCorrect,
+      });
+    }
+
+    const total = questionIds.length;
+    const percentage = total > 0 ? Math.round((score / total) * 100) : 0;
+
+    // Determine grade
+    let gradeLabel = 'F';
+    if (percentage >= 90) gradeLabel = 'A+';
+    else if (percentage >= 80) gradeLabel = 'A';
+    else if (percentage >= 70) gradeLabel = 'B';
+    else if (percentage >= 60) gradeLabel = 'C';
+    else if (percentage >= 50) gradeLabel = 'D';
+    else if (percentage >= 40) gradeLabel = 'E';
+
+    // Performance level
+    let performanceLevel = 'Needs Improvement';
+    if (percentage >= 90) performanceLevel = 'Excellent';
+    else if (percentage >= 75) performanceLevel = 'Very Good';
+    else if (percentage >= 60) performanceLevel = 'Good';
+    else if (percentage >= 40) performanceLevel = 'Fair';
+
+    // Generate AI feedback using Gemini
+    let aiFeedback = '';
+    try {
+      const wrongQuestions = detailed.filter(d => !d.is_correct).map(d =>
+        `Q${d.number}: ${d.question?.substring(0, 100)}... (Correct: ${d.correct_answer})`
+      );
+      const correctQuestions = detailed.filter(d => d.is_correct).length;
+
+      const prompt = `You are an education AI assistant for Rwandan students. Analyze this quiz result and give personalized feedback in English (max 200 words).
+
+Student: ${session.education_level} ${session.grade}, Subject: ${session.subject}
+Score: ${score}/${total} (${percentage}%) - Grade: ${gradeLabel}
+Correct: ${correctQuestions}, Wrong: ${wrongQuestions.length}
+
+Questions the student got wrong:
+${wrongQuestions.join('\n') || 'None - perfect score!'}
+
+Provide:
+1. Overall performance summary (1 sentence)
+2. Strong areas (if any)
+3. Weak areas that need improvement
+4. Specific recommendation for next steps
+
+Keep it encouraging and specific. Use simple English that a ${session.grade} student can understand.`;
+
+      aiFeedback = await callGemini(prompt, 800);
+    } catch (e) {
+      console.error('[ai-revision/feedback]', e.message);
+      // Fallback feedback without AI
+      aiFeedback = `You scored ${percentage}%. ${performanceLevel} performance. ${percentage >= 60 ? 'Keep up the good work!' : 'Keep practicing to improve your scores.'} ${wrongCount > 0 ? `Review the ${wrongCount} questions you got wrong and try again.` : ''}`;
+    }
+
+    const wrongCount = total - score;
+
+    // Update session
+    await pool.query(
+      `UPDATE ai_revision_sessions
+       SET score=$1, total=$2, percentage=$3, grade_label=$4, answers=$5,
+           ai_feedback=$6, time_taken_seconds=$7, completed_at=NOW()
+       WHERE id=$8`,
+      [score, total, percentage, gradeLabel, JSON.stringify(answers), aiFeedback,
+       time_taken_seconds || null, session_id]
+    );
+
+    res.json({
+      session_id,
+      score,
+      total,
+      percentage,
+      grade: gradeLabel,
+      performance_level: performanceLevel,
+      detailed,
+      ai_feedback: aiFeedback,
+      correct_count: score,
+      wrong_count: wrongCount,
+    });
+  } catch (err) {
+    console.error('[ai-revision/submit]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── GET progress history ──────────────────────────────────────────────────────
+router.get('/progress', authenticateToken, requireRole('student'), async (req, res) => {
+  try {
+    const sessions = await pool.query(
+      `SELECT id, subject, quiz_type, difficulty, score, total, percentage, grade_label,
+              ai_feedback, time_taken_seconds, started_at, completed_at
+       FROM ai_revision_sessions
+       WHERE student_id=$1 AND completed_at IS NOT NULL
+       ORDER BY completed_at DESC LIMIT 50`,
+      [req.user.id]
+    );
+
+    // Compute stats
+    const all = sessions.rows;
+    const totalAttempts = all.length;
+    const avgScore = totalAttempts > 0 ? Math.round(all.reduce((s, r) => s + r.percentage, 0) / totalAttempts) : 0;
+    const bestScore = totalAttempts > 0 ? Math.max(...all.map(r => r.percentage)) : 0;
+
+    // Subject breakdown
+    const subjectMap = {};
+    all.forEach(r => {
+      if (!subjectMap[r.subject]) subjectMap[r.subject] = { total: 0, scores: [] };
+      subjectMap[r.subject].total++;
+      subjectMap[r.subject].scores.push(r.percentage);
+    });
+
+    const subjectStats = Object.entries(subjectMap).map(([subject, data]) => ({
+      subject,
+      attempts: data.total,
+      average: Math.round(data.scores.reduce((a, b) => a + b, 0) / data.total),
+      best: Math.max(...data.scores),
+    })).sort((a, b) => b.attempts - a.attempts);
+
+    // Strongest and weakest subjects
+    const sorted = [...subjectStats].sort((a, b) => b.average - a.average);
+    const strongest = sorted.filter(s => s.average >= 60).slice(0, 3);
+    const weakest = sorted.filter(s => s.average < 60).slice(-3).reverse();
+
+    // Progress over time (chronological)
+    const chronological = [...all].reverse().map(r => ({
+      date: r.completed_at,
+      percentage: r.percentage,
+      subject: r.subject,
+    }));
+
+    res.json({
+      sessions: all,
+      stats: {
+        total_attempts: totalAttempts,
+        average_score: avgScore,
+        best_score: bestScore,
+        subject_stats: subjectStats,
+        strongest_subjects: strongest,
+        weakest_subjects: weakest,
+        progress_over_time: chronological,
+      },
+    });
+  } catch (err) {
+    console.error('[ai-revision/progress]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── GET single session result ─────────────────────────────────────────────────
+router.get('/result/:sessionId', authenticateToken, requireRole('student'), async (req, res) => {
+  try {
+    const sessionRes = await pool.query(
+      `SELECT * FROM ai_revision_sessions WHERE id=$1 AND student_id=$2`,
+      [req.params.sessionId, req.user.id]
+    );
+    if (sessionRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Session not found.' });
+    }
+    const session = sessionRes.rows[0];
+
+    // Get questions with details
+    const questionsRes = await pool.query(
+      `SELECT id, question, option_a, option_b, option_c, option_d,
+              correct_answer, question_type, passage, order_num
+       FROM quiz_questions WHERE id = ANY($1::int[])`,
+      [session.question_ids]
+    );
+    const qMap = {};
+    questionsRes.rows.forEach(q => { qMap[q.id] = q; });
+
+    const detailed = session.question_ids.map((qid, i) => {
+      const q = qMap[qid];
+      if (!q) return null;
+      const given = String((session.answers || {})[qid] ?? '');
+      let isCorrect = false;
+      if (q.question_type === 'fill_blank') {
+        isCorrect = given.trim().toLowerCase() === (q.correct_answer || '').trim().toLowerCase();
+      } else if (q.question_type === 'matching') {
+        try {
+          const pairs = JSON.parse(q.passage || '[]');
+          const givenParts = given.split('|');
+          isCorrect = pairs.length > 0 && pairs.every((pair, idx) =>
+            (givenParts[idx] || '').trim().toLowerCase() === pair.right.trim().toLowerCase()
+          );
+        } catch { isCorrect = false; }
+      } else {
+        isCorrect = given.toLowerCase() === (q.correct_answer || '').toLowerCase();
+      }
+      return {
+        question_id: q.id,
+        number: i + 1,
+        question: q.question,
+        option_a: q.option_a,
+        option_b: q.option_b,
+        option_c: q.option_c,
+        option_d: q.option_d,
+        correct_answer: q.correct_answer,
+        student_answer: given,
+        question_type: q.question_type,
+        passage: q.passage,
+        is_correct: isCorrect,
+      };
+    }).filter(Boolean);
+
+    res.json({
+      ...session,
+      detailed,
+    });
+  } catch (err) {
+    console.error('[ai-revision/result]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── GET adaptive recommendation ───────────────────────────────────────────────
+router.get('/recommend', authenticateToken, requireRole('student'), async (req, res) => {
+  try {
+    // Get recent sessions
+    const recent = await pool.query(
+      `SELECT subject, percentage, quiz_type, difficulty FROM ai_revision_sessions
+       WHERE student_id=$1 AND completed_at IS NOT NULL
+       ORDER BY completed_at DESC LIMIT 10`,
+      [req.user.id]
+    );
+
+    if (recent.rows.length === 0) {
+      return res.json({
+        recommended_difficulty: 'mixed',
+        recommended_subject: null,
+        reason: 'Take your first revision quiz to get personalized recommendations!',
+        recommended_count: 10,
+      });
+    }
+
+    // Find weakest subject
+    const subjectMap = {};
+    recent.rows.forEach(r => {
+      if (!subjectMap[r.subject]) subjectMap[r.subject] = { total: 0, scores: [] };
+      subjectMap[r.subject].total++;
+      subjectMap[r.subject].scores.push(r.percentage);
+    });
+
+    const subjectAvgs = Object.entries(subjectMap).map(([subject, data]) => ({
+      subject,
+      average: Math.round(data.scores.reduce((a, b) => a + b, 0) / data.total),
+    }));
+
+    const weakest = subjectAvgs.sort((a, b) => a.average - b.average)[0];
+    const strongest = subjectAvgs.sort((a, b) => b.average - a.average)[0];
+
+    // Recommend difficulty based on recent performance
+    const recentAvg = Math.round(recent.rows.reduce((s, r) => s + r.percentage, 0) / recent.rows.length);
+    let recommendedDifficulty = 'mixed';
+    if (recentAvg < 50) recommendedDifficulty = 'easy';
+    else if (recentAvg >= 85) recommendedDifficulty = 'hard';
+
+    const reason = `Based on your recent ${recent.rows.length} attempts (avg ${recentAvg}%), we recommend ${recommendedDifficulty === 'mixed' ? 'a mix of' : recommendedDifficulty} questions${weakest ? ` in ${weakest.subject} where you average ${weakest.average}%` : ''}.`;
+
+    res.json({
+      recommended_difficulty: recommendedDifficulty,
+      recommended_subject: weakest?.subject || null,
+      recommended_count: recentAvg < 50 ? 20 : 10,
+      reason,
+      recent_average: recentAvg,
+      weakest_subject: weakest,
+      strongest_subject: strongest,
+    });
+  } catch (err) {
+    console.error('[ai-revision/recommend]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+module.exports = router;
