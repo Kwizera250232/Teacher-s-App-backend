@@ -13,7 +13,30 @@ pool.query(`
   );
   CREATE INDEX IF NOT EXISTS idx_feed_views_post ON alumni_feed_views(post_id);
   ALTER TABLE alumni_feed_posts ADD COLUMN IF NOT EXISTS views_count INTEGER DEFAULT 0;
-`).catch((e) => console.warn('[alumni-social] views table:', e.message.slice(0, 80)));
+  ALTER TABLE alumni_feed_posts ADD COLUMN IF NOT EXISTS likes_count INTEGER DEFAULT 0;
+  ALTER TABLE alumni_feed_posts ADD COLUMN IF NOT EXISTS comments_count INTEGER DEFAULT 0;
+  ALTER TABLE alumni_feed_comments ADD COLUMN IF NOT EXISTS author_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
+  ALTER TABLE alumni_feed_comments ADD COLUMN IF NOT EXISTS content TEXT;
+  ALTER TABLE alumni_feed_comments ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
+  CREATE TABLE IF NOT EXISTS alumni_feed_reactions (
+    id SERIAL PRIMARY KEY,
+    post_id INTEGER NOT NULL REFERENCES alumni_feed_posts(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    emoji VARCHAR(20) NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(post_id, user_id)
+  );
+`).catch((e) => console.warn('[alumni-social] schema fix:', e.message.slice(0, 120)));
+
+// Migrate user_id -> author_id in alumni_feed_comments if needed
+pool.query(`
+  DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='alumni_feed_comments' AND column_name='user_id') THEN
+      UPDATE alumni_feed_comments SET author_id = user_id WHERE author_id IS NULL AND user_id IS NOT NULL;
+    END IF;
+  END $$;
+`).catch((e) => console.warn('[alumni-social] migrate comments:', e.message.slice(0, 120)));
 
 function audit(event, details) {
   console.log(JSON.stringify({ ts: new Date().toISOString(), event, ...details }));
@@ -390,6 +413,23 @@ router.post('/feed/:id/comments', authenticateToken, async (req, res) => {
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('[alumni/feed/comment]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// React to a post (emoji)
+router.post('/feed/:id/reaction', authenticateToken, async (req, res) => {
+  const { emoji } = req.body;
+  if (!emoji) return res.status(400).json({ error: 'Emoji required.' });
+  try {
+    await pool.query(
+      `INSERT INTO alumni_feed_reactions (post_id, user_id, emoji) VALUES ($1,$2,$3)
+       ON CONFLICT (post_id, user_id) DO UPDATE SET emoji=EXCLUDED.emoji`,
+      [req.params.id, req.user.id, emoji]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[alumni/feed/reaction]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
