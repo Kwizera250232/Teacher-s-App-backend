@@ -183,7 +183,7 @@ router.get('/:id', auth, async (req, res) => {
     const targetId = parseInt(req.params.id);
     if (Number.isNaN(targetId) || targetId <= 0) return res.status(400).json({ error: 'Invalid user ID.' });
 
-    // Allow only if they share a class (or requester is admin)
+    // Allow only if they share a class (or requester is admin, or both are alumni)
     const shared = await pool.query(
       `SELECT 1 FROM class_members cm1
        JOIN class_members cm2 ON cm1.class_id = cm2.class_id
@@ -196,9 +196,20 @@ router.get('/:id', auth, async (req, res) => {
       [req.user.id, targetId]
     );
     if (!shared.rowCount && req.user.role !== 'admin') {
-      const mayView = await canUsersMessage(req.user.id, targetId, req.user.role);
-      if (!mayView) {
-        return res.status(403).json({ error: 'Not in the same class.' });
+      // Allow alumni to view other alumni profiles
+      if (req.user.role === 'alumni') {
+        const targetRole = await pool.query('SELECT role FROM users WHERE id=$1', [targetId]);
+        if (targetRole.rows[0]?.role !== 'alumni') {
+          const mayView = await canUsersMessage(req.user.id, targetId, req.user.role);
+          if (!mayView) {
+            return res.status(403).json({ error: 'Not in the same class.' });
+          }
+        }
+      } else {
+        const mayView = await canUsersMessage(req.user.id, targetId, req.user.role);
+        if (!mayView) {
+          return res.status(403).json({ error: 'Not in the same class.' });
+        }
       }
     }
     const result = await pool.query(
@@ -272,6 +283,7 @@ router.post('/me/avatar', auth, avatarLimiter, upload.single('avatar'), async (r
        ON CONFLICT (user_id) DO UPDATE SET avatar_path = EXCLUDED.avatar_path, updated_at = NOW()`,
       [req.user.id, avatarPath]
     );
+    await pool.query(`UPDATE users SET avatar_url=$1 WHERE id=$2`, [avatarPath, req.user.id]);
     res.json({ avatar_path: avatarPath });
   } catch (err) {
     console.error('Avatar upload error:', err);

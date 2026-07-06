@@ -288,6 +288,7 @@ router.post('/profile/avatar', authenticateToken, requireRole('alumni', 'admin',
        ON CONFLICT (user_id) DO UPDATE SET cover_photo_path = EXCLUDED.cover_photo_path, updated_at = NOW()`,
       [req.user.id, url]
     );
+    await pool.query(`UPDATE users SET avatar_url=$1 WHERE id=$2`, [url, req.user.id]);
     res.json({ url });
   } catch (err) {
     console.error('[alumni/profile/avatar]', err);
