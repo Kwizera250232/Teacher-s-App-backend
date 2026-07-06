@@ -277,7 +277,7 @@ router.post('/submit', authenticateToken, requireRole('student', 'alumni'), asyn
           isCorrect = pairs.length > 0 && pairs.every((pair, idx) =>
             (givenParts[idx] || '').trim().toLowerCase() === pair.right.trim().toLowerCase()
           );
-        } catch { isCorrect = false; }
+        } catch (e) { isCorrect = false; }
       } else {
         isCorrect = given.toLowerCase() === (correct || '').toLowerCase();
       }
@@ -319,6 +319,8 @@ router.post('/submit', authenticateToken, requireRole('student', 'alumni'), asyn
     else if (percentage >= 60) performanceLevel = 'Good';
     else if (percentage >= 40) performanceLevel = 'Fair';
 
+    const wrongCount = total - score;
+
     // Generate AI feedback using Gemini
     let aiFeedback = '';
     try {
@@ -350,8 +352,6 @@ Keep it encouraging and specific. Use simple English that a ${session.grade} stu
       // Fallback feedback without AI
       aiFeedback = `You scored ${percentage}%. ${performanceLevel} performance. ${percentage >= 60 ? 'Keep up the good work!' : 'Keep practicing to improve your scores.'} ${wrongCount > 0 ? `Review the ${wrongCount} questions you got wrong and try again.` : ''}`;
     }
-
-    const wrongCount = total - score;
 
     // Update session
     await pool.query(
@@ -480,7 +480,7 @@ router.get('/result/:sessionId', authenticateToken, requireRole('student', 'alum
           isCorrect = pairs.length > 0 && pairs.every((pair, idx) =>
             (givenParts[idx] || '').trim().toLowerCase() === pair.right.trim().toLowerCase()
           );
-        } catch { isCorrect = false; }
+        } catch (e) { isCorrect = false; }
       } else {
         isCorrect = given.toLowerCase() === (q.correct_answer || '').toLowerCase();
       }
