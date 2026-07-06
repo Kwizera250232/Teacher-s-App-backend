@@ -22,7 +22,7 @@ const fileUpload = multer({
   storage: fileStorage,
   limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowed = ['.pdf', '.epub', '.doc', '.docx', '.jpg', '.jpeg', '.png', '.gif'];
+    const allowed = ['.pdf', '.epub', '.doc', '.docx', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.heif', '.bmp', '.svg'];
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowed.includes(ext)) cb(null, true);
     else cb(new Error('Only PDF, EPUB, DOC, DOCX, and image files allowed.'));
@@ -49,15 +49,18 @@ router.post('/join', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
       `UPDATE users SET role='alumni', is_alumni=TRUE, graduation_year=$1, graduated_at=NOW(), alumni_status='active'
-       WHERE id=$2 AND role='student' RETURNING id, name, email, graduation_year, graduated_at, school_id`,
+       WHERE id=$2 AND role='student' RETURNING id, name, email, graduation_year, graduated_at, school_id, class_id`,
       [yr, req.user.id]
     );
     if (result.rows.length === 0) return res.status(400).json({ error: 'Already an alumni or not a student.' });
     const user = result.rows[0];
+    // Fetch class_id from class_members before deleting (fallback if users.class_id is null)
+    const cmRes = await pool.query('SELECT class_id FROM class_members WHERE student_id=$1 LIMIT 1', [req.user.id]);
+    const finalClassId = user.class_id || (cmRes.rows[0] && cmRes.rows[0].class_id) || null;
     await pool.query(
-      `INSERT INTO alumni_profiles (user_id, graduation_year, username)
-       VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET graduation_year=EXCLUDED.graduation_year`,
-      [user.id, yr, user.email.split('@')[0] + '-' + user.id]
+      `INSERT INTO alumni_profiles (user_id, graduation_year, username, class_id)
+       VALUES ($1, $2, $3, $4) ON CONFLICT (user_id) DO UPDATE SET graduation_year=EXCLUDED.graduation_year, class_id=COALESCE(alumni_profiles.class_id, EXCLUDED.class_id)`,
+      [user.id, yr, user.email.split('@')[0] + '-' + user.id, finalClassId]
     );
     await pool.query(`INSERT INTO alumni_wallets (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`, [user.id]);
     // Remove from all class_members so they no longer appear in class lists
@@ -723,7 +726,20 @@ router.get('/primary-things', authenticateToken, requireRole('alumni', 'admin', 
     );
     if (profileRes.rows.length === 0) return res.status(404).json({ error: 'Profile not found.' });
     const profile = profileRes.rows[0];
-    const classId = profile.class_id || profile.user_class_id;
+    let classId = profile.class_id || profile.user_class_id;
+    // Fallback: find class_id from past quiz attempts or homework submissions
+    if (!classId) {
+      const fallbackRes = await pool.query(
+        `SELECT class_id FROM quizzes WHERE id IN
+           (SELECT quiz_id FROM quiz_attempts WHERE student_id=$1)
+         UNION
+         SELECT class_id FROM homework WHERE id IN
+           (SELECT homework_id FROM homework_submissions WHERE student_id=$1)
+         LIMIT 1`,
+        [userId]
+      );
+      if (fallbackRes.rows.length > 0) classId = fallbackRes.rows[0].class_id;
+    }
     if (!classId) return res.json({ classInfo: null, quizzes: [], homework: [], notes: [], announcements: [], leaderboard: [], discussions: [], cstatus: [], inyandiko: [] });
 
     // Fetch all data in parallel — using student_id directly, no class_members check
@@ -822,11 +838,22 @@ router.get('/primary-things', authenticateToken, requireRole('alumni', 'admin', 
       ).catch(() => ({ rows: [] })),
     ]);
 
+    // If class info is missing (fallback case), fetch it
+    let classInfoName = profile.class_name;
+    let classInfoSubject = profile.class_subject;
+    if (!classInfoName && classId) {
+      const clsRes = await pool.query('SELECT name, subject FROM classes WHERE id=$1', [classId]);
+      if (clsRes.rows.length > 0) {
+        classInfoName = clsRes.rows[0].name;
+        classInfoSubject = clsRes.rows[0].subject;
+      }
+    }
+
     res.json({
       classInfo: {
         class_id: classId,
-        name: profile.class_name || 'My Class',
-        subject: profile.class_subject,
+        name: classInfoName || 'My Class',
+        subject: classInfoSubject,
         school_name: profile.school_name,
       },
       quizzes: quizzesRes.rows,
