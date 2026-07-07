@@ -101,7 +101,7 @@ router.get('/options', authenticateToken, async (req, res) => {
 });
 
 // ── POST generate a revision quiz ─────────────────────────────────────────────
-router.post('/generate', authenticateToken, requireRole('student', 'alumni'), async (req, res) => {
+router.post('/generate', authenticateToken, requireRole('student', 'alumni', 'teacher', 'guest'), async (req, res) => {
   const { education_level, grade, subject, quiz_type, difficulty, num_questions } = req.body;
 
   if (!education_level || !grade || !subject || !quiz_type || !difficulty || !num_questions) {
@@ -240,7 +240,7 @@ router.post('/generate', authenticateToken, requireRole('student', 'alumni'), as
 });
 
 // ── POST submit revision quiz ─────────────────────────────────────────────────
-router.post('/submit', authenticateToken, requireRole('student', 'alumni'), async (req, res) => {
+router.post('/submit', authenticateToken, requireRole('student', 'alumni', 'teacher', 'guest'), async (req, res) => {
   const { session_id, answers, time_taken_seconds } = req.body;
 
   if (!session_id || !answers || typeof answers !== 'object') {
@@ -436,7 +436,7 @@ Use simple English that a ${session.grade} student can understand.`;
 });
 
 // ── POST reflection after quiz ───────────────────────────────────────────────
-router.post('/reflection', authenticateToken, requireRole('student', 'alumni'), async (req, res) => {
+router.post('/reflection', authenticateToken, requireRole('student', 'alumni', 'teacher', 'guest'), async (req, res) => {
   const { session_id, difficulty, improvement, student_question } = req.body;
   if (!session_id) {
     return res.status(400).json({ error: 'Session ID is required.' });
@@ -459,7 +459,7 @@ router.post('/reflection', authenticateToken, requireRole('student', 'alumni'), 
 });
 
 // ── GET progress history ──────────────────────────────────────────────────────
-router.get('/progress', authenticateToken, requireRole('student', 'alumni'), async (req, res) => {
+router.get('/progress', authenticateToken, requireRole('student', 'alumni', 'teacher', 'guest'), async (req, res) => {
   try {
     const sessions = await pool.query(
       `SELECT id, subject, quiz_type, difficulty, score, total, percentage, grade_label,
@@ -522,7 +522,7 @@ router.get('/progress', authenticateToken, requireRole('student', 'alumni'), asy
 });
 
 // ── GET single session result ─────────────────────────────────────────────────
-router.get('/result/:sessionId', authenticateToken, requireRole('student', 'alumni'), async (req, res) => {
+router.get('/result/:sessionId', authenticateToken, requireRole('student', 'alumni', 'teacher', 'guest'), async (req, res) => {
   try {
     const sessionRes = await pool.query(
       `SELECT * FROM ai_revision_sessions WHERE id=$1 AND student_id=$2`,
@@ -588,7 +588,7 @@ router.get('/result/:sessionId', authenticateToken, requireRole('student', 'alum
 });
 
 // ── GET adaptive recommendation ───────────────────────────────────────────────
-router.get('/recommend', authenticateToken, requireRole('student', 'alumni'), async (req, res) => {
+router.get('/recommend', authenticateToken, requireRole('student', 'alumni', 'teacher', 'guest'), async (req, res) => {
   try {
     // Get recent sessions
     const recent = await pool.query(
