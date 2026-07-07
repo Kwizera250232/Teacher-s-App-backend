@@ -681,7 +681,7 @@ router.get('/share/:token', async (req, res) => {
   try {
     const session = await pool.query(
       `SELECT s.subject, s.grade, s.quiz_type, s.difficulty, s.score, s.total, s.percentage,
-              s.grade_letter, s.performance_level, s.share_token,
+              s.grade_letter, s.performance_level, s.share_token, s.education_level, s.num_questions,
               u.name as student_name
        FROM ai_revision_sessions s
        JOIN users u ON u.id = s.student_id
@@ -689,9 +689,39 @@ router.get('/share/:token', async (req, res) => {
       [req.params.token]
     );
     if (session.rows.length === 0) return res.status(404).json({ error: 'Shared quiz not found.' });
-    res.json(session.rows[0]);
+    const s = session.rows[0];
+    // If no completed_at, it's a quiz config share (no results yet)
+    const isQuizOnly = s.score === null && s.total === null;
+    res.json({
+      ...s,
+      is_quiz_only: isQuizOnly,
+    });
   } catch (err) {
     console.error('[ai-revision/share/:token]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── Share quiz config (no session needed) ───────────────────────────────────
+router.post('/share-quiz', authenticateToken, async (req, res) => {
+  const { education_level, grade, subject, quiz_type, difficulty, num_questions } = req.body;
+  if (!subject || !grade) return res.status(400).json({ error: 'Subject and grade required.' });
+  try {
+    const crypto = require('crypto');
+    const shareToken = crypto.randomBytes(16).toString('hex');
+    // Store in ai_revision_sessions with a placeholder (no answers, not completed)
+    const result = await pool.query(
+      `INSERT INTO ai_revision_sessions (student_id, education_level, subject, quiz_type, difficulty, grade, num_questions, share_token, is_shared, started_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,TRUE,NOW()) RETURNING id`,
+      [req.user.id, education_level || 'secondary', subject, quiz_type || 'mixed_revision', difficulty || 'mixed', grade, num_questions || 10, shareToken]
+    );
+    res.json({
+      share_token: shareToken,
+      share_url: `${process.env.FRONTEND_URL || 'https://student.umunsi.com'}/ai-revision/share/${shareToken}`,
+      session_id: result.rows[0].id,
+    });
+  } catch (err) {
+    console.error('[ai-revision/share-quiz]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
