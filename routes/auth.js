@@ -37,6 +37,10 @@ function userPayload(row) {
     email_confirmed: row.email_confirmed !== false,
     is_alumni: row.is_alumni === true,
     graduation_year: row.graduation_year || null,
+    district: row.district || null,
+    sector: row.sector || null,
+    school_name_text: row.school_name_text || null,
+    is_external: row.is_external === true,
   };
   if (row.school_name) payload.school_name = row.school_name;
   return payload;
@@ -469,6 +473,13 @@ router.post('/register', authLimiter, async (req, res) => {
   const newSchoolName = (req.body.new_school_name || '').trim();
   const newSchoolLocation = (req.body.new_school_location || '').trim();
   const staffSchoolName = (req.body.staff_school_name || req.body.school_name || '').trim();
+  const district = (req.body.district || '').trim();
+  const sector = (req.body.sector || '').trim();
+  const parentGmail = (req.body.parent_gmail || '').trim().toLowerCase();
+  const parentPhone = (req.body.parent_phone || '').trim();
+  const schoolNameText = (req.body.school_name_text || '').trim();
+  const isExternal = Boolean(req.body.is_external);
+  const aiRevisionShare = (req.body.ai_revision_share || '').trim();
 
   if (!name || !password) {
     return res.status(400).json({ error: 'Name and password are required.' });
@@ -735,10 +746,12 @@ router.post('/register', authLimiter, async (req, res) => {
     const needsEmailConfirm =
       !inviteRow && !parentInviteRow && ['head_teacher', 'teacher', 'guest'].includes(role);
     const result = await pool.query(
-      `INSERT INTO users (name, email, password, role, school_id, is_approved, phone, email_confirmed)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      `INSERT INTO users (name, email, password, role, school_id, is_approved, phone, email_confirmed,
+        district, sector, parent_gmail, parent_phone, school_name_text, is_external)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING id, name, email, role, school_id, is_approved, email_confirmed`,
-      [name, email, hashed, role, resolvedSchoolId, isApproved, phone || null, !needsEmailConfirm]
+      [name, email, hashed, role, resolvedSchoolId, isApproved, phone || null, !needsEmailConfirm,
+       district || null, sector || null, parentGmail || null, parentPhone || null, schoolNameText || null, isExternal]
     );
     const user = result.rows[0];
 
@@ -853,6 +866,7 @@ router.post('/register', authLimiter, async (req, res) => {
       login_email: email,
       capabilities: emailCapabilities,
       guest_share_redirect: guestShareRedirect,
+      ai_revision_share: Boolean(aiRevisionShare),
       confirm_email_sent: confirmEmailSent,
       email_confirmed: user.email_confirmed !== false,
     });

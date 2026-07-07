@@ -179,7 +179,7 @@ router.get('/profile/me', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT ap.*, u.id AS user_id, u.name, u.email, u.role, u.school_id, COALESCE(ap.class_id, u.class_id) as class_id, s.name AS school_name,
-              u.graduation_year, u.graduated_at, u.avatar_url
+              u.graduation_year, u.graduated_at, u.avatar_url, u.district, u.sector, u.school_name_text, u.is_external, u.parent_gmail, u.parent_phone
        FROM users u LEFT JOIN alumni_profiles ap ON ap.user_id=u.id
        LEFT JOIN schools s ON s.id=u.school_id WHERE u.id=$1`, [req.user.id]
     );
@@ -222,7 +222,7 @@ router.get('/profile/:identifier', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT ap.*, u.id AS user_id, u.name, u.email, u.role, u.school_id, s.name AS school_name,
-              u.graduation_year, u.graduated_at, u.class_id, u.avatar_url
+              u.graduation_year, u.graduated_at, u.class_id, u.avatar_url, u.district, u.sector, u.school_name_text, u.is_external
        FROM users u LEFT JOIN alumni_profiles ap ON ap.user_id=u.id
        LEFT JOIN schools s ON s.id=u.school_id
        WHERE (u.id=$1 OR ap.username=$2)`,

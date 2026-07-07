@@ -40,6 +40,12 @@ pool.query(`ALTER TABLE ai_revision_sessions ADD COLUMN IF NOT EXISTS summary_no
 pool.query(`ALTER TABLE ai_revision_sessions ADD COLUMN IF NOT EXISTS reflection_difficulty TEXT`).catch(() => {});
 pool.query(`ALTER TABLE ai_revision_sessions ADD COLUMN IF NOT EXISTS reflection_improvement TEXT`).catch(() => {});
 pool.query(`ALTER TABLE ai_revision_sessions ADD COLUMN IF NOT EXISTS reflection_question TEXT`).catch(() => {});
+pool.query(`ALTER TABLE ai_revision_sessions ADD COLUMN IF NOT EXISTS share_token VARCHAR(64)`).catch(() => {});
+pool.query(`ALTER TABLE ai_revision_sessions ADD COLUMN IF NOT EXISTS is_shared BOOLEAN DEFAULT FALSE`).catch(() => {});
+pool.query(`ALTER TABLE ai_revision_sessions ADD COLUMN IF NOT EXISTS grade_letter VARCHAR(5)`).catch(() => {});
+pool.query(`ALTER TABLE ai_revision_sessions ADD COLUMN IF NOT EXISTS performance_level VARCHAR(50)`).catch(() => {});
+pool.query(`ALTER TABLE ai_revision_sessions ADD COLUMN IF NOT EXISTS correct_count INTEGER DEFAULT 0`).catch(() => {});
+pool.query(`ALTER TABLE ai_revision_sessions ADD COLUMN IF NOT EXISTS wrong_count INTEGER DEFAULT 0`).catch(() => {});
 
 // ── Gemini AI helper ──────────────────────────────────────────────────────────
 async function callGemini(prompt, maxTokens = 1024) {
@@ -633,6 +639,56 @@ router.get('/recommend', authenticateToken, requireRole('student', 'alumni'), as
     });
   } catch (err) {
     console.error('[ai-revision/recommend]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── Share AI Revision results ───────────────────────────────────────────────
+router.post('/share', authenticateToken, async (req, res) => {
+  const { session_id } = req.body;
+  if (!session_id) return res.status(400).json({ error: 'session_id required.' });
+  try {
+    const session = await pool.query(
+      `SELECT id, student_id, subject, grade, quiz_type, difficulty, score, total, percentage, grade_letter, performance_level
+       FROM ai_revision_sessions WHERE id=$1 AND student_id=$2`,
+      [session_id, req.user.id]
+    );
+    if (session.rows.length === 0) return res.status(404).json({ error: 'Session not found.' });
+    const s = session.rows[0];
+    const crypto = require('crypto');
+    const shareToken = crypto.randomBytes(16).toString('hex');
+    await pool.query(
+      `UPDATE ai_revision_sessions SET share_token=$1, is_shared=TRUE WHERE id=$2`,
+      [shareToken, s.id]
+    );
+    res.json({
+      share_token: shareToken,
+      share_url: `${process.env.FRONTEND_URL || 'https://student.umunsi.com'}/ai-revision/share/${shareToken}`,
+      subject: s.subject,
+      grade: s.grade,
+    });
+  } catch (err) {
+    console.error('[ai-revision/share]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── Get shared AI Revision info (public, no auth) ───────────────────────────
+router.get('/share/:token', async (req, res) => {
+  try {
+    const session = await pool.query(
+      `SELECT s.subject, s.grade, s.quiz_type, s.difficulty, s.score, s.total, s.percentage,
+              s.grade_letter, s.performance_level, s.share_token,
+              u.name as student_name
+       FROM ai_revision_sessions s
+       JOIN users u ON u.id = s.student_id
+       WHERE s.share_token=$1 AND s.is_shared=TRUE`,
+      [req.params.token]
+    );
+    if (session.rows.length === 0) return res.status(404).json({ error: 'Shared quiz not found.' });
+    res.json(session.rows[0]);
+  } catch (err) {
+    console.error('[ai-revision/share/:token]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });

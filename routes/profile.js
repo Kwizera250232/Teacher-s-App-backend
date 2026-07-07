@@ -216,6 +216,7 @@ router.get('/:id', auth, async (req, res) => {
       `SELECT u.id, u.name, u.role,
               p.avatar_path, p.dreams, p.favorite_lessons, p.hobbies,
               p.phone, p.home_address, p.schools, p.fears,
+              u.district, u.sector, u.school_name_text, u.is_external, u.avatar_url,
               (SELECT COUNT(*) FROM subscriptions WHERE target_id = u.id) AS subscriber_count,
               EXISTS(SELECT 1 FROM subscriptions WHERE subscriber_id = $1 AND target_id = u.id) AS i_subscribed
        FROM users u
