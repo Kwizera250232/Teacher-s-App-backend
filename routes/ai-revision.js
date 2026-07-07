@@ -709,11 +709,10 @@ router.post('/share-quiz', authenticateToken, async (req, res) => {
   try {
     const crypto = require('crypto');
     const shareToken = crypto.randomBytes(16).toString('hex');
-    // Store in ai_revision_sessions with a placeholder (no answers, not completed)
     const result = await pool.query(
-      `INSERT INTO ai_revision_sessions (student_id, education_level, subject, quiz_type, difficulty, grade, num_questions, share_token, is_shared, started_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,TRUE,NOW()) RETURNING id`,
-      [req.user.id, education_level || 'secondary', subject, quiz_type || 'mixed_revision', difficulty || 'mixed', grade, num_questions || 10, shareToken]
+      `INSERT INTO ai_revision_sessions (student_id, education_level, subject, quiz_type, difficulty, grade, num_questions, question_ids, source_quiz_ids, share_token, is_shared, started_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,TRUE,NOW()) RETURNING id`,
+      [req.user.id, education_level || 'secondary', subject, quiz_type || 'mixed_revision', difficulty || 'mixed', grade, num_questions || 10, '{}', '{}', shareToken]
     );
     res.json({
       share_token: shareToken,

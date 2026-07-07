@@ -127,6 +127,7 @@ app.use('/api/alumni', require('./routes/alumni-compositions'));
 app.use('/api/alumni', require('./routes/alumni-social'));
 app.use('/api/dean-ai', require('./routes/dean-ai'));
 app.use('/api/ai-revision', require('./routes/ai-revision'));
+app.use('/api/past-papers', require('./routes/past-papers'));
 
 // Serve avatars
 app.use('/uploads/avatars', express.static(require('path').join(__dirname, 'uploads/avatars')));
