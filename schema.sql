@@ -683,6 +683,52 @@ CREATE TABLE IF NOT EXISTS alumni_past_papers (
 CREATE INDEX IF NOT EXISTS idx_past_papers_subject ON alumni_past_papers(subject);
 CREATE INDEX IF NOT EXISTS idx_past_papers_year ON alumni_past_papers(year);
 
+-- Past Paper Exams (admin adds questions+answers, students take exam online)
+CREATE TABLE IF NOT EXISTS past_paper_exams (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  subject VARCHAR(100) NOT NULL,
+  year INTEGER NOT NULL,
+  class_level VARCHAR(50),
+  description TEXT,
+  duration_minutes INTEGER DEFAULT 120,
+  is_published BOOLEAN DEFAULT TRUE,
+  created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_pp_exams_year ON past_paper_exams(year);
+CREATE INDEX IF NOT EXISTS idx_pp_exams_subject ON past_paper_exams(subject);
+
+CREATE TABLE IF NOT EXISTS past_paper_questions (
+  id SERIAL PRIMARY KEY,
+  exam_id INTEGER NOT NULL REFERENCES past_paper_exams(id) ON DELETE CASCADE,
+  question TEXT NOT NULL,
+  option_a VARCHAR(500) NOT NULL,
+  option_b VARCHAR(500) NOT NULL,
+  option_c VARCHAR(500),
+  option_d VARCHAR(500),
+  correct_answer CHAR(1) NOT NULL CHECK (correct_answer IN ('a','b','c','d')),
+  explanation TEXT,
+  order_num INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_pp_questions_exam ON past_paper_questions(exam_id);
+
+CREATE TABLE IF NOT EXISTS past_paper_attempts (
+  id SERIAL PRIMARY KEY,
+  exam_id INTEGER NOT NULL REFERENCES past_paper_exams(id) ON DELETE CASCADE,
+  student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  score INTEGER NOT NULL DEFAULT 0,
+  total INTEGER NOT NULL DEFAULT 0,
+  percentage NUMERIC(5,2) DEFAULT 0,
+  answers JSONB DEFAULT '{}',
+  ai_feedback TEXT,
+  time_taken_seconds INTEGER,
+  started_at TIMESTAMP DEFAULT NOW(),
+  completed_at TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_pp_attempts_exam ON past_paper_attempts(exam_id);
+CREATE INDEX IF NOT EXISTS idx_pp_attempts_student ON past_paper_attempts(student_id);
+
 -- ── Migration helpers (safe to run on existing DB) ─────────────────────────
 
 -- Add alumni role to users check constraint (handled in auth.js migrations)

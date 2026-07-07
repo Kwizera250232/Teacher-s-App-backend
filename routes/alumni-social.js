@@ -2,6 +2,21 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+const uploadDir = process.env.VERCEL ? path.join('/tmp', 'uploads', 'files') : path.join(__dirname, '../uploads/files');
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+const fileStorage = multer.diskStorage({
+  destination: uploadDir,
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase().replace(/[^a-z0-9.]/g, '');
+    cb(null, `story-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
+  },
+});
+const storyUpload = multer({ storage: fileStorage, limits: { fileSize: 10 * 1024 * 1024 } });
 
 // Ensure feed views table and views_count column exist
 pool.query(`
@@ -57,6 +72,38 @@ pool.query(`
   );
   CREATE INDEX IF NOT EXISTS idx_user_notif_user ON user_notifications(user_id);
   CREATE INDEX IF NOT EXISTS idx_user_notif_unread ON user_notifications(user_id) WHERE is_read = FALSE;
+  CREATE TABLE IF NOT EXISTS alumni_groups (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    creator_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    is_public BOOLEAN DEFAULT TRUE,
+    image_path VARCHAR(500),
+    member_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW()
+  );
+  CREATE TABLE IF NOT EXISTS alumni_group_members (
+    id SERIAL PRIMARY KEY,
+    group_id INTEGER NOT NULL REFERENCES alumni_groups(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role VARCHAR(20) NOT NULL DEFAULT 'member' CHECK (role IN ('admin','member')),
+    joined_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(group_id, user_id)
+  );
+  CREATE TABLE IF NOT EXISTS alumni_group_messages (
+    id SERIAL PRIMARY KEY,
+    group_id INTEGER NOT NULL REFERENCES alumni_groups(id) ON DELETE CASCADE,
+    sender_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content TEXT,
+    image_path VARCHAR(500),
+    message_type VARCHAR(20) DEFAULT 'text',
+    reply_to_id INTEGER REFERENCES alumni_group_messages(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_alumni_groups_creator ON alumni_groups(creator_id);
+  CREATE INDEX IF NOT EXISTS idx_group_members_group ON alumni_group_members(group_id);
+  CREATE INDEX IF NOT EXISTS idx_group_members_user ON alumni_group_members(user_id);
+  CREATE INDEX IF NOT EXISTS idx_group_messages_group ON alumni_group_messages(group_id);
 `).catch((e) => console.warn('[alumni-social] schema fix:', e.message.slice(0, 120)));
 
 // Helper: create notification
@@ -118,6 +165,7 @@ router.post('/groups', authenticateToken, async (req, res) => {
       `INSERT INTO alumni_group_members (group_id, user_id, role) VALUES ($1,$2,'admin')`,
       [group.id, req.user.id]
     );
+    await pool.query(`UPDATE alumni_groups SET member_count=1 WHERE id=$1`, [group.id]);
     audit('alumni_group_created', { user_id: req.user.id, group_id: group.id });
     res.status(201).json(group);
   } catch (err) {
@@ -271,6 +319,35 @@ router.post('/stories', authenticateToken, requireRole('alumni', 'admin', 'head_
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('[alumni/stories/create]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// Upload story image
+router.post('/stories/upload', authenticateToken, storyUpload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
+  const url = `/uploads/files/${req.file.filename}`;
+  res.json({ url, filename: req.file.filename, size: req.file.size });
+});
+
+// Get story viewers
+router.get('/stories/:id/viewers', authenticateToken, async (req, res) => {
+  try {
+    const story = await pool.query('SELECT user_id FROM alumni_stories WHERE id=$1', [req.params.id]);
+    if (story.rows.length === 0) return res.status(404).json({ error: 'Story not found.' });
+    // Only story owner can see viewers
+    if (story.rows[0].user_id !== req.user.id) return res.status(403).json({ error: 'Only the story owner can see viewers.' });
+    const viewers = await pool.query(
+      `SELECT v.viewed_at, u.id, u.name, u.avatar_url, u.role
+       FROM alumni_story_views v
+       JOIN users u ON u.id = v.user_id
+       WHERE v.story_id = $1
+       ORDER BY v.viewed_at DESC`,
+      [req.params.id]
+    );
+    res.json({ viewers: viewers.rows, count: viewers.rows.length });
+  } catch (err) {
+    console.error('[alumni/stories/viewers]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });

@@ -46,6 +46,7 @@ pool.query(`ALTER TABLE ai_revision_sessions ADD COLUMN IF NOT EXISTS grade_lett
 pool.query(`ALTER TABLE ai_revision_sessions ADD COLUMN IF NOT EXISTS performance_level VARCHAR(50)`).catch(() => {});
 pool.query(`ALTER TABLE ai_revision_sessions ADD COLUMN IF NOT EXISTS correct_count INTEGER DEFAULT 0`).catch(() => {});
 pool.query(`ALTER TABLE ai_revision_sessions ADD COLUMN IF NOT EXISTS wrong_count INTEGER DEFAULT 0`).catch(() => {});
+pool.query(`ALTER TABLE ai_revision_sessions ADD COLUMN IF NOT EXISTS admin_reply TEXT`).catch(() => {});
 
 // ── Gemini AI helper ──────────────────────────────────────────────────────────
 async function callGemini(prompt, maxTokens = 1024) {
@@ -68,9 +69,11 @@ async function callGemini(prompt, maxTokens = 1024) {
 // ── GET subjects and grades available ─────────────────────────────────────────
 router.get('/options', authenticateToken, async (req, res) => {
   try {
-    // For students: get their enrolled class subjects. For alumni: get all subjects from all classes.
     const isAlumni = req.user.role === 'alumni';
-    const subjects = isAlumni
+    const userRes = await pool.query('SELECT is_external FROM users WHERE id=$1', [req.user.id]);
+    const isExternal = userRes.rows.length > 0 && userRes.rows[0].is_external;
+    const showAll = isAlumni || isExternal;
+    const subjects = showAll
       ? await pool.query(`SELECT DISTINCT subject FROM classes WHERE subject IS NOT NULL ORDER BY subject`)
       : await pool.query(
           `SELECT DISTINCT c.subject FROM classes c
@@ -79,7 +82,7 @@ router.get('/options', authenticateToken, async (req, res) => {
            ORDER BY c.subject`,
           [req.user.id]
         );
-    const classes = isAlumni
+    const classes = showAll
       ? await pool.query(`SELECT id, name, subject FROM classes ORDER BY name LIMIT 100`)
       : await pool.query(
           `SELECT c.id, c.name, c.subject FROM classes c
@@ -689,6 +692,94 @@ router.get('/share/:token', async (req, res) => {
     res.json(session.rows[0]);
   } catch (err) {
     console.error('[ai-revision/share/:token]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── ADMIN: List all AI revision sessions with student info ─────────────────
+router.get('/admin/sessions', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT s.id, s.student_id, s.subject, s.quiz_type, s.difficulty, s.grade,
+             s.score, s.total, s.percentage, s.grade_letter, s.performance_level,
+             s.ai_feedback, s.summary_notes, s.reflection_difficulty,
+             s.reflection_improvement, s.reflection_question, s.admin_reply,
+             s.started_at, s.completed_at, s.is_shared,
+             u.name as student_name, u.email as student_email, u.role as student_role
+      FROM ai_revision_sessions s
+      JOIN users u ON u.id = s.student_id
+      WHERE s.completed_at IS NOT NULL
+      ORDER BY s.completed_at DESC
+      LIMIT 200
+    `);
+    res.json({ sessions: result.rows });
+  } catch (err) {
+    console.error('[ai-revision/admin/sessions]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── ADMIN: Get session detail ──────────────────────────────────────────────
+router.get('/admin/sessions/:id', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  try {
+    const sessionRes = await pool.query(`
+      SELECT s.*, u.name as student_name, u.email as student_email, u.role as student_role
+      FROM ai_revision_sessions s
+      JOIN users u ON u.id = s.student_id
+      WHERE s.id=$1
+    `, [req.params.id]);
+    if (sessionRes.rows.length === 0) return res.status(404).json({ error: 'Session not found.' });
+    res.json(sessionRes.rows[0]);
+  } catch (err) {
+    console.error('[ai-revision/admin/session]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── ADMIN: Reply to student feedback/reflection ────────────────────────────
+router.post('/admin/sessions/:id/reply', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  const { reply } = req.body;
+  if (!reply?.trim()) return res.status(400).json({ error: 'Reply text is required.' });
+  try {
+    const result = await pool.query(
+      `UPDATE ai_revision_sessions SET admin_reply=$1 WHERE id=$2 RETURNING id`,
+      [reply.trim(), req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Session not found.' });
+    // Notify student
+    const session = await pool.query('SELECT student_id, subject FROM ai_revision_sessions WHERE id=$1', [req.params.id]);
+    if (session.rows.length > 0) {
+      await pool.query(
+        `INSERT INTO user_notifications (user_id, type, title, body, payload) VALUES ($1,$2,$3,$4,$5)`,
+        [session.rows[0].student_id, 'admin_reply', `Admin replied to your ${session.rows[0].subject} quiz feedback`, reply.trim().slice(0, 200), JSON.stringify({ session_id: parseInt(req.params.id) })]
+      ).catch(() => {});
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[ai-revision/admin/reply]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── ADMIN: Stats summary ───────────────────────────────────────────────────
+router.get('/admin/stats', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  try {
+    const [total, bySubject, byGrade, avgScore, recentActivity] = await Promise.all([
+      pool.query('SELECT COUNT(*) as total FROM ai_revision_sessions WHERE completed_at IS NOT NULL'),
+      pool.query('SELECT subject, COUNT(*) as count, AVG(percentage) as avg_score FROM ai_revision_sessions WHERE completed_at IS NOT NULL GROUP BY subject ORDER BY count DESC LIMIT 10'),
+      pool.query('SELECT grade, COUNT(*) as count FROM ai_revision_sessions WHERE completed_at IS NOT NULL GROUP BY grade ORDER BY count DESC'),
+      pool.query('SELECT AVG(percentage) as avg_score, COUNT(*) as total FROM ai_revision_sessions WHERE completed_at IS NOT NULL'),
+      pool.query(`SELECT DATE(completed_at) as day, COUNT(*) as count FROM ai_revision_sessions WHERE completed_at IS NOT NULL AND completed_at > NOW() - INTERVAL '14 days' GROUP BY day ORDER BY day`),
+    ]);
+    res.json({
+      total_sessions: total.rows[0].total,
+      by_subject: bySubject.rows,
+      by_grade: byGrade.rows,
+      avg_score: parseFloat(avgScore.rows[0].avg_score || 0).toFixed(1),
+      recent_activity: recentActivity.rows,
+    });
+  } catch (err) {
+    console.error('[ai-revision/admin/stats]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
