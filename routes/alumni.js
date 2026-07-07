@@ -437,6 +437,12 @@ router.post('/follow/:userId', authenticateToken, async (req, res) => {
     const myfc = await pool.query(`SELECT COUNT(*) FROM alumni_follows WHERE follower_id=$1`, [req.user.id]);
     await pool.query(`UPDATE alumni_profiles SET followers_count=$1 WHERE user_id=$2`, [fc.rows[0].count, followingId]);
     await pool.query(`UPDATE alumni_profiles SET following_count=$1 WHERE user_id=$2`, [myfc.rows[0].count, req.user.id]);
+    // Notify the person being followed
+    const followerName = await pool.query('SELECT name FROM users WHERE id=$1', [req.user.id]);
+    await pool.query(
+      `INSERT INTO user_notifications (user_id, type, title, body, payload) VALUES ($1,$2,$3,$4,$5)`,
+      [followingId, 'follow', `${followerName.rows[0]?.name || 'Someone'} started following you`, '', JSON.stringify({ follower_id: req.user.id })]
+    ).catch(() => {});
     res.json({ success: true });
   } catch (err) {
     console.error('[alumni/follow]', err);

@@ -11,17 +11,17 @@ function authenticateToken(req, res, next) {
     if (err) return res.status(403).json({ error: 'Invalid or expired token.' });
     req.user = await enrichUserFromDb(user);
 
-    // Email confirmation gate: unconfirmed HT/Teacher/Guest can explore (GET)
+    // Email confirmation gate: unconfirmed users can explore (GET)
     // but cannot create or change anything until they confirm their email.
     if (
       req.user?.email_confirmed === false &&
-      ['head_teacher', 'teacher', 'guest'].includes(req.user.role) &&
+      ['head_teacher', 'teacher', 'guest', 'student', 'alumni'].includes(req.user.role) &&
       req.method !== 'GET' &&
       !String(req.originalUrl || '').includes('/auth/resend-confirmation')
     ) {
       return res.status(403).json({
         error:
-          'Emeza imeyili yawe mbere — please confirm your email first. Check your inbox for the UClass confirmation link (or resend it from the banner).',
+          'Please confirm your email first. Check your inbox for the UClass confirmation link (or resend it).',
         code: 'EMAIL_NOT_CONFIRMED',
       });
     }

@@ -30,7 +30,44 @@ pool.query(`
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     last_seen TIMESTAMP DEFAULT NOW()
   );
+  CREATE TABLE IF NOT EXISTS alumni_stories (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content TEXT,
+    media_url VARCHAR(500),
+    background_color VARCHAR(20) DEFAULT '#7c3aed',
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+  );
+  CREATE TABLE IF NOT EXISTS alumni_story_views (
+    story_id INTEGER NOT NULL REFERENCES alumni_stories(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    viewed_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (story_id, user_id)
+  );
+  CREATE TABLE IF NOT EXISTS user_notifications (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type VARCHAR(50) NOT NULL,
+    title VARCHAR(255),
+    body TEXT,
+    payload JSONB DEFAULT '{}',
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_user_notif_user ON user_notifications(user_id);
+  CREATE INDEX IF NOT EXISTS idx_user_notif_unread ON user_notifications(user_id) WHERE is_read = FALSE;
 `).catch((e) => console.warn('[alumni-social] schema fix:', e.message.slice(0, 120)));
+
+// Helper: create notification
+async function notify(pool, userId, type, title, body, payload = {}) {
+  try {
+    await pool.query(
+      `INSERT INTO user_notifications (user_id, type, title, body, payload) VALUES ($1,$2,$3,$4,$5)`,
+      [userId, type, title, body, JSON.stringify(payload)]
+    );
+  } catch (e) { console.warn('[notify]', e.message.slice(0, 80)); }
+}
 
 // Migrate user_id -> author_id in alumni_feed_comments if needed
 pool.query(`
@@ -186,6 +223,13 @@ router.post('/groups/:id/messages', authenticateToken, async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
       [req.params.id, req.user.id, content || null, image_path || null, message_type || 'text', reply_to_id || null]
     );
+    // Notify all group members except sender
+    const members = await pool.query('SELECT user_id FROM alumni_group_members WHERE group_id=$1 AND user_id!=$2', [req.params.id, req.user.id]);
+    const senderName = await pool.query('SELECT name FROM users WHERE id=$1', [req.user.id]);
+    const groupName = await pool.query('SELECT name FROM alumni_groups WHERE id=$1', [req.params.id]);
+    for (const m of members.rows) {
+      await notify(pool, m.user_id, 'group_message', `${senderName.rows[0]?.name || 'Someone'} in ${groupName.rows[0]?.name || 'a group'}`, (content || '').trim().slice(0, 100), { group_id: parseInt(req.params.id) });
+    }
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('[alumni/groups/messages/send]', err);
@@ -424,6 +468,12 @@ router.post('/feed/:id/like', authenticateToken, async (req, res) => {
       [req.params.id, req.user.id]
     );
     await pool.query(`UPDATE alumni_feed_posts SET likes_count=(SELECT COUNT(*) FROM alumni_feed_likes WHERE post_id=$1) WHERE id=$1`, [req.params.id]);
+    // Notify post owner
+    const postOwner = await pool.query('SELECT author_id, content FROM alumni_feed_posts WHERE id=$1', [req.params.id]);
+    if (postOwner.rows.length > 0 && postOwner.rows[0].author_id !== req.user.id) {
+      const likerName = await pool.query('SELECT name FROM users WHERE id=$1', [req.user.id]);
+      await notify(pool, postOwner.rows[0].author_id, 'like', `${likerName.rows[0]?.name || 'Someone'} liked your post`, '', { post_id: parseInt(req.params.id) });
+    }
     res.json({ success: true });
   } catch (err) {
     console.error('[alumni/feed/like]', err);
@@ -508,6 +558,12 @@ router.post('/feed/:id/comments', authenticateToken, async (req, res) => {
       [req.params.id, req.user.id, content.trim()]
     );
     await pool.query(`UPDATE alumni_feed_posts SET comments_count=(SELECT COUNT(*) FROM alumni_feed_comments WHERE post_id=$1) WHERE id=$1`, [req.params.id]);
+    // Notify post owner
+    const postOwner = await pool.query('SELECT author_id FROM alumni_feed_posts WHERE id=$1', [req.params.id]);
+    if (postOwner.rows.length > 0 && postOwner.rows[0].author_id !== req.user.id) {
+      const commenterName = await pool.query('SELECT name FROM users WHERE id=$1', [req.user.id]);
+      await notify(pool, postOwner.rows[0].author_id, 'comment', `${commenterName.rows[0]?.name || 'Someone'} commented on your post`, content.trim().slice(0, 100), { post_id: parseInt(req.params.id) });
+    }
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('[alumni/feed/comment]', err);
@@ -528,6 +584,29 @@ router.post('/feed/:id/reaction', authenticateToken, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('[alumni/feed/reaction]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// Edit own post
+router.put('/feed/:id', authenticateToken, async (req, res) => {
+  const { content, image_paths } = req.body;
+  try {
+    const owner = await pool.query('SELECT author_id FROM alumni_feed_posts WHERE id=$1', [req.params.id]);
+    if (owner.rows.length === 0) return res.status(404).json({ error: 'Post not found.' });
+    if (owner.rows[0].author_id !== req.user.id) return res.status(403).json({ error: 'You can only edit your own posts.' });
+    const imgArr = image_paths !== undefined ? (Array.isArray(image_paths) ? image_paths : image_paths ? [image_paths] : null) : undefined;
+    const updates = [];
+    const params = [];
+    let idx = 1;
+    if (content !== undefined) { updates.push(`content=$${idx++}`); params.push(content); }
+    if (imgArr !== undefined) { updates.push(`image_paths=$${idx++}`); params.push(imgArr); }
+    if (updates.length === 0) return res.status(400).json({ error: 'Nothing to update.' });
+    params.push(req.params.id);
+    const result = await pool.query(`UPDATE alumni_feed_posts SET ${updates.join(', ')} WHERE id=$${idx} RETURNING *`, params);
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[alumni/feed/edit]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
@@ -595,9 +674,55 @@ router.post('/direct-messages/:userId', authenticateToken, async (req, res) => {
        VALUES ($1, $2, $3, $4) RETURNING *`,
       [req.user.id, otherId, content?.trim() || null, image_path || null]
     );
+    // Notify receiver
+    const senderName = await pool.query('SELECT name FROM users WHERE id=$1', [req.user.id]);
+    await notify(pool, otherId, 'message', `${senderName.rows[0]?.name || 'Someone'} sent you a message`, (content || '').trim().slice(0, 100), { sender_id: req.user.id });
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('[alumni/direct-messages/send]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── NOTIFICATIONS ───────────────────────────────────────────────────────────
+
+// Get notifications for current user
+router.get('/notifications', authenticateToken, async (req, res) => {
+  try {
+    const rows = await pool.query(
+      `SELECT id, type, title, body, payload, is_read, created_at
+       FROM user_notifications
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT 80`,
+      [req.user.id]
+    );
+    const unread = rows.rows.filter(r => !r.is_read).length;
+    res.json({ unread_count: unread, notifications: rows.rows });
+  } catch (err) {
+    console.error('[alumni/notifications]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// Mark single notification as read
+router.put('/notifications/:id/read', authenticateToken, async (req, res) => {
+  try {
+    await pool.query('UPDATE user_notifications SET is_read=TRUE WHERE id=$1 AND user_id=$2', [req.params.id, req.user.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[alumni/notifications/read]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// Mark all notifications as read
+router.put('/notifications/read-all', authenticateToken, async (req, res) => {
+  try {
+    await pool.query('UPDATE user_notifications SET is_read=TRUE WHERE user_id=$1 AND is_read=FALSE', [req.user.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[alumni/notifications/read-all]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
