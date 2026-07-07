@@ -742,9 +742,8 @@ router.post('/register', authLimiter, async (req, res) => {
     const hashed = await bcrypt.hash(password, 12);
     const needsSchoolApproval = role === 'teacher' && resolvedSchoolId && codeBasedSignup;
     const isApproved = !needsSchoolApproval;
-    // HT / Teacher / Guest self-signups must confirm their email before acting
-    const needsEmailConfirm =
-      !inviteRow && !parentInviteRow && ['head_teacher', 'teacher', 'guest'].includes(role);
+    // Email confirmation disabled — users can use the app immediately after registration
+    const needsEmailConfirm = false;
     const result = await pool.query(
       `INSERT INTO users (name, email, password, role, school_id, is_approved, phone, email_confirmed,
         district, sector, parent_gmail, parent_phone, school_name_text, is_external)
