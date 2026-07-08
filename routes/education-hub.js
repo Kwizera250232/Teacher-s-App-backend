@@ -198,6 +198,8 @@ pool.query(`
     is_available BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT NOW()
   );
+
+  ALTER TABLE eduhub_careers ADD COLUMN IF NOT EXISTS trait_weights JSONB DEFAULT '{}';
 `).then(() => {
   console.log('[education-hub] schema ready');
   // ── Seed default career questions if none exist ────────────────────────────
@@ -233,6 +235,7 @@ pool.query(`
   }).catch(e => console.error('[education-hub] seed check:', e.message));
 
   // ── Seed default careers if none exist ─────────────────────────────────────
+  pool.query('TRUNCATE eduhub_careers RESTART IDENTITY').then(() => {
   pool.query('SELECT COUNT(*) as cnt FROM eduhub_careers').then(r => {
     if (parseInt(r.rows[0].cnt) === 0) {
       const careers = [
@@ -258,6 +261,7 @@ pool.query(`
       console.log('[education-hub] Seeded', careers.length, 'default careers');
     }
   }).catch(e => console.error('[education-hub] career seed check:', e.message));
+  }).catch(e => console.error('[education-hub] career truncate:', e.message));
 }).catch(e => console.error('[education-hub] schema:', e.message));
 
 // ── Gemini AI helper ──────────────────────────────────────────────────────────
