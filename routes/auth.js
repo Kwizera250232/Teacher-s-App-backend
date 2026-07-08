@@ -603,8 +603,8 @@ router.post('/register', authLimiter, async (req, res) => {
       codeBasedSignup = true;
     }
 
-    // Student school selection
-    if (role === 'student' && !resolvedSchoolId) {
+    // Student school selection (externals are exempt — no school required)
+    if (role === 'student' && !resolvedSchoolId && !isExternal) {
       if (!school_id) {
         return res.status(400).json({ error: 'Student signup requires a school selection.' });
       }
@@ -671,30 +671,40 @@ router.post('/register', authLimiter, async (req, res) => {
         return res.status(400).json({ error: 'Invalid school email username.' });
       }
     } else if (role === 'student') {
-      const studentLocal = normalizeLocalPart(req.body.school_email_local || req.body.school_email);
-      if (studentLocal && resolvedSchoolId) {
-        let domain = schoolDomainForEmail;
-        if (!domain && schoolRowForMail) {
-          domain = loginEmailDomainForSchool(schoolRowForMail);
+      if (isExternal) {
+        // Externals use personal email, no school email required
+        if (!email) {
+          return res.status(400).json({ error: 'Email is required.' });
         }
-        email = buildSchoolEmail(studentLocal, domain);
-      }
-      if (!email) {
-        return res.status(400).json({
-          error: 'Choose your school and create your login as name@schoolname.edu.',
+        if (!isValidEmail(email)) {
+          return res.status(400).json({ error: 'Invalid email address.' });
+        }
+      } else {
+        const studentLocal = normalizeLocalPart(req.body.school_email_local || req.body.school_email);
+        if (studentLocal && resolvedSchoolId) {
+          let domain = schoolDomainForEmail;
+          if (!domain && schoolRowForMail) {
+            domain = loginEmailDomainForSchool(schoolRowForMail);
+          }
+          email = buildSchoolEmail(studentLocal, domain);
+        }
+        if (!email) {
+          return res.status(400).json({
+            error: 'Choose your school and create your login as name@schoolname.edu.',
+          });
+        }
+        if (!isValidEmail(email)) {
+          return res.status(400).json({ error: 'Invalid school email.' });
+        }
+        const emailCheck = await validateEmailForSignup(email, {
+          schoolDomain: schoolDomainForEmail,
+          strict: STRICT_EMAIL,
+          role: 'student',
+          skipMailbox: true,
         });
-      }
-      if (!isValidEmail(email)) {
-        return res.status(400).json({ error: 'Invalid school email.' });
-      }
-      const emailCheck = await validateEmailForSignup(email, {
-        schoolDomain: schoolDomainForEmail,
-        strict: STRICT_EMAIL,
-        role: 'student',
-        skipMailbox: true,
-      });
-      if (!emailCheck.valid) {
-        return res.status(400).json({ error: emailCheck.reason });
+        if (!emailCheck.valid) {
+          return res.status(400).json({ error: emailCheck.reason });
+        }
       }
     } else if (role === 'guest') {
       const { GUEST_EMAIL_DOMAIN } = require('../lib/quizShares');
