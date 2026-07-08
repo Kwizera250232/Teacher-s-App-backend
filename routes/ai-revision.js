@@ -73,17 +73,37 @@ router.get('/options', authenticateToken, async (req, res) => {
     const userRes = await pool.query('SELECT is_external FROM users WHERE id=$1', [req.user.id]);
     const isExternal = userRes.rows.length > 0 && userRes.rows[0].is_external;
     const showAll = isAlumni || isExternal;
+
+    // Gather subjects from classes.subject AND from class names (some classes have NULL subject but the name contains the subject)
     const subjects = showAll
-      ? await pool.query(`SELECT DISTINCT subject FROM classes WHERE subject IS NOT NULL ORDER BY subject`)
+      ? await pool.query(`
+          SELECT DISTINCT subj FROM (
+            SELECT subject AS subj FROM classes WHERE subject IS NOT NULL AND subject <> ''
+            UNION
+            SELECT split_part(name, ' ', 1) AS subj FROM classes WHERE name IS NOT NULL AND name <> ''
+            UNION
+            SELECT c.subject AS subj FROM quizzes q JOIN classes c ON c.id = q.class_id WHERE c.subject IS NOT NULL AND c.subject <> ''
+          ) sub WHERE subj IS NOT NULL AND subj <> '' ORDER BY subj
+        `)
       : await pool.query(
           `SELECT DISTINCT c.subject FROM classes c
            JOIN class_members cm ON cm.class_id = c.id
-           WHERE cm.student_id = $1 AND c.subject IS NOT NULL
+           WHERE cm.student_id = $1 AND c.subject IS NOT NULL AND c.subject <> ''
            ORDER BY c.subject`,
           [req.user.id]
         );
+
+    // For externals/alumni: if no subjects from their classes, fall back to all subjects
+    let subjectList = subjects.rows.map(r => r.subject);
+    if (showAll && subjectList.length === 0) {
+      const allSubj = await pool.query(`
+        SELECT DISTINCT subject FROM classes WHERE subject IS NOT NULL AND subject <> '' ORDER BY subject
+      `);
+      subjectList = allSubj.rows.map(r => r.subject);
+    }
+
     const classes = showAll
-      ? await pool.query(`SELECT id, name, subject FROM classes ORDER BY name LIMIT 100`)
+      ? await pool.query(`SELECT id, name, subject FROM classes ORDER BY name LIMIT 200`)
       : await pool.query(
           `SELECT c.id, c.name, c.subject FROM classes c
            JOIN class_members cm ON cm.class_id = c.id
@@ -91,7 +111,7 @@ router.get('/options', authenticateToken, async (req, res) => {
           [req.user.id]
         );
     res.json({
-      subjects: subjects.rows.map(r => r.subject),
+      subjects: subjectList,
       classes: classes.rows,
     });
   } catch (err) {
@@ -111,6 +131,11 @@ router.post('/generate', authenticateToken, requireRole('student', 'alumni', 'te
   const targetCount = Math.min(Math.max(parseInt(num_questions) || 10, 5), 100);
 
   try {
+    const isAlumni = req.user.role === 'alumni';
+    const userRes = await pool.query('SELECT is_external FROM users WHERE id=$1', [req.user.id]);
+    const isExternal = userRes.rows.length > 0 && userRes.rows[0].is_external;
+    const showAll = isAlumni || isExternal;
+
     // Find the student's classes that match the subject
     const studentClasses = await pool.query(
       `SELECT c.id, c.name, c.subject FROM classes c
@@ -130,7 +155,14 @@ router.post('/generate', authenticateToken, requireRole('student', 'alumni', 'te
     const allClassIds = allMatchingClasses.rows.map(c => c.id);
 
     // Search pool: all class IDs with matching subject
-    const searchClassIds = allClassIds.length > 0 ? allClassIds : classIds;
+    let searchClassIds = allClassIds.length > 0 ? allClassIds : classIds;
+
+    // Fallback: if no classes match the subject, search ALL classes (don't leave any quiz behind)
+    if (searchClassIds.length === 0) {
+      const allClasses = await pool.query(`SELECT id FROM classes`);
+      searchClassIds = allClasses.rows.map(c => c.id);
+    }
+
     if (searchClassIds.length === 0) {
       return res.status(404).json({ error: 'No quizzes found for this subject. Ask your teacher to create some quizzes first!' });
     }
@@ -176,6 +208,21 @@ router.post('/generate', authenticateToken, requireRole('student', 'alumni', 'te
         [searchClassIds, targetCount]
       );
       questions = fallbackRes.rows;
+    }
+
+    if (questions.length === 0) {
+      // Final fallback: search ALL quizzes across ALL classes (ensure nothing is left behind)
+      const allQuizRes = await pool.query(
+        `SELECT qq.id, qq.question, qq.option_a, qq.option_b, qq.option_c, qq.option_d,
+                qq.correct_answer, qq.question_type, qq.passage, qq.order_num,
+                q.id as quiz_id, q.title as quiz_title, q.class_id
+         FROM quiz_questions qq
+         JOIN quizzes q ON q.id = qq.quiz_id
+         ORDER BY RANDOM()
+         LIMIT $1`,
+        [targetCount]
+      );
+      questions = allQuizRes.rows;
     }
 
     if (questions.length === 0) {
