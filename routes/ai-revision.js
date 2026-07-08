@@ -69,26 +69,34 @@ async function callGemini(prompt, maxTokens = 1024) {
 // ── GET subjects and grades available ─────────────────────────────────────────
 router.get('/options', authenticateToken, async (req, res) => {
   try {
-    const isAlumni = req.user.role === 'alumni';
-    const userRes = await pool.query('SELECT is_external FROM users WHERE id=$1', [req.user.id]);
-    const isExternal = userRes.rows.length > 0 && userRes.rows[0].is_external;
-    // All users (including students) see ALL subjects — no restriction
-    const subjects = await pool.query(`
-        SELECT DISTINCT subj FROM (
-          SELECT subject AS subj FROM classes WHERE subject IS NOT NULL AND subject <> ''
-          UNION
-          SELECT split_part(name, ' ', 1) AS subj FROM classes WHERE name IS NOT NULL AND name <> ''
-          UNION
-          SELECT c.subject AS subj FROM quizzes q JOIN classes c ON c.id = q.class_id WHERE c.subject IS NOT NULL AND c.subject <> ''
-        ) sub WHERE subj IS NOT NULL AND subj <> '' ORDER BY subj
-      `);
+    // 1. Get distinct subjects from classes.subject
+    let subjectsRes = await pool.query(
+      `SELECT DISTINCT subject FROM classes WHERE subject IS NOT NULL AND subject <> '' ORDER BY subject`
+    );
+    let subjectList = subjectsRes.rows.map(r => r.subject);
 
-    let subjectList = subjects.rows.map(r => r.subject);
+    // 2. If empty, use class names as subjects (each class is a subject group)
     if (subjectList.length === 0) {
-      const allSubj = await pool.query(`
-        SELECT DISTINCT subject FROM classes WHERE subject IS NOT NULL AND subject <> '' ORDER BY subject
-      `);
-      subjectList = allSubj.rows.map(r => r.subject);
+      const classNames = await pool.query(
+        `SELECT DISTINCT name FROM classes WHERE name IS NOT NULL AND name <> '' ORDER BY name`
+      );
+      subjectList = classNames.rows.map(r => r.name);
+    }
+
+    // 3. If still empty, get subjects from quiz titles via class join
+    if (subjectList.length === 0) {
+      const quizSubjects = await pool.query(
+        `SELECT DISTINCT c.subject FROM quizzes q JOIN classes c ON c.id = q.class_id WHERE c.subject IS NOT NULL AND c.subject <> '' ORDER BY c.subject`
+      );
+      subjectList = quizSubjects.rows.map(r => r.subject);
+    }
+
+    // 4. Final fallback: use quiz titles themselves
+    if (subjectList.length === 0) {
+      const quizTitles = await pool.query(
+        `SELECT DISTINCT title FROM quizzes WHERE title IS NOT NULL AND title <> '' ORDER BY title LIMIT 50`
+      );
+      subjectList = quizTitles.rows.map(r => r.title);
     }
 
     const classes = await pool.query(`SELECT id, name, subject FROM classes ORDER BY name LIMIT 200`);
