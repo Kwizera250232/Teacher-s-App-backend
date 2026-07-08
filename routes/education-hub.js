@@ -137,6 +137,7 @@ pool.query(`
     estimated_salary VARCHAR(100),
     video_url TEXT,
     category VARCHAR(100),
+    trait_weights JSONB DEFAULT '{}',
     created_at TIMESTAMP DEFAULT NOW()
   );
 
@@ -197,66 +198,67 @@ pool.query(`
     is_available BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT NOW()
   );
-`).catch(e => console.error('[education-hub] schema:', e.message));
+`).then(() => {
+  console.log('[education-hub] schema ready');
+  // ── Seed default career questions if none exist ────────────────────────────
+  pool.query('SELECT COUNT(*) as cnt FROM eduhub_career_questions').then(r => {
+    if (parseInt(r.rows[0].cnt) === 0) {
+      const defaults = [
+        { question: 'What subjects do you enjoy the most?', options: ['Mathematics & Sciences', 'Languages & Literature', 'Business & Economics', 'Arts & Design'], traits: [{ analytical: 3, creative: 1 }, { social: 3, creative: 2 }, { analytical: 2, practical: 3 }, { creative: 3, artistic: 3 }] },
+        { question: 'Do you enjoy solving complex problems?', options: ['Yes, I love challenges', 'Sometimes', 'Rarely', 'I prefer simple tasks'], traits: [{ analytical: 3 }, { analytical: 1, practical: 1 }, { social: 1 }, { practical: 2 }] },
+        { question: 'Do you enjoy helping people?', options: ['Yes, very much', 'Sometimes', 'Not really', 'I prefer working with things'], traits: [{ social: 3 }, { social: 1 }, { analytical: 2 }, { practical: 2 }] },
+        { question: 'Would you rather work indoors or outdoors?', options: ['Indoors (office/lab)', 'Mix of both', 'Outdoors', 'Does not matter'], traits: [{ analytical: 2, practical: 1 }, { practical: 2, social: 1 }, { practical: 3 }, { analytical: 1, social: 1 }] },
+        { question: 'Do you enjoy working with computers and technology?', options: ['Yes, absolutely', 'Somewhat', 'Not really', 'I prefer people over machines'], traits: [{ analytical: 3, technical: 3 }, { analytical: 1, technical: 1 }, { social: 2 }, { social: 3 }] },
+        { question: 'Do you like drawing, designing, or creating art?', options: ['Yes, it is my passion', 'Sometimes', 'Not really', 'I prefer logical tasks'], traits: [{ creative: 3, artistic: 3 }, { creative: 1 }, { analytical: 2 }, { analytical: 3 }] },
+        { question: 'Would you enjoy leading a team?', options: ['Yes, I am a natural leader', 'If needed', 'I prefer to follow', 'I prefer working alone'], traits: [{ social: 3, leadership: 3 }, { social: 1, leadership: 1 }, { practical: 2 }, { analytical: 2 }] },
+        { question: 'Would you rather repair machines or build software?', options: ['Repair machines', 'Build software', 'Both', 'Neither'], traits: [{ practical: 3, technical: 2 }, { analytical: 3, technical: 3 }, { technical: 3 }, { social: 2 }] },
+        { question: 'Do you like teaching others?', options: ['Yes, I love sharing knowledge', 'Sometimes', 'Not really', 'I prefer learning myself'], traits: [{ social: 3, leadership: 2 }, { social: 1 }, { analytical: 2 }, { analytical: 2 }] },
+        { question: 'Are you interested in healthcare or medicine?', options: ['Yes, very much', 'Somewhat', 'Not really', 'I prefer other fields'], traits: [{ social: 3, analytical: 2 }, { social: 1, analytical: 1 }, { practical: 2 }, { creative: 2 }] },
+        { question: 'Do you enjoy writing or speaking in public?', options: ['Yes, both', 'Writing more', 'Speaking more', 'Neither'], traits: [{ social: 2, creative: 2 }, { creative: 3 }, { social: 3, leadership: 2 }, { analytical: 2 }] },
+        { question: 'Are you interested in business and entrepreneurship?', options: ['Yes, I want to start a business', 'Maybe in the future', 'Not really', 'I prefer stable employment'], traits: [{ leadership: 3, practical: 2 }, { practical: 1, leadership: 1 }, { analytical: 2 }, { practical: 2, social: 1 }] },
+        { question: 'Do you enjoy working with numbers and data?', options: ['Yes, I love math and statistics', 'Somewhat', 'Not really', 'I prefer words and ideas'], traits: [{ analytical: 3 }, { analytical: 1 }, { creative: 2, social: 1 }, { creative: 2 }] },
+        { question: 'Would you like to work in agriculture or environment?', options: ['Yes', 'Maybe', 'Not really', 'I prefer urban environments'], traits: [{ practical: 3 }, { practical: 1 }, { analytical: 2 }, { social: 1, analytical: 1 }] },
+        { question: 'Do you enjoy building or constructing things?', options: ['Yes, I love hands-on work', 'Sometimes', 'Not really', 'I prefer intellectual work'], traits: [{ practical: 3, technical: 2 }, { practical: 1 }, { social: 2 }, { analytical: 3 }] },
+      ];
+      defaults.forEach((q, i) => {
+        const traitMap = {};
+        q.traits.forEach((t, idx) => { traitMap[String(idx)] = t; });
+        pool.query(
+          'INSERT INTO eduhub_career_questions (question, options, trait_scores, order_num) VALUES ($1,$2,$3,$4)',
+          [q.question, JSON.stringify(q.options), JSON.stringify(traitMap), i + 1]
+        ).catch(e => console.error('[education-hub] seed question:', e.message));
+      });
+      console.log('[education-hub] Seeded', defaults.length, 'default career questions');
+    }
+  }).catch(e => console.error('[education-hub] seed check:', e.message));
 
-// ── Seed default career questions if none exist ──────────────────────────────
-pool.query('SELECT COUNT(*) as cnt FROM eduhub_career_questions').then(r => {
-  if (parseInt(r.rows[0].cnt) === 0) {
-    const defaults = [
-      { question: 'What subjects do you enjoy the most?', options: ['Mathematics & Sciences', 'Languages & Literature', 'Business & Economics', 'Arts & Design'], traits: [{ analytical: 3, creative: 1 }, { social: 3, creative: 2 }, { analytical: 2, practical: 3 }, { creative: 3, artistic: 3 }] },
-      { question: 'Do you enjoy solving complex problems?', options: ['Yes, I love challenges', 'Sometimes', 'Rarely', 'I prefer simple tasks'], traits: [{ analytical: 3 }, { analytical: 1, practical: 1 }, { social: 1 }, { practical: 2 }] },
-      { question: 'Do you enjoy helping people?', options: ['Yes, very much', 'Sometimes', 'Not really', 'I prefer working with things'], traits: [{ social: 3 }, { social: 1 }, { analytical: 2 }, { practical: 2 }] },
-      { question: 'Would you rather work indoors or outdoors?', options: ['Indoors (office/lab)', 'Mix of both', 'Outdoors', 'Does not matter'], traits: [{ analytical: 2, practical: 1 }, { practical: 2, social: 1 }, { practical: 3 }, { analytical: 1, social: 1 }] },
-      { question: 'Do you enjoy working with computers and technology?', options: ['Yes, absolutely', 'Somewhat', 'Not really', 'I prefer people over machines'], traits: [{ analytical: 3, technical: 3 }, { analytical: 1, technical: 1 }, { social: 2 }, { social: 3 }] },
-      { question: 'Do you like drawing, designing, or creating art?', options: ['Yes, it is my passion', 'Sometimes', 'Not really', 'I prefer logical tasks'], traits: [{ creative: 3, artistic: 3 }, { creative: 1 }, { analytical: 2 }, { analytical: 3 }] },
-      { question: 'Would you enjoy leading a team?', options: ['Yes, I am a natural leader', 'If needed', 'I prefer to follow', 'I prefer working alone'], traits: [{ social: 3, leadership: 3 }, { social: 1, leadership: 1 }, { practical: 2 }, { analytical: 2 }] },
-      { question: 'Would you rather repair machines or build software?', options: ['Repair machines', 'Build software', 'Both', 'Neither'], traits: [{ practical: 3, technical: 2 }, { analytical: 3, technical: 3 }, { technical: 3 }, { social: 2 }] },
-      { question: 'Do you like teaching others?', options: ['Yes, I love sharing knowledge', 'Sometimes', 'Not really', 'I prefer learning myself'], traits: [{ social: 3, leadership: 2 }, { social: 1 }, { analytical: 2 }, { analytical: 2 }] },
-      { question: 'Are you interested in healthcare or medicine?', options: ['Yes, very much', 'Somewhat', 'Not really', 'I prefer other fields'], traits: [{ social: 3, analytical: 2 }, { social: 1, analytical: 1 }, { practical: 2 }, { creative: 2 }] },
-      { question: 'Do you enjoy writing or speaking in public?', options: ['Yes, both', 'Writing more', 'Speaking more', 'Neither'], traits: [{ social: 2, creative: 2 }, { creative: 3 }, { social: 3, leadership: 2 }, { analytical: 2 }] },
-      { question: 'Are you interested in business and entrepreneurship?', options: ['Yes, I want to start a business', 'Maybe in the future', 'Not really', 'I prefer stable employment'], traits: [{ leadership: 3, practical: 2 }, { practical: 1, leadership: 1 }, { analytical: 2 }, { practical: 2, social: 1 }] },
-      { question: 'Do you enjoy working with numbers and data?', options: ['Yes, I love math and statistics', 'Somewhat', 'Not really', 'I prefer words and ideas'], traits: [{ analytical: 3 }, { analytical: 1 }, { creative: 2, social: 1 }, { creative: 2 }] },
-      { question: 'Would you like to work in agriculture or environment?', options: ['Yes', 'Maybe', 'Not really', 'I prefer urban environments'], traits: [{ practical: 3 }, { practical: 1 }, { analytical: 2 }, { social: 1, analytical: 1 }] },
-      { question: 'Do you enjoy building or constructing things?', options: ['Yes, I love hands-on work', 'Sometimes', 'Not really', 'I prefer intellectual work'], traits: [{ practical: 3, technical: 2 }, { practical: 1 }, { social: 2 }, { analytical: 3 }] },
-    ];
-    defaults.forEach((q, i) => {
-      const traitMap = {};
-      q.traits.forEach((t, idx) => { traitMap[String(idx)] = t; });
-      pool.query(
-        'INSERT INTO eduhub_career_questions (question, options, trait_scores, order_num) VALUES ($1,$2,$3,$4)',
-        [q.question, JSON.stringify(q.options), JSON.stringify(traitMap), i + 1]
-      ).catch(e => console.error('[education-hub] seed question:', e.message));
-    });
-    console.log('[education-hub] Seeded', defaults.length, 'default career questions');
-  }
-}).catch(e => console.error('[education-hub] seed check:', e.message));
-
-// ── Seed default careers if none exist ───────────────────────────────────────
-pool.query('SELECT COUNT(*) as cnt FROM eduhub_careers').then(r => {
-  if (parseInt(r.rows[0].cnt) === 0) {
-    const careers = [
-      { title: 'Software Engineer', category: 'Technology', description: 'Design and build software applications and systems.', skills_required: 'Programming, problem-solving, analytical thinking', subjects_to_focus: 'Mathematics, Computer Science, Physics', future_demand: 'Very High', estimated_salary: '500,000 - 2,000,000 RWF/month', trait_weights: { analytical: 3, technical: 3 } },
-      { title: 'Doctor / Medical Officer', category: 'Healthcare', description: 'Diagnose and treat patients in hospitals and clinics.', skills_required: 'Biology, chemistry, empathy, critical thinking', subjects_to_focus: 'Biology, Chemistry, Mathematics, Physics', future_demand: 'Very High', estimated_salary: '800,000 - 3,000,000 RWF/month', trait_weights: { social: 3, analytical: 2 } },
-      { title: 'Civil Engineer', category: 'Engineering', description: 'Design and supervise construction of infrastructure projects.', skills_required: 'Mathematics, physics, project management', subjects_to_focus: 'Mathematics, Physics, Geography', future_demand: 'High', estimated_salary: '600,000 - 2,500,000 RWF/month', trait_weights: { practical: 3, analytical: 2, technical: 1 } },
-      { title: 'Teacher / Educator', category: 'Education', description: 'Teach and mentor students at various levels.', skills_required: 'Communication, patience, subject expertise', subjects_to_focus: 'All subjects depending on specialization', future_demand: 'High', estimated_salary: '300,000 - 800,000 RWF/month', trait_weights: { social: 3, leadership: 2 } },
-      { title: 'Entrepreneur / Business Owner', category: 'Business', description: 'Start and run your own business venture.', skills_required: 'Leadership, risk-taking, financial literacy', subjects_to_focus: 'Economics, Business Studies, Mathematics', future_demand: 'High', estimated_salary: 'Variable', trait_weights: { leadership: 3, practical: 2 } },
-      { title: 'Graphic Designer', category: 'Creative', description: 'Create visual content for brands and organizations.', skills_required: 'Creativity, design software, visual thinking', subjects_to_focus: 'Art, Computer Science, Languages', future_demand: 'Medium', estimated_salary: '300,000 - 1,000,000 RWF/month', trait_weights: { creative: 3, artistic: 3 } },
-      { title: 'Nurse', category: 'Healthcare', description: 'Provide patient care in hospitals and community settings.', skills_required: 'Empathy, biology, stamina, communication', subjects_to_focus: 'Biology, Chemistry, Mathematics', future_demand: 'Very High', estimated_salary: '400,000 - 1,200,000 RWF/month', trait_weights: { social: 3, practical: 2 } },
-      { title: 'Accountant', category: 'Finance', description: 'Manage financial records and ensure tax compliance.', skills_required: 'Mathematics, attention to detail, analytical thinking', subjects_to_focus: 'Mathematics, Economics, Business Studies', future_demand: 'High', estimated_salary: '400,000 - 1,500,000 RWF/month', trait_weights: { analytical: 3, practical: 1 } },
-      { title: 'Agricultural Scientist', category: 'Agriculture', description: 'Research and develop improved farming techniques.', skills_required: 'Biology, chemistry, field research', subjects_to_focus: 'Biology, Chemistry, Geography', future_demand: 'High', estimated_salary: '400,000 - 1,200,000 RWF/month', trait_weights: { practical: 3, analytical: 2 } },
-      { title: 'Journalist / Writer', category: 'Media', description: 'Report news and create written content for publications.', skills_required: 'Writing, research, communication, curiosity', subjects_to_focus: 'Languages, History, Computer Science', future_demand: 'Medium', estimated_salary: '300,000 - 900,000 RWF/month', trait_weights: { creative: 3, social: 2 } },
-      { title: 'Electrician', category: 'Trades', description: 'Install and repair electrical systems in buildings.', skills_required: 'Technical skills, safety awareness, problem-solving', subjects_to_focus: 'Physics, Mathematics, Technical Studies', future_demand: 'High', estimated_salary: '300,000 - 800,000 RWF/month', trait_weights: { practical: 3, technical: 2 } },
-      { title: 'Lawyer', category: 'Law', description: 'Provide legal advice and represent clients in court.', skills_required: 'Critical thinking, communication, research', subjects_to_focus: 'History, Languages, Economics', future_demand: 'Medium', estimated_salary: '500,000 - 3,000,000 RWF/month', trait_weights: { analytical: 2, social: 2, leadership: 1 } },
-    ];
-    careers.forEach(c => {
-      pool.query(
-        'INSERT INTO eduhub_careers (title, category, description, skills_required, subjects_to_focus, future_demand, estimated_salary, trait_weights) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
-        [c.title, c.category, c.description, c.skills_required, c.subjects_to_focus, c.future_demand, c.estimated_salary, JSON.stringify(c.trait_weights)]
-      ).catch(e => console.error('[education-hub] seed career:', e.message));
-    });
-    console.log('[education-hub] Seeded', careers.length, 'default careers');
-  }
-}).catch(e => console.error('[education-hub] career seed check:', e.message));
+  // ── Seed default careers if none exist ─────────────────────────────────────
+  pool.query('SELECT COUNT(*) as cnt FROM eduhub_careers').then(r => {
+    if (parseInt(r.rows[0].cnt) === 0) {
+      const careers = [
+        { title: 'Software Engineer', category: 'Technology', description: 'Design and build software applications and systems.', skills_required: 'Programming, problem-solving, analytical thinking', subjects_to_focus: 'Mathematics, Computer Science, Physics', future_demand: 'Very High', estimated_salary: '500,000 - 2,000,000 RWF/month', trait_weights: { analytical: 3, technical: 3 } },
+        { title: 'Doctor / Medical Officer', category: 'Healthcare', description: 'Diagnose and treat patients in hospitals and clinics.', skills_required: 'Biology, chemistry, empathy, critical thinking', subjects_to_focus: 'Biology, Chemistry, Mathematics, Physics', future_demand: 'Very High', estimated_salary: '800,000 - 3,000,000 RWF/month', trait_weights: { social: 3, analytical: 2 } },
+        { title: 'Civil Engineer', category: 'Engineering', description: 'Design and supervise construction of infrastructure projects.', skills_required: 'Mathematics, physics, project management', subjects_to_focus: 'Mathematics, Physics, Geography', future_demand: 'High', estimated_salary: '600,000 - 2,500,000 RWF/month', trait_weights: { practical: 3, analytical: 2, technical: 1 } },
+        { title: 'Teacher / Educator', category: 'Education', description: 'Teach and mentor students at various levels.', skills_required: 'Communication, patience, subject expertise', subjects_to_focus: 'All subjects depending on specialization', future_demand: 'High', estimated_salary: '300,000 - 800,000 RWF/month', trait_weights: { social: 3, leadership: 2 } },
+        { title: 'Entrepreneur / Business Owner', category: 'Business', description: 'Start and run your own business venture.', skills_required: 'Leadership, risk-taking, financial literacy', subjects_to_focus: 'Economics, Business Studies, Mathematics', future_demand: 'High', estimated_salary: 'Variable', trait_weights: { leadership: 3, practical: 2 } },
+        { title: 'Graphic Designer', category: 'Creative', description: 'Create visual content for brands and organizations.', skills_required: 'Creativity, design software, visual thinking', subjects_to_focus: 'Art, Computer Science, Languages', future_demand: 'Medium', estimated_salary: '300,000 - 1,000,000 RWF/month', trait_weights: { creative: 3, artistic: 3 } },
+        { title: 'Nurse', category: 'Healthcare', description: 'Provide patient care in hospitals and community settings.', skills_required: 'Empathy, biology, stamina, communication', subjects_to_focus: 'Biology, Chemistry, Mathematics', future_demand: 'Very High', estimated_salary: '400,000 - 1,200,000 RWF/month', trait_weights: { social: 3, practical: 2 } },
+        { title: 'Accountant', category: 'Finance', description: 'Manage financial records and ensure tax compliance.', skills_required: 'Mathematics, attention to detail, analytical thinking', subjects_to_focus: 'Mathematics, Economics, Business Studies', future_demand: 'High', estimated_salary: '400,000 - 1,500,000 RWF/month', trait_weights: { analytical: 3, practical: 1 } },
+        { title: 'Agricultural Scientist', category: 'Agriculture', description: 'Research and develop improved farming techniques.', skills_required: 'Biology, chemistry, field research', subjects_to_focus: 'Biology, Chemistry, Geography', future_demand: 'High', estimated_salary: '400,000 - 1,200,000 RWF/month', trait_weights: { practical: 3, analytical: 2 } },
+        { title: 'Journalist / Writer', category: 'Media', description: 'Report news and create written content for publications.', skills_required: 'Writing, research, communication, curiosity', subjects_to_focus: 'Languages, History, Computer Science', future_demand: 'Medium', estimated_salary: '300,000 - 900,000 RWF/month', trait_weights: { creative: 3, social: 2 } },
+        { title: 'Electrician', category: 'Trades', description: 'Install and repair electrical systems in buildings.', skills_required: 'Technical skills, safety awareness, problem-solving', subjects_to_focus: 'Physics, Mathematics, Technical Studies', future_demand: 'High', estimated_salary: '300,000 - 800,000 RWF/month', trait_weights: { practical: 3, technical: 2 } },
+        { title: 'Lawyer', category: 'Law', description: 'Provide legal advice and represent clients in court.', skills_required: 'Critical thinking, communication, research', subjects_to_focus: 'History, Languages, Economics', future_demand: 'Medium', estimated_salary: '500,000 - 3,000,000 RWF/month', trait_weights: { analytical: 2, social: 2, leadership: 1 } },
+      ];
+      careers.forEach(c => {
+        pool.query(
+          'INSERT INTO eduhub_careers (title, category, description, skills_required, subjects_to_focus, future_demand, estimated_salary, trait_weights) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+          [c.title, c.category, c.description, c.skills_required, c.subjects_to_focus, c.future_demand, c.estimated_salary, JSON.stringify(c.trait_weights)]
+        ).catch(e => console.error('[education-hub] seed career:', e.message));
+      });
+      console.log('[education-hub] Seeded', careers.length, 'default careers');
+    }
+  }).catch(e => console.error('[education-hub] career seed check:', e.message));
+}).catch(e => console.error('[education-hub] schema:', e.message));
 
 // ── Gemini AI helper ──────────────────────────────────────────────────────────
 async function callGemini(prompt, maxTokens = 1000) {
