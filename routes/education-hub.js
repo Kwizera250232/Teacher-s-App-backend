@@ -1,7 +1,33 @@
 const express = require('express');
 const router = express.Router();
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+
+// ── Upload setup for institution images ──────────────────────────────────────
+const eduhubUploadDir = path.join(__dirname, '../uploads/eduhub');
+if (!fs.existsSync(eduhubUploadDir)) fs.mkdirSync(eduhubUploadDir, { recursive: true });
+
+const eduhubStorage = multer.diskStorage({
+  destination: eduhubUploadDir,
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase().replace(/[^a-z0-9.]/g, '');
+    const prefix = file.fieldname === 'banner' ? 'banner' : 'logo';
+    cb(null, `${prefix}_${Date.now()}_${Math.round(Math.random() * 1e4)}${ext}`);
+  },
+});
+const eduhubUpload = multer({
+  storage: eduhubStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const exts = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (exts.includes(ext)) cb(null, true);
+    else cb(new Error('Only image files are allowed.'));
+  },
+});
 
 // ── Schema migration ─────────────────────────────────────────────────────────
 pool.query(`
@@ -616,6 +642,23 @@ router.get('/my-assessments', authenticateToken, async (req, res) => {
 // ════════════════════════════════════════════════════════════════════════════
 // ADMIN ROUTES
 // ════════════════════════════════════════════════════════════════════════════
+
+// ── ADMIN: Upload institution image (banner or logo) ─────────────────────────
+router.post('/admin/upload-image', authenticateToken, requireRole('admin', 'head_teacher'), eduhubUpload.fields([
+  { name: 'banner', maxCount: 1 },
+  { name: 'logo', maxCount: 1 },
+]), async (req, res) => {
+  try {
+    const result = {};
+    if (req.files?.banner?.[0]) result.banner_url = `/uploads/eduhub/${req.files.banner[0].filename}`;
+    if (req.files?.logo?.[0]) result.logo_url = `/uploads/eduhub/${req.files.logo[0].filename}`;
+    if (Object.keys(result).length === 0) return res.status(400).json({ error: 'No files uploaded.' });
+    res.json(result);
+  } catch (err) {
+    console.error('[education-hub] upload error:', err);
+    res.status(500).json({ error: 'Upload failed.' });
+  }
+});
 
 // ── ADMIN: Create institution ────────────────────────────────────────────────
 router.post('/admin/institutions', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
