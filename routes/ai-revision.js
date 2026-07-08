@@ -114,7 +114,7 @@ router.get('/options', authenticateToken, async (req, res) => {
 router.post('/generate', authenticateToken, requireRole('student', 'alumni', 'teacher', 'guest'), async (req, res) => {
   const { education_level, grade, subject, quiz_type, difficulty, num_questions } = req.body;
 
-  if (!education_level || !grade || !subject || !quiz_type || !difficulty || !num_questions) {
+  if (!education_level || !grade || !subject || !quiz_type || !difficulty || (num_questions === undefined || num_questions === null || num_questions === '')) {
     return res.status(400).json({ error: 'All selection fields are required.' });
   }
 
