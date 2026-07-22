@@ -487,6 +487,20 @@ router.get('/follows/:userId', authenticateToken, async (req, res) => {
   }
 });
 
+router.get('/follow-status/:userId', authenticateToken, async (req, res) => {
+  const userId = parseInt(req.params.userId);
+  try {
+    const result = await pool.query(
+      `SELECT 1 FROM alumni_follows WHERE follower_id=$1 AND following_id=$2`,
+      [req.user.id, userId]
+    );
+    res.json({ is_following: result.rows.length > 0 });
+  } catch (err) {
+    console.error('[alumni/follow-status]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // ── Notifications ────────────────────────────────────────────────────────────
 
 router.get('/notifications', authenticateToken, async (req, res) => {
