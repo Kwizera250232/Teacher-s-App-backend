@@ -64,8 +64,7 @@ router.post('/convert-account', authenticateToken, requireRole('guest'), async (
 
     const token = jwt.sign(
       { id: result.user.id, role: result.user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
+      process.env.JWT_SECRET
     );
     res.json({
       token,

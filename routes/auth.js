@@ -867,7 +867,7 @@ router.post('/register', authLimiter, async (req, res) => {
       });
     }
 
-    const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET);
     audit('register', { email, role });
     res.status(201).json({
       token,
@@ -931,7 +931,7 @@ router.post('/login', authLimiter, async (req, res) => {
       return res.status(403).json({ error: 'Konti yawe irafunzwe. Wasiliana n\'umuyobozi.' });
     }
     resetLoginAttempts(email);
-    const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET);
     audit('login_ok', { email, role: user.role });
 
     let parentInviteLinked = null;

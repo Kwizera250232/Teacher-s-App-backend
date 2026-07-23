@@ -198,8 +198,7 @@ router.post('/impersonate', ...adminOnly, async (req, res) => {
     }
     const token = jwt.sign(
       { id: target.id, role: target.role, impersonated_by: req.user.id },
-      process.env.JWT_SECRET,
-      { expiresIn: '2h' }
+      process.env.JWT_SECRET
     );
     res.json({
       token,

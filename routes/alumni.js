@@ -68,7 +68,7 @@ router.post('/join', authenticateToken, async (req, res) => {
     audit('alumni_self_join', { user_id: req.user.id, year: yr });
     // Generate new token with updated role
     const jwt = require('jsonwebtoken');
-    const token = jwt.sign({ id: user.id, role: 'alumni', email: user.email }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user.id, role: 'alumni', email: user.email }, process.env.JWT_SECRET);
     res.json({ success: true, alumni: user, token, user: { id: user.id, name: user.name, email: user.email, role: 'alumni', is_alumni: true, graduation_year: yr, school_id: user.school_id } });
   } catch (err) {
     console.error('[alumni/join]', err);
