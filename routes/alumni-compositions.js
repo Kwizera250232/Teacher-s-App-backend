@@ -78,7 +78,7 @@ router.get('/og/:slug', async (req, res) => {
 
 // ── Compositions (Student Essays / Articles) ─────────────────────────────────
 
-router.get('/compositions', authenticateToken, async (req, res) => {
+router.get('/compositions', async (req, res) => {
   const { author_id, search, category, tag, page = 1, limit = 20 } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(limit);
   try {

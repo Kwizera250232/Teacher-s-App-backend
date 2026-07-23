@@ -15,6 +15,24 @@ function authenticateToken(req, res, next) {
   });
 }
 
+function optionalAuth(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) {
+    req.user = null;
+    return next();
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET, async (err, user) => {
+    if (err) {
+      req.user = null;
+      return next();
+    }
+    req.user = await enrichUserFromDb(user);
+    next();
+  });
+}
+
 function requireRole(...roles) {
   const allowed = roles.flat();
   return (req, res, next) => {
@@ -29,4 +47,4 @@ function requireRole(...roles) {
   };
 }
 
-module.exports = { authenticateToken, requireRole };
+module.exports = { authenticateToken, optionalAuth, requireRole };

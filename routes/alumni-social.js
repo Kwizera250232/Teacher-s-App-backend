@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
-const { authenticateToken, requireRole } = require('../middleware/auth');
+const { authenticateToken, optionalAuth, requireRole } = require('../middleware/auth');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -433,22 +433,22 @@ router.get('/online/status', authenticateToken, async (req, res) => {
   }
 });
 
-// Get feed posts
-router.get('/feed', authenticateToken, async (req, res) => {
+// Get feed posts (public - no auth required for read-only access)
+router.get('/feed', optionalAuth, async (req, res) => {
   const { cursor, author_id } = req.query;
   try {
     let query = `
       SELECT p.*, u.name as author_name, u.email as author_email, u.graduation_year,
         u.avatar_url as author_avatar,
         s.name as school_name,
-        EXISTS(SELECT 1 FROM alumni_feed_likes l WHERE l.post_id=p.id AND l.user_id=$1) as liked_by_me,
+        ${req.user ? `EXISTS(SELECT 1 FROM alumni_feed_likes l WHERE l.post_id=p.id AND l.user_id=$${req.user.id ? 1 : 0})` : 'false'} as liked_by_me,
         (SELECT COUNT(*)::int FROM alumni_feed_views v WHERE v.post_id=p.id) as views_count,
         EXISTS(SELECT 1 FROM user_online_status os WHERE os.user_id=p.author_id AND os.last_seen > NOW() - INTERVAL '5 minutes') as author_online
       FROM alumni_feed_posts p
       JOIN users u ON u.id=p.author_id
       LEFT JOIN schools s ON s.id=u.school_id
     `;
-    const params = [req.user.id];
+    const params = req.user ? [req.user.id] : [];
     const filters = [];
     if (cursor) {
       filters.push(`p.id < $${params.length + 1}`);
