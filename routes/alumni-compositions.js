@@ -19,6 +19,63 @@ function estimateReadMinutes(content) {
   return Math.max(1, Math.round(stripHtml(content).split(/\s+/).length / 200));
 }
 
+// ── Server-side OG metadata for social media crawlers ─────────────────────────
+router.get('/og/:slug', async (req, res) => {
+  const { slug } = req.params;
+  try {
+    const result = await pool.query(
+      `SELECT c.*, u.name AS author_name
+       FROM alumni_compositions c JOIN users u ON u.id=c.author_id
+       WHERE c.slug=$1 AND c.status='published'`,
+      [slug]
+    );
+    if (result.rows.length === 0) return res.status(404).send('Composition not found');
+    const comp = result.rows[0];
+    const featuredImg = comp.featured_image_path
+      ? (comp.featured_image_path.startsWith('http') ? comp.featured_image_path : `https://studentapi.umunsi.com/uploads/${comp.featured_image_path}`)
+      : 'https://student.umunsi.com/og-image.svg';
+    const excerpt = comp.excerpt || comp.content?.split('\n\n')?.[0]?.substring(0, 200)?.replace(/\n/g, ' ') || comp.content?.substring(0, 200)?.replace(/\n/g, ' ') || '';
+    
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${comp.title} - UClass Alumni</title>
+<meta name="description" content="${excerpt}">
+<meta property="og:type" content="article">
+<meta property="og:title" content="${comp.title}">
+<meta property="og:description" content="${excerpt}">
+<meta property="og:url" content="https://student.umunsi.com/alumni/composition/${comp.slug}">
+<meta property="og:image" content="${featuredImg}">
+<meta property="og:image:secure_url" content="${featuredImg}">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="${comp.title}">
+<meta property="og:site_name" content="UClass Alumni">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${comp.title}">
+<meta name="twitter:description" content="${excerpt}">
+<meta name="twitter:image" content="${featuredImg}">
+<meta name="twitter:image:alt" content="${comp.title}">
+<meta itemprop="name" content="${comp.title}">
+<meta itemprop="description" content="${excerpt}">
+<meta itemprop="image" content="${featuredImg}">
+<script>window.location.href = "/alumni/composition/${comp.slug}";</script>
+</head>
+<body>
+<p>Redirecting to <a href="/alumni/composition/${comp.slug}">${comp.title}</a>...</p>
+</body>
+</html>`;
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+  } catch (err) {
+    console.error('[alumni/og/:slug]', err);
+    res.status(500).send('Internal server error');
+  }
+});
+
 // ── Compositions (Student Essays / Articles) ─────────────────────────────────
 
 router.get('/compositions', authenticateToken, async (req, res) => {
