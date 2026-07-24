@@ -246,7 +246,8 @@ router.get('/:id/students', authenticateToken, requireRole('teacher', 'head_teac
       `SELECT u.id, u.name, u.email, cm.joined_at, s.name AS school_name
        FROM class_members cm JOIN users u ON cm.student_id = u.id
        LEFT JOIN schools s ON u.school_id = s.id
-       WHERE cm.class_id = $1 ORDER BY cm.joined_at`,
+       WHERE cm.class_id = $1 AND u.role='student' AND u.is_alumni=FALSE
+       ORDER BY cm.joined_at`,
       [req.params.id]
     );
     res.json(result.rows);
