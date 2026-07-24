@@ -27,6 +27,22 @@ const previewLimiter = rateLimit({
   message: { error: 'Ugerageje inshuro nyinshi. Gerageza nyuma y\'iminota 15.' },
 });
 
+// GET class by code — for admin operations
+router.get('/by-code/:code', authenticateToken, requireRole('admin', 'head_teacher', 'teacher'), async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT c.id, c.name, c.subject, c.class_code
+       FROM classes c
+       WHERE c.class_code = $1`,
+      [req.params.code.toUpperCase()]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Class not found.' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // GET class preview by code — no auth required (for join landing page)
 router.get('/preview/:code', previewLimiter, async (req, res) => {
   try {
