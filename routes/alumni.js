@@ -106,7 +106,7 @@ router.post('/graduate', authenticateToken, requireRole('admin', 'head_teacher',
   }
 });
 
-router.post('/graduate-bulk', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+router.post('/graduate-bulk', authenticateToken, requireRole('admin', 'head_teacher', 'teacher'), async (req, res) => {
   const { student_ids, graduation_year } = req.body;
   if (!Array.isArray(student_ids) || student_ids.length === 0) return res.status(400).json({ error: 'student_ids array required.' });
   const yr = graduation_year || new Date().getFullYear();
