@@ -255,6 +255,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 // GET students in a class — teacher must own the class
 router.get('/:id/students', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   try {
+    console.log('[classes] GET /classes/:id/students for classId:', req.params.id, 'user:', req.user.id);
     const manage = await userCanManageClass(req.user, parseInt(req.params.id, 10));
     if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
 

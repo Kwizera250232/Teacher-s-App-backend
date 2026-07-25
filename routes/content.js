@@ -8,14 +8,17 @@ const router = express.Router();
 // GET announcements for a class
 router.get('/:classId/announcements', authenticateToken, async (req, res) => {
   try {
+    console.log('[content] GET /classes/:classId/announcements for classId:', req.params.classId, 'user:', req.user.id);
     const result = await pool.query(
       `SELECT a.*, u.name AS teacher_name FROM announcements a
        JOIN users u ON a.teacher_id = u.id
        WHERE a.class_id = $1 ORDER BY a.created_at DESC`,
       [req.params.classId]
     );
+    console.log('[content] Found announcements:', result.rows.length);
     res.json(result.rows);
   } catch (err) {
+    console.error('[content GET announcements] error:', err.message);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });

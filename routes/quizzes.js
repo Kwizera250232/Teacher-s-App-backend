@@ -60,10 +60,13 @@ pool.query(`
   ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS passage TEXT;
 `).catch(e => console.error('[quizzes] migration error:', e.message));
 
-// GET quizzes for a class (includes colleague shares accepted into this class)
+// GET quizzes for a class
+
 router.get('/:classId/quizzes', authenticateToken, async (req, res) => {
   try {
+    console.log('[quizzes] GET /classes/:classId/quizzes for classId:', req.params.classId, 'user:', req.user.id);
     let rows = await listQuizzesForClass(req.params.classId);
+    console.log('[quizzes] Found quizzes:', rows.length);
     if (req.user.role === 'student') {
       rows = rows.map((q) => ({ ...q, is_group_quiz: false }));
     } else if (req.user.role === 'teacher' || req.user.role === 'head_teacher') {

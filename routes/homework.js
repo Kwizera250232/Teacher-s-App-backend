@@ -11,10 +11,12 @@ const uploadHomework = createUpload('file');
 // GET homework for a class
 router.get('/:classId/homework', authenticateToken, async (req, res) => {
   try {
+    console.log('[homework] GET /classes/:classId/homework for classId:', req.params.classId, 'user:', req.user.id);
     const result = await pool.query(
       'SELECT * FROM homework WHERE class_id = $1 ORDER BY created_at DESC',
       [req.params.classId]
     );
+    console.log('[homework] Found homework:', result.rows.length);
     res.json(result.rows);
   } catch (err) {
     console.error('[homework GET] error:', err.message);

@@ -66,7 +66,9 @@ async function teacherOwnsClass(classId, user) {
 // GET notes for a class (includes colleague shares accepted into this class)
 router.get('/:classId/notes', authenticateToken, async (req, res) => {
   try {
+    console.log('[notes] GET /classes/:classId/notes for classId:', req.params.classId, 'user:', req.user.id);
     const rows = await listNotesForClass(req.params.classId);
+    console.log('[notes] Found notes:', rows.length);
     res.json(rows);
   } catch (err) {
     console.error('[notes GET] error:', err.message);
