@@ -267,6 +267,7 @@ router.get('/:id/students', authenticateToken, requireRole('teacher', 'head_teac
        ORDER BY cm.joined_at`,
       [req.params.id]
     );
+    console.log('[classes] Students found:', result.rows.length);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
