@@ -65,6 +65,7 @@ router.get('/preview/:code', previewLimiter, async (req, res) => {
 // GET all classes for logged-in teacher or head teacher
 router.get('/', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   try {
+    console.log('Fetching classes for user:', req.user.id, 'role:', req.user.role, 'school_id:', req.user.school_id);
     let result;
     if (req.user.role === 'head_teacher' && req.user.school_id) {
       result = await pool.query(
@@ -91,8 +92,10 @@ router.get('/', authenticateToken, requireRole('teacher', 'head_teacher'), async
         [req.user.id]
       );
     }
+    console.log('Classes found:', result.rows.length, result.rows);
     res.json(result.rows);
   } catch (err) {
+    console.error('Error fetching classes:', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
