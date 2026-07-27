@@ -68,9 +68,13 @@ router.get('/', authenticateToken, requireRole('teacher', 'head_teacher'), async
     let result;
     if (req.user.role === 'head_teacher' && req.user.school_id) {
       result = await pool.query(
-        `SELECT c.*, COUNT(DISTINCT cm.student_id) AS student_count
+        `SELECT c.*,
+                COUNT(DISTINCT cm.student_id) FILTER (WHERE m.role = 'student') AS student_count,
+                (SELECT COUNT(*) FROM users g
+                  WHERE g.role = 'alumni' AND g.class_id = c.id) AS graduated_count
          FROM classes c
          LEFT JOIN class_members cm ON c.id = cm.class_id
+         LEFT JOIN users m ON m.id = cm.student_id
          JOIN users t ON t.id = c.teacher_id
          WHERE t.school_id = $1
             OR c.teacher_id = $2
@@ -81,9 +85,13 @@ router.get('/', authenticateToken, requireRole('teacher', 'head_teacher'), async
       );
     } else {
       result = await pool.query(
-        `SELECT c.*, COUNT(cm.student_id) AS student_count
+        `SELECT c.*,
+                COUNT(DISTINCT cm.student_id) FILTER (WHERE m.role = 'student') AS student_count,
+                (SELECT COUNT(*) FROM users g
+                  WHERE g.role = 'alumni' AND g.class_id = c.id) AS graduated_count
          FROM classes c
          LEFT JOIN class_members cm ON c.id = cm.class_id
+         LEFT JOIN users m ON m.id = cm.student_id
          WHERE c.teacher_id = $1
             OR EXISTS (SELECT 1 FROM class_co_teachers ct WHERE ct.class_id = c.id AND ct.teacher_id = $1)
          GROUP BY c.id
@@ -235,7 +243,10 @@ router.post('/join', authenticateToken, requireRole('student'), async (req, res)
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT c.*, u.name AS teacher_name FROM classes c JOIN users u ON c.teacher_id = u.id WHERE c.id = $1`,
+      `SELECT c.*, u.name AS teacher_name,
+              (SELECT COUNT(*) FROM users g
+                WHERE g.role = 'alumni' AND g.class_id = c.id) AS graduated_count
+       FROM classes c JOIN users u ON c.teacher_id = u.id WHERE c.id = $1`,
       [req.params.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Class not found.' });
