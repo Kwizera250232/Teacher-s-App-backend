@@ -143,7 +143,7 @@ router.get('/students-for-graduation', authenticateToken, requireRole('admin', '
                JOIN schools s ON s.id=u.school_id
                JOIN class_members cm ON cm.student_id=u.id
                JOIN classes c ON c.id=cm.class_id
-               WHERE u.role='student' AND u.is_alumni=FALSE`;
+               WHERE u.role='student' AND (u.is_alumni=FALSE OR u.is_alumni IS NULL)`;
     const params = [];
     let idx = 1;
 

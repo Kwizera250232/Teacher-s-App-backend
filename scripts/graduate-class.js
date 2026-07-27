@@ -25,7 +25,7 @@ async function graduateClassByCode(classCode, graduationYear) {
       `SELECT u.id, u.name, u.email, u.school_id
        FROM class_members cm
        JOIN users u ON cm.student_id = u.id
-       WHERE cm.class_id = $1 AND u.role='student' AND u.is_alumni=FALSE`,
+       WHERE cm.class_id = $1 AND u.role='student' AND (u.is_alumni=FALSE OR u.is_alumni IS NULL)`,
       [classId]
     );
 
