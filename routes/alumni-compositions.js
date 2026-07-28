@@ -76,6 +76,64 @@ router.get('/og/:slug', async (req, res) => {
   }
 });
 
+// ── Server-side OG metadata for alumni feed posts (social media crawlers) ────
+router.get('/og-post/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      `SELECT p.*, u.name AS author_name
+       FROM alumni_feed_posts p JOIN users u ON u.id=p.author_id
+       WHERE p.id=$1`,
+      [id]
+    );
+    if (result.rows.length === 0) return res.status(404).send('Post not found');
+    const post = result.rows[0];
+    const excerpt = (post.content || '').replace(/<[^>]*>/g, '').substring(0, 200).replace(/\n/g, ' ').trim() || 'Alumni post on UClass';
+    const title = post.content
+      ? (post.content.replace(/<[^>]*>/g, '').split('\n')[0].substring(0, 80).trim() || 'Alumni Post')
+      : 'Alumni Post';
+
+    let ogImage = 'https://student.umunsi.com/og-image.svg';
+    if (post.image_paths && Array.isArray(post.image_paths) && post.image_paths.length > 0) {
+      const firstImg = post.image_paths[0];
+      ogImage = firstImg.startsWith('http') ? firstImg : `https://studentapi.umunsi.com${firstImg}`;
+    }
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${title} - UClass Alumni</title>
+<meta name="description" content="${excerpt}">
+<meta property="og:type" content="article">
+<meta property="og:title" content="${title}">
+<meta property="og:description" content="${excerpt}">
+<meta property="og:url" content="https://student.umunsi.com/alumni/post/${post.id}">
+<meta property="og:image" content="${ogImage}">
+<meta property="og:image:secure_url" content="${ogImage}">
+<meta property="og:site_name" content="UClass Alumni">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${title}">
+<meta name="twitter:description" content="${excerpt}">
+<meta name="twitter:image" content="${ogImage}">
+<meta itemprop="name" content="${title}">
+<meta itemprop="description" content="${excerpt}">
+<meta itemprop="image" content="${ogImage}">
+<script>window.location.href = "/alumni/post/${post.id}";</script>
+</head>
+<body>
+<p>Redirecting to <a href="/alumni/post/${post.id}">UClass Alumni Post</a>...</p>
+</body>
+</html>`;
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+  } catch (err) {
+    console.error('[alumni/og-post/:id]', err);
+    res.status(500).send('Internal server error');
+  }
+});
+
 // ── Compositions (Student Essays / Articles) ─────────────────────────────────
 
 router.get('/compositions', async (req, res) => {
