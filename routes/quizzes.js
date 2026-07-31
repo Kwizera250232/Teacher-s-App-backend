@@ -58,6 +58,7 @@ async function listQuizzesForClass(classId) {
 pool.query(`
   ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS question_type VARCHAR(20) DEFAULT 'multiple_choice';
   ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS passage TEXT;
+  ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS grade_level VARCHAR(20);
 `).catch(e => console.error('[quizzes] migration error:', e.message));
 
 // GET quizzes for a class
@@ -97,7 +98,7 @@ router.get('/:classId/quizzes/:quizId', authenticateToken, async (req, res) => {
 
 // POST create quiz with questions (teacher)
 router.post('/:classId/quizzes', authenticateToken, requireRole('teacher'), async (req, res) => {
-  const { title, description, questions } = req.body;
+  const { title, description, questions, grade_level, subject } = req.body;
   if (!title || !questions || !Array.isArray(questions) || questions.length === 0) {
     return res.status(400).json({ error: 'Title and at least one question are required.' });
   }
@@ -105,8 +106,8 @@ router.post('/:classId/quizzes', authenticateToken, requireRole('teacher'), asyn
   try {
     await client.query('BEGIN');
     const quizResult = await client.query(
-      'INSERT INTO quizzes (class_id, title, description) VALUES ($1,$2,$3) RETURNING *',
-      [req.params.classId, title, description || null]
+      'INSERT INTO quizzes (class_id, title, description, grade_level, subject) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [req.params.classId, title, description || null, (grade_level || '').trim() || null, (subject || '').trim() || null]
     );
     const quiz = quizResult.rows[0];
     for (let i = 0; i < questions.length; i++) {
@@ -191,7 +192,7 @@ router.get('/:classId/quizzes/:quizId/questions-edit', authenticateToken, requir
 
 // PUT update quiz (teacher) — only allowed if no attempts exist
 router.put('/:classId/quizzes/:quizId', authenticateToken, requireRole('teacher'), async (req, res) => {
-  const { title, description, questions } = req.body;
+  const { title, description, questions, grade_level, subject } = req.body;
   if (!title || !questions || !Array.isArray(questions) || questions.length === 0) {
     return res.status(400).json({ error: 'Title and at least one question are required.' });
   }
@@ -207,8 +208,8 @@ router.put('/:classId/quizzes/:quizId', authenticateToken, requireRole('teacher'
     }
     await client.query('BEGIN');
     await client.query(
-      'UPDATE quizzes SET title=$1, description=$2 WHERE id=$3 AND class_id=$4',
-      [title, description || null, req.params.quizId, req.params.classId]
+      'UPDATE quizzes SET title=$1, description=$2, grade_level=$3, subject=$4 WHERE id=$5 AND class_id=$6',
+      [title, description || null, (grade_level || '').trim() || null, (subject || '').trim() || null, req.params.quizId, req.params.classId]
     );
     await client.query('DELETE FROM quiz_questions WHERE quiz_id = $1', [req.params.quizId]);
     for (let i = 0; i < questions.length; i++) {

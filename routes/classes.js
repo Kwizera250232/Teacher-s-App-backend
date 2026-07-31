@@ -199,6 +199,7 @@ router.get('/my', authenticateToken, requireRole('student'), async (req, res) =>
 router.post('/', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const name = (req.body.name || '').trim();
   const subject = (req.body.subject || '').trim();
+  const grade = (req.body.grade || '').trim();
   if (!name) return res.status(400).json({ error: 'Class name is required.' });
   if (name.length > 150) return res.status(400).json({ error: 'Class name is too long.' });
   if (subject.length > 150) return res.status(400).json({ error: 'Subject name is too long.' });
@@ -212,8 +213,8 @@ router.post('/', authenticateToken, requireRole('teacher', 'head_teacher'), asyn
     }
     if (!unique) return res.status(500).json({ error: 'Could not generate a unique class code. Try again.' });
     const result = await pool.query(
-      'INSERT INTO classes (name, subject, teacher_id, class_code) VALUES ($1,$2,$3,$4) RETURNING *',
-      [name, subject || null, req.user.id, code]
+      'INSERT INTO classes (name, subject, grade, teacher_id, class_code) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [name, subject || null, grade || null, req.user.id, code]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
