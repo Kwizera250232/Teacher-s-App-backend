@@ -72,7 +72,7 @@ router.get('/:classId/weekly-reports/:reportId', authenticateToken, requireRole(
     );
 
     const students = await pool.query(
-      `SELECT u.id, u.name, u.email FROM class_members cm
+      `SELECT u.id, u.name, u.email, cm.parent_email FROM class_members cm
        JOIN users u ON u.id = cm.student_id
        WHERE cm.class_id = $1 AND u.role = 'student'
        ORDER BY u.name`,
@@ -370,6 +370,14 @@ router.post('/:classId/weekly-reports/:reportId/notify-parents', authenticateTok
     let emailed = 0;
     let noParent = 0;
 
+    // Get saved parent emails from class_members
+    const memberEmails = await pool.query(
+      `SELECT student_id, parent_email FROM class_members WHERE class_id = $1 AND parent_email IS NOT NULL AND parent_email <> ''`,
+      [classId]
+    );
+    const emailMap = {};
+    for (const r of memberEmails.rows) emailMap[r.student_id] = r.parent_email;
+
     for (const s of studentStats) {
       const parents = await resolveParentRecipients({
         senderId: req.user.id,
@@ -377,7 +385,9 @@ router.post('/:classId/weekly-reports/:reportId/notify-parents', authenticateTok
         studentId: s.id,
       });
 
-      if (!parents.length) { noParent++; continue; }
+      const savedEmail = emailMap[s.id];
+
+      if (!parents.length && !savedEmail) { noParent++; continue; }
 
       const studentMarks = columns.rows.map(c => {
         const m = allMarks.rows.find(mk => mk.column_id === c.id && mk.student_id === s.id);
@@ -393,6 +403,7 @@ Average: ${s.avg.toFixed(2)}
 
 ${studentMarks}`;
 
+      // Send in-app notification to linked parent users
       for (const p of parents) {
         await insertParentNotification({
           parentId: p.id,
@@ -414,6 +425,21 @@ ${studentMarks}`;
           if (emailResult.sent) emailed++;
         }
       }
+
+      // Also email the saved parent_email if no linked parent got emailed
+      if (also_email && savedEmail) {
+        const alreadyEmailed = parents.some(p => p.email === savedEmail);
+        if (!alreadyEmailed) {
+          const emailResult = await maybeEmailParent({
+            parentEmail: savedEmail,
+            subject: title,
+            text: body,
+            alsoEmail: true,
+          });
+          if (emailResult.sent) emailed++;
+        }
+      }
+
       notified++;
     }
 
@@ -425,6 +451,26 @@ ${studentMarks}`;
     });
   } catch (err) {
     console.error('[weekly-report notify]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// PUT save parent email for a student in a class
+router.put('/:classId/students/:studentId/parent-email', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = parseInt(req.params.classId, 10);
+  const studentId = parseInt(req.params.studentId, 10);
+  if (Number.isNaN(classId) || Number.isNaN(studentId)) return res.status(400).json({ error: 'Invalid ID.' });
+  const manage = await userCanManageClass(req.user, classId);
+  if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
+  const email = (req.body.parent_email || '').trim();
+  try {
+    await pool.query(
+      'UPDATE class_members SET parent_email = $1 WHERE class_id = $2 AND student_id = $3',
+      [email || null, classId, studentId]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[parent-email PUT]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
