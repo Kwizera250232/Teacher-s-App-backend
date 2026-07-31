@@ -86,11 +86,17 @@ router.get('/:classId/weekly-reports/:reportId', authenticateToken, requireRole(
       [reportId]
     );
 
+    const comments = await pool.query(
+      'SELECT student_id, comment FROM weekly_student_comments WHERE report_id = $1',
+      [reportId]
+    );
+
     res.json({
       ...report.rows[0],
       columns: columns.rows,
       students: students.rows,
       marks: marks.rows,
+      comments: comments.rows,
     });
   } catch (err) {
     console.error('[weekly-report GET one]', err);
@@ -132,12 +138,13 @@ router.post('/:classId/weekly-reports/:reportId/columns', authenticateToken, req
   if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
   const name = (req.body.name || '').trim();
   const maxMarks = parseFloat(req.body.max_marks) || 20;
+  const subject = (req.body.subject || '').trim();
   if (!name) return res.status(400).json({ error: 'Column name is required.' });
   try {
     const orderResult = await pool.query('SELECT COALESCE(MAX(order_num), -1) + 1 AS next_order FROM weekly_quiz_columns WHERE report_id = $1', [reportId]);
     const result = await pool.query(
-      'INSERT INTO weekly_quiz_columns (report_id, name, max_marks, order_num) VALUES ($1,$2,$3,$4) RETURNING *',
-      [reportId, name, maxMarks, orderResult.rows[0].next_order]
+      'INSERT INTO weekly_quiz_columns (report_id, name, max_marks, order_num, subject) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [reportId, name, maxMarks, orderResult.rows[0].next_order, subject || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -156,8 +163,8 @@ router.put('/:classId/weekly-reports/:reportId/columns/:columnId', authenticateT
   const maxMarks = parseFloat(req.body.max_marks);
   try {
     const result = await pool.query(
-      'UPDATE weekly_quiz_columns SET name = COALESCE($1, name), max_marks = COALESCE($2, max_marks) WHERE id = $3 RETURNING *',
-      [name || null, isNaN(maxMarks) ? null : maxMarks, columnId]
+      'UPDATE weekly_quiz_columns SET name = COALESCE($1, name), max_marks = COALESCE($2, max_marks), subject = COALESCE($3, subject) WHERE id = $4 RETURNING *',
+      [name || null, isNaN(maxMarks) ? null : maxMarks, (req.body.subject || '').trim() || null, columnId]
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -391,17 +398,45 @@ router.post('/:classId/weekly-reports/:reportId/notify-parents', authenticateTok
 
       const studentMarks = columns.rows.map(c => {
         const m = allMarks.rows.find(mk => mk.column_id === c.id && mk.student_id === s.id);
-        return `${c.name}: ${m && m.marks !== null ? m.marks + '/' + c.max_marks : 'N/A'}`;
+        const subj = c.subject ? `[${c.subject}] ` : '';
+        return `${subj}${c.name}: ${m && m.marks !== null ? m.marks + '/' + c.max_marks : 'N/A'}`;
+      }).join('\n');
+
+      // Group by subject for analytics
+      const subjectGroups = {};
+      for (const c of columns.rows) {
+        const subj = c.subject || 'General';
+        if (!subjectGroups[subj]) subjectGroups[subj] = { total: 0, max: 0, count: 0 };
+        const m = allMarks.rows.find(mk => mk.column_id === c.id && mk.student_id === s.id);
+        if (m && m.marks !== null) {
+          subjectGroups[subj].total += parseFloat(m.marks);
+          subjectGroups[subj].max += parseFloat(c.max_marks);
+          subjectGroups[subj].count++;
+        }
+      }
+      const subjectSummary = Object.entries(subjectGroups).map(([subj, g]) => {
+        const pct = g.max ? ((g.total / g.max) * 100).toFixed(0) : 0;
+        return `${subj}: ${g.total}/${g.max} (${pct}%)`;
       }).join(', ');
 
+      // Get teacher comment
+      const commentRow = await pool.query(
+        'SELECT comment FROM weekly_student_comments WHERE report_id = $1 AND student_id = $2',
+        [reportId, s.id]
+      );
+      const teacherComment = commentRow.rows[0]?.comment || '';
+
       const title = `📊 Weekly Quiz Report - ${weekLabel.rows[0]?.week_label || ''}`;
-      const body = `${s.name}'s report for ${className.rows[0]?.name || ''}:
+      let body = `${s.name}'s report for ${className.rows[0]?.name || ''}:
 Rank: ${s.rank} of ${studentStats.length}
 Quizzes taken: ${s.taken}
 Total marks: ${s.total}
 Average: ${s.avg.toFixed(2)}
 
-${studentMarks}`;
+${studentMarks}
+
+By Subject: ${subjectSummary}`;
+      if (teacherComment) body += `\n\nTeacher's Comment: ${teacherComment}`;
 
       // Send in-app notification to linked parent users
       for (const p of parents) {
@@ -471,6 +506,28 @@ router.put('/:classId/students/:studentId/parent-email', authenticateToken, requ
     res.json({ ok: true });
   } catch (err) {
     console.error('[parent-email PUT]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// PUT save teacher comment for a student in a report
+router.put('/:classId/weekly-reports/:reportId/comments/:studentId', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = parseInt(req.params.classId, 10);
+  const reportId = parseInt(req.params.reportId, 10);
+  const studentId = parseInt(req.params.studentId, 10);
+  const manage = await userCanManageClass(req.user, classId);
+  if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
+  const comment = (req.body.comment || '').trim();
+  try {
+    await pool.query(
+      `INSERT INTO weekly_student_comments (report_id, student_id, comment)
+       VALUES ($1,$2,$3)
+       ON CONFLICT (report_id, student_id) DO UPDATE SET comment = $3`,
+      [reportId, studentId, comment]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[comment PUT]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
