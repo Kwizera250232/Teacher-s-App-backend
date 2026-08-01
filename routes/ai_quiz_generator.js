@@ -6,7 +6,7 @@ const { userCanManageClass } = require('../lib/classAccess');
 const router = express.Router();
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL = 'llama-3.1-8b-instant';
+const GROQ_MODEL = 'gemma2-9b-it';
 const SEARXNG_URL = 'http://localhost:8888';
 
 /**
@@ -181,47 +181,24 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
     : `Rwanda ${gradeLevel} ${subject} national exam past paper questions answers`;
 
   console.log(`[AI Quiz] Searching web: ${searchQuery}`);
-  const searchResults = await searchWeb(searchQuery, 10);
+  const searchResults = await searchWeb(searchQuery, 5);
 
   if (!searchResults.length) {
     console.log('[AI Quiz] No search results found');
     return { questions: [], source: 'web-search (no results)' };
   }
 
-  // Combine search result snippets into a single context
+  // Combine search result snippets — truncate to keep under Groq's 15K TPM limit
   const searchContext = searchResults
-    .map((r, i) => `[${i + 1}] ${r.title}\n${r.content}`)
-    .join('\n\n');
+    .map((r, i) => `[${i + 1}] ${r.title.slice(0, 80)}\n${r.content.slice(0, 200)}`)
+    .join('\n');
 
   const gradeDesc = gradeLevel ? `\nGRADE LEVEL: ${gradeLevel} (Rwandan education system).` : '';
   const subjectDesc = subject ? `\nSUBJECT: ${subject}.` : '';
 
-  const systemPrompt = `You are an expert exam creator for the Rwandan education system. Below are web search results about ${subject} past papers for ${gradeLevel}.${gradeDesc}${subjectDesc}
+  const systemPrompt = `You are an exam creator for Rwanda. Create ${numQuestions} MCQs from these search results about ${subject} for ${gradeLevel}. Each has 4 options (A-D) and one correct answer. Respond ONLY with JSON array: [{"question":"...","option_a":"...","option_b":"...","option_c":"...","option_d":"...","correct_answer":"a"}]`;
 
-Create exactly ${numQuestions} multiple choice questions based on the search results. Use the information from the search snippets to create accurate questions with correct answers.
-
-IMPORTANT RULES:
-1. Each question must have exactly 4 options labeled A, B, C, D.
-2. The correct answer must be one of A, B, C, or D.
-3. Questions should be relevant to the Rwandan national curriculum for ${gradeLevel}.
-4. Distractors should be plausible but clearly incorrect.
-5. If the search results mention specific exam questions, use them as inspiration.
-
-Respond ONLY with a valid JSON array. No markdown, no explanation:
-[
-  {
-    "question": "Question text?",
-    "option_a": "Option A",
-    "option_b": "Option B",
-    "option_c": "Option C",
-    "option_d": "Option D",
-    "correct_answer": "a"
-  }
-]
-
-The "correct_answer" must be lowercase: "a", "b", "c", or "d".`;
-
-  const userPrompt = `WEB SEARCH RESULTS:\n${searchContext}`;
+  const userPrompt = `Search results:\n${searchContext}`;
 
   const text = await callGroq([
     { role: 'system', content: systemPrompt },
