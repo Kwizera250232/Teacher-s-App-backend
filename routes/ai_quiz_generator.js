@@ -175,10 +175,21 @@ The "correct_answer" must be lowercase: "a", "b", "c", or "d".`;
  * Generate MCQ questions from web search results using Groq AI.
  * Combines SearXNG search results + Groq question generation.
  */
-async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQuestions) {
-  const searchQuery = year
-    ? `Rwanda ${gradeLevel} ${subject} national exam past paper ${year} questions answers`
-    : `Rwanda ${gradeLevel} ${subject} national exam past paper questions answers`;
+async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQuestions, quizType) {
+  const yearPart = year ? ` ${year}` : '';
+  const typePart = quizType === 'National Exam Past Paper' || quizType === 'Mock Exam'
+    ? 'national exam past paper'
+    : quizType === 'Mid-term Exam'
+    ? 'mid-term exam'
+    : quizType === 'End of Term Exam'
+    ? 'end of term exam'
+    : quizType === 'Chapter Review'
+    ? 'chapter review questions'
+    : quizType === 'Revision Quiz'
+    ? 'revision questions'
+    : 'exam questions';
+
+  const searchQuery = `Rwanda ${gradeLevel} ${subject} ${typePart}${yearPart} questions answers`;
 
   console.log(`[AI Quiz] Searching web: ${searchQuery}`);
   const searchResults = await searchWeb(searchQuery, 5);
@@ -188,17 +199,35 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
     return { questions: [], source: 'web-search (no results)' };
   }
 
-  // Combine search result snippets — truncate to keep under Groq's 15K TPM limit
+  // Combine search result snippets — truncate to keep under Groq's TPM limit
   const searchContext = searchResults
     .map((r, i) => `[${i + 1}] ${r.title.slice(0, 80)}\n${r.content.slice(0, 200)}`)
     .join('\n');
 
-  const gradeDesc = gradeLevel ? `\nGRADE LEVEL: ${gradeLevel} (Rwandan education system).` : '';
-  const subjectDesc = subject ? `\nSUBJECT: ${subject}.` : '';
+  const yearInstr = year ? ` The questions must be based on the ${year} exam.` : '';
+  const isPrimary = gradeLevel && gradeLevel.startsWith('P');
+  const levelDesc = isPrimary
+    ? 'Primary school level — use simple language appropriate for young learners.'
+    : 'Secondary school level — use appropriate depth and complexity.';
 
-  const systemPrompt = `You are an exam creator for Rwanda. Create ${numQuestions} MCQs from these search results about ${subject} for ${gradeLevel}. Each has 4 options (A-D) and one correct answer. Respond ONLY with JSON array: [{"question":"...","option_a":"...","option_b":"...","option_c":"...","option_d":"...","correct_answer":"a"}]`;
+  const systemPrompt = `You are a strict exam creator for the Rwandan education system.
 
-  const userPrompt = `Search results:\n${searchContext}`;
+CRITICAL RULES — FOLLOW EXACTLY:
+1. Create exactly ${numQuestions} multiple choice questions.
+2. ALL questions must be STRICTLY about: ${subject} for ${gradeLevel} (Rwandan curriculum).${yearInstr}
+3. Do NOT create questions about other subjects, other topics, or unrelated content.
+4. Each question must have exactly 4 options: A, B, C, D.
+5. Only ONE option is correct.
+6. The correct_answer must be lowercase: "a", "b", "c", or "d".
+7. ${levelDesc}
+8. Use the search results as reference material, but every question must be about ${subject}.
+9. If search results are about different subjects, ignore those parts.
+10. Do NOT include any explanation, markdown, or text outside the JSON.
+
+Respond ONLY with a JSON array:
+[{"question":"...","option_a":"...","option_b":"...","option_c":"...","option_d":"...","correct_answer":"a"}]`;
+
+  const userPrompt = `Search results about ${subject} for ${gradeLevel}${yearPart ? ' ' + year : ''}:\n${searchContext}`;
 
   const text = await callGroq([
     { role: 'system', content: systemPrompt },
@@ -507,7 +536,7 @@ router.post('/:classId/ai-quiz/auto-generate', authenticateToken, requireRole('t
   const manage = await userCanManageClass(req.user, classId);
   if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
 
-  const { title, description, grade_level, subject, num_questions, year, preview_only } = req.body;
+  const { title, description, grade_level, subject, num_questions, year, quiz_type, preview_only } = req.body;
   if (!title || !title.trim()) return res.status(400).json({ error: 'Quiz title is required.' });
   if (!grade_level || !grade_level.trim()) return res.status(400).json({ error: 'Grade level is required.' });
   if (!subject || !subject.trim()) return res.status(400).json({ error: 'Subject is required.' });
@@ -520,7 +549,7 @@ router.post('/:classId/ai-quiz/auto-generate', authenticateToken, requireRole('t
 
     // ── SOURCE 1: Web Search + Groq AI (primary — searches Google for past papers) ──
     try {
-      const webResult = await generateQuestionsFromWebSearch(subject, grade_level, year, totalQuestions);
+      const webResult = await generateQuestionsFromWebSearch(subject, grade_level, year, totalQuestions, quiz_type);
       if (webResult.questions.length > 0) {
         sources.push(webResult.source);
         allQuestions.push(...webResult.questions);
