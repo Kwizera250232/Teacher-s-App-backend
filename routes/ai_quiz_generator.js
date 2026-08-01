@@ -93,6 +93,41 @@ async function searchWeb(query, numResults = 10) {
 }
 
 /**
+ * Fetch full page content from a URL (extract text from HTML).
+ * Returns plain text (up to maxChars).
+ */
+async function fetchPageContent(pageUrl, maxChars = 4000) {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(pageUrl, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; UClassBot/1.0)' },
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return '';
+    const html = await res.text();
+    // Strip HTML tags, scripts, styles
+    const text = html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim();
+    return text.slice(0, maxChars);
+  } catch (err) {
+    console.error('[fetchPage] error for', pageUrl.slice(0, 60), err.message);
+    return '';
+  }
+}
+
+/**
  * Parse JSON questions from AI text response.
  */
 function parseQuestionsFromText(text) {
@@ -189,11 +224,13 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
     ? 'revision questions'
     : 'exam questions';
 
-  // Run multiple search queries to get more relevant results
+  // Search queries targeting Rwandan exam websites + general
   const queries = [
+    `site:nesa.gov.rw ${gradeLevel} ${subject} past paper${yearPart}`,
+    `site:nationalexamination.rw ${gradeLevel} ${subject}${yearPart}`,
+    `site:rwandapapers.co.rw ${gradeLevel} ${subject}${yearPart}`,
     `Rwanda ${gradeLevel} ${subject} ${typePart}${yearPart} questions answers`,
     `Rwanda ${gradeLevel} ${subject} national exam${yearPart} past paper PDF`,
-    `Rwanda ${gradeLevel} ${subject} exam questions${yearPart} multiple choice`,
   ];
 
   console.log(`[AI Quiz] Searching web (${queries.length} queries): ${queries[0]}`);
@@ -203,45 +240,72 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
     for (const r of results) {
       if (!allResults.some(x => x.url === r.url)) allResults.push(r);
     }
-    if (allResults.length >= 8) break;
+    if (allResults.length >= 10) break;
   }
-  const searchResults = allResults.slice(0, 8);
+  const searchResults = allResults.slice(0, 10);
 
   if (!searchResults.length) {
     console.log('[AI Quiz] No search results found');
     return { questions: [], source: 'web-search (no results)' };
   }
 
-  // Combine search result snippets — truncate to keep under Groq's TPM limit
-  const searchContext = searchResults
-    .map((r, i) => `[${i + 1}] ${r.title.slice(0, 80)}\n${r.content.slice(0, 200)}`)
-    .join('\n');
+  // Fetch FULL page content from the most relevant results (not just snippets)
+  console.log(`[AI Quiz] Fetching full content from ${Math.min(searchResults.length, 4)} pages...`);
+  const pageContents = [];
+  for (let i = 0; i < Math.min(searchResults.length, 4); i++) {
+    const r = searchResults[i];
+    const fullText = await fetchPageContent(r.url, 4000);
+    if (fullText && fullText.length > 100) {
+      pageContents.push({ title: r.title, url: r.url, text: fullText });
+      console.log(`[AI Quiz] Fetched ${fullText.length} chars from: ${r.url.slice(0, 60)}`);
+    }
+  }
+
+  // Build context from full page content + snippets as fallback
+  let searchContext;
+  if (pageContents.length > 0) {
+    searchContext = pageContents.map((p, i) =>
+      `=== PAGE ${i + 1}: ${p.title.slice(0, 80)} ===\n${p.text}`
+    ).join('\n\n');
+  } else {
+    // Fallback to snippets if full page fetch failed
+    searchContext = searchResults
+      .map((r, i) => `[${i + 1}] ${r.title.slice(0, 80)}\n${r.content.slice(0, 300)}`)
+      .join('\n');
+  }
+
+  // Truncate total context to stay within Groq limits
+  searchContext = searchContext.slice(0, 6000);
 
   const yearInstr = year ? ` The questions must be from the ${year} ${subject} national exam for ${gradeLevel}.` : '';
   const isPrimary = gradeLevel && gradeLevel.startsWith('P');
   const levelDesc = isPrimary
     ? 'Primary school level — use simple language appropriate for young learners in Rwanda.'
     : 'Secondary school level — use appropriate depth and complexity for the Rwandan curriculum.';
-  const templateInstr = templateLabel ? `\n11. The quiz template selected is: "${templateLabel}". Generate questions that match this exactly.` : '';
+  const templateInstr = templateLabel ? `\n12. The quiz template selected is: "${templateLabel}". Generate questions that match this exactly.` : '';
 
-  const systemPrompt = `You are a strict exam creator for the Rwandan education system. You create REAL exam questions that appear in actual Rwandan national exams.
+  const systemPrompt = `You are an exam extractor for the Rwandan education system. Your job is to READ actual past exam papers and EXTRACT the real questions from them. You do NOT invent or create new questions.
 
 CRITICAL RULES — FOLLOW EXACTLY:
-1. Create exactly ${numQuestions} multiple choice questions.
-2. ALL questions must be STRICTLY about: ${subject} for ${gradeLevel} (Rwandan curriculum).${yearInstr}
-3. Do NOT create questions about other subjects, other topics, or unrelated content.
-4. Each question must have exactly 4 options: A, B, C, D.
-5. Only ONE option is correct — the others must be plausible but clearly wrong.
-6. The correct_answer must be lowercase: "a", "b", "c", or "d".
-7. ${levelDesc}
-8. Use the search results as reference. Create questions that a student would see on a real ${gradeLevel} ${subject} exam.
-9. If search results are about different subjects, IGNORE those parts entirely.
-10. Do NOT include any explanation, markdown, or text outside the JSON.${templateInstr}
+1. READ the provided content carefully. It contains REAL exam questions from Rwandan past papers.
+2. EXTRACT exactly ${numQuestions} multiple choice questions from the content. These must be the ACTUAL questions found in the text.
+3. ALL questions must be STRICTLY about: ${subject} for ${gradeLevel} (Rwandan curriculum).${yearInstr}
+4. Do NOT create questions about other subjects or unrelated content.
+5. Do NOT skip any questions — go from question 1 to the last one, in order.
+6. Do NOT add extra questions that are not in the source material.
+7. Do NOT remove or change any questions from the source.
+8. Each question must have exactly 4 options: A, B, C, D.
+9. Only ONE option is correct — mark it as the correct_answer.
+10. The correct_answer must be lowercase: "a", "b", "c", or "d".
+11. ${levelDesc}${templateInstr}
+
+If the content contains questions that are NOT multiple choice, convert them to MCQ format with 4 options while keeping the same question text and meaning.
+If the content does NOT contain enough real questions about ${subject} for ${gradeLevel}, create questions that are DIRECTLY based on the content — do NOT go off-topic.
 
 Respond ONLY with a JSON array:
 [{"question":"...","option_a":"...","option_b":"...","option_c":"...","option_d":"...","correct_answer":"a"}]`;
 
-  const userPrompt = `Search results about ${subject} for ${gradeLevel}${yearPart ? ' ' + year : ''}:\n${searchContext}`;
+  const userPrompt = `Below is content from Rwandan past papers and exam resources for ${gradeLevel} ${subject}${yearPart ? ' ' + year : ''}. Read it carefully and extract ALL the real exam questions:\n\n${searchContext}`;
 
   const text = await callGroq([
     { role: 'system', content: systemPrompt },
