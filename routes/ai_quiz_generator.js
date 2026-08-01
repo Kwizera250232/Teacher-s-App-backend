@@ -2,6 +2,8 @@ const express = require('express');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { userCanManageClass } = require('../lib/classAccess');
+let pdfParse = null;
+try { pdfParse = require('pdf-parse'); } catch (e) { console.log('[AI Quiz] pdf-parse not available, PDFs will be skipped'); }
 
 const router = express.Router();
 
@@ -93,33 +95,54 @@ async function searchWeb(query, numResults = 10) {
 }
 
 /**
- * Fetch full page content from a URL (extract text from HTML).
+ * Fetch full page content from a URL (extract text from HTML or PDF).
  * Returns plain text (up to maxChars).
  */
 async function fetchPageContent(pageUrl, maxChars = 3000) {
   try {
-    // Skip PDFs, documents, and binary files — they can't be parsed as HTML
     const lowerUrl = pageUrl.toLowerCase();
-    if (lowerUrl.match(/\.(pdf|doc|docx|xls|xlsx|ppt|pptx|zip|rar|jpg|jpeg|png|gif)$/)) {
-      console.log('[fetchPage] Skipping non-HTML file:', pageUrl.slice(0, 80));
-      return '';
-    }
+    const isPdf = lowerUrl.match(/\.(pdf)(\?|$)/) || lowerUrl.includes('eID=dumpFile');
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
+    const timeout = setTimeout(() => controller.abort(), 10000);
     const res = await fetch(pageUrl, {
       signal: controller.signal,
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
     });
     clearTimeout(timeout);
     if (!res.ok) return '';
+
     const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('application/pdf') || contentType.includes('application/octet-stream')) {
-      console.log('[fetchPage] Skipping PDF/binary:', pageUrl.slice(0, 80));
+
+    // Handle PDF files
+    if (isPdf || contentType.includes('application/pdf')) {
+      if (!pdfParse) {
+        console.log('[fetchPage] PDF found but pdf-parse not installed:', pageUrl.slice(0, 80));
+        return '';
+      }
+      console.log('[fetchPage] Downloading PDF:', pageUrl.slice(0, 80));
+      const arrayBuffer = await res.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      if (buffer.length > 5 * 1024 * 1024) { // Skip files > 5MB
+        console.log('[fetchPage] PDF too large, skipping');
+        return '';
+      }
+      const pdfData = await pdfParse(buffer);
+      console.log(`[fetchPage] PDF parsed: ${pdfData.text.length} chars`);
+      return pdfData.text.slice(0, maxChars);
+    }
+
+    // Skip other binary files
+    if (contentType.includes('application/octet-stream') ||
+        contentType.includes('application/zip') ||
+        contentType.includes('application/msword') ||
+        contentType.includes('application/vnd.openxmlformats')) {
+      console.log('[fetchPage] Skipping binary file:', pageUrl.slice(0, 80));
       return '';
     }
+
+    // Parse HTML
     const html = await res.text();
-    // Strip HTML tags, scripts, styles
     const text = html
       .replace(/<script[\s\S]*?<\/script>/gi, '')
       .replace(/<style[\s\S]*?<\/style>/gi, '')
@@ -261,10 +284,10 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
     return { questions: [], source: 'web-search (no results)' };
   }
 
-  // Fetch FULL page content from the most relevant HTML results (skip PDFs)
-  console.log(`[AI Quiz] Fetching full content from top results...`);
+  // Fetch FULL page content from the most relevant results (including PDFs)
+  console.log(`[AI Quiz] Fetching full content from top results (PDFs included)...`);
   const pageContents = [];
-  for (let i = 0; i < Math.min(searchResults.length, 5); i++) {
+  for (let i = 0; i < Math.min(searchResults.length, 6); i++) {
     const r = searchResults[i];
     const fullText = await fetchPageContent(r.url, 3000);
     if (fullText && fullText.length > 100) {
