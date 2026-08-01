@@ -175,7 +175,7 @@ The "correct_answer" must be lowercase: "a", "b", "c", or "d".`;
  * Generate MCQ questions from web search results using Groq AI.
  * Combines SearXNG search results + Groq question generation.
  */
-async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQuestions, quizType) {
+async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQuestions, quizType, templateLabel) {
   const yearPart = year ? ` ${year}` : '';
   const typePart = quizType === 'National Exam Past Paper' || quizType === 'Mock Exam'
     ? 'national exam past paper'
@@ -189,10 +189,23 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
     ? 'revision questions'
     : 'exam questions';
 
-  const searchQuery = `Rwanda ${gradeLevel} ${subject} ${typePart}${yearPart} questions answers`;
+  // Run multiple search queries to get more relevant results
+  const queries = [
+    `Rwanda ${gradeLevel} ${subject} ${typePart}${yearPart} questions answers`,
+    `Rwanda ${gradeLevel} ${subject} national exam${yearPart} past paper PDF`,
+    `Rwanda ${gradeLevel} ${subject} exam questions${yearPart} multiple choice`,
+  ];
 
-  console.log(`[AI Quiz] Searching web: ${searchQuery}`);
-  const searchResults = await searchWeb(searchQuery, 5);
+  console.log(`[AI Quiz] Searching web (${queries.length} queries): ${queries[0]}`);
+  const allResults = [];
+  for (const q of queries) {
+    const results = await searchWeb(q, 3);
+    for (const r of results) {
+      if (!allResults.some(x => x.url === r.url)) allResults.push(r);
+    }
+    if (allResults.length >= 8) break;
+  }
+  const searchResults = allResults.slice(0, 8);
 
   if (!searchResults.length) {
     console.log('[AI Quiz] No search results found');
@@ -204,25 +217,26 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
     .map((r, i) => `[${i + 1}] ${r.title.slice(0, 80)}\n${r.content.slice(0, 200)}`)
     .join('\n');
 
-  const yearInstr = year ? ` The questions must be based on the ${year} exam.` : '';
+  const yearInstr = year ? ` The questions must be from the ${year} ${subject} national exam for ${gradeLevel}.` : '';
   const isPrimary = gradeLevel && gradeLevel.startsWith('P');
   const levelDesc = isPrimary
-    ? 'Primary school level — use simple language appropriate for young learners.'
-    : 'Secondary school level — use appropriate depth and complexity.';
+    ? 'Primary school level — use simple language appropriate for young learners in Rwanda.'
+    : 'Secondary school level — use appropriate depth and complexity for the Rwandan curriculum.';
+  const templateInstr = templateLabel ? `\n11. The quiz template selected is: "${templateLabel}". Generate questions that match this exactly.` : '';
 
-  const systemPrompt = `You are a strict exam creator for the Rwandan education system.
+  const systemPrompt = `You are a strict exam creator for the Rwandan education system. You create REAL exam questions that appear in actual Rwandan national exams.
 
 CRITICAL RULES — FOLLOW EXACTLY:
 1. Create exactly ${numQuestions} multiple choice questions.
 2. ALL questions must be STRICTLY about: ${subject} for ${gradeLevel} (Rwandan curriculum).${yearInstr}
 3. Do NOT create questions about other subjects, other topics, or unrelated content.
 4. Each question must have exactly 4 options: A, B, C, D.
-5. Only ONE option is correct.
+5. Only ONE option is correct — the others must be plausible but clearly wrong.
 6. The correct_answer must be lowercase: "a", "b", "c", or "d".
 7. ${levelDesc}
-8. Use the search results as reference material, but every question must be about ${subject}.
-9. If search results are about different subjects, ignore those parts.
-10. Do NOT include any explanation, markdown, or text outside the JSON.
+8. Use the search results as reference. Create questions that a student would see on a real ${gradeLevel} ${subject} exam.
+9. If search results are about different subjects, IGNORE those parts entirely.
+10. Do NOT include any explanation, markdown, or text outside the JSON.${templateInstr}
 
 Respond ONLY with a JSON array:
 [{"question":"...","option_a":"...","option_b":"...","option_c":"...","option_d":"...","correct_answer":"a"}]`;
@@ -549,7 +563,7 @@ router.post('/:classId/ai-quiz/auto-generate', authenticateToken, requireRole('t
 
     // ── SOURCE 1: Web Search + Groq AI (primary — searches Google for past papers) ──
     try {
-      const webResult = await generateQuestionsFromWebSearch(subject, grade_level, year, totalQuestions, quiz_type);
+      const webResult = await generateQuestionsFromWebSearch(subject, grade_level, year, totalQuestions, quiz_type, description);
       if (webResult.questions.length > 0) {
         sources.push(webResult.source);
         allQuestions.push(...webResult.questions);
