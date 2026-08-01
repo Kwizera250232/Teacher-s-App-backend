@@ -60,8 +60,8 @@ async function callGroq(messages, maxTokens = 8192, temperature = 0.4) {
 
   if (!res.ok) {
     const errText = await res.text();
-    console.error('[Groq] error', res.status, errText.slice(0, 300));
-    throw new Error(`Groq API error: ${res.status}`);
+    console.error('[Groq] error', res.status, errText.slice(0, 500));
+    throw new Error(`Groq API error: ${res.status} - ${errText.slice(0, 200)}`);
   }
 
   const data = await res.json();
@@ -96,16 +96,28 @@ async function searchWeb(query, numResults = 10) {
  * Fetch full page content from a URL (extract text from HTML).
  * Returns plain text (up to maxChars).
  */
-async function fetchPageContent(pageUrl, maxChars = 4000) {
+async function fetchPageContent(pageUrl, maxChars = 3000) {
   try {
+    // Skip PDFs, documents, and binary files — they can't be parsed as HTML
+    const lowerUrl = pageUrl.toLowerCase();
+    if (lowerUrl.match(/\.(pdf|doc|docx|xls|xlsx|ppt|pptx|zip|rar|jpg|jpeg|png|gif)$/)) {
+      console.log('[fetchPage] Skipping non-HTML file:', pageUrl.slice(0, 80));
+      return '';
+    }
+
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const timeout = setTimeout(() => controller.abort(), 6000);
     const res = await fetch(pageUrl, {
       signal: controller.signal,
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; UClassBot/1.0)' },
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
     });
     clearTimeout(timeout);
     if (!res.ok) return '';
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('application/pdf') || contentType.includes('application/octet-stream')) {
+      console.log('[fetchPage] Skipping PDF/binary:', pageUrl.slice(0, 80));
+      return '';
+    }
     const html = await res.text();
     // Strip HTML tags, scripts, styles
     const text = html
@@ -249,16 +261,17 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
     return { questions: [], source: 'web-search (no results)' };
   }
 
-  // Fetch FULL page content from the most relevant results (not just snippets)
-  console.log(`[AI Quiz] Fetching full content from ${Math.min(searchResults.length, 4)} pages...`);
+  // Fetch FULL page content from the most relevant HTML results (skip PDFs)
+  console.log(`[AI Quiz] Fetching full content from top results...`);
   const pageContents = [];
-  for (let i = 0; i < Math.min(searchResults.length, 4); i++) {
+  for (let i = 0; i < Math.min(searchResults.length, 5); i++) {
     const r = searchResults[i];
-    const fullText = await fetchPageContent(r.url, 4000);
+    const fullText = await fetchPageContent(r.url, 3000);
     if (fullText && fullText.length > 100) {
       pageContents.push({ title: r.title, url: r.url, text: fullText });
-      console.log(`[AI Quiz] Fetched ${fullText.length} chars from: ${r.url.slice(0, 60)}`);
+      console.log(`[AI Quiz] Fetched ${fullText.length} chars from: ${r.url.slice(0, 80)}`);
     }
+    if (pageContents.length >= 3) break; // Enough content
   }
 
   // Build context from full page content + snippets as fallback
@@ -275,7 +288,7 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
   }
 
   // Truncate total context to stay within Groq limits
-  searchContext = searchContext.slice(0, 6000);
+  searchContext = searchContext.slice(0, 5000);
 
   const yearInstr = year ? ` The questions must be from the ${year} ${subject} national exam for ${gradeLevel}.` : '';
   const isPrimary = gradeLevel && gradeLevel.startsWith('P');
