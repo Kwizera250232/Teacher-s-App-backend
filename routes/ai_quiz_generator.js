@@ -6,13 +6,13 @@ const { userCanManageClass } = require('../lib/classAccess');
 const router = express.Router();
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL = 'gemma2-9b-it';
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
 const SEARXNG_URL = 'http://localhost:8888';
 
 /**
  * Split large text into chunks for processing.
  */
-function chunkText(text, maxChars = 12000) {
+function chunkText(text, maxChars = 6000) {
   if (text.length <= maxChars) return [text];
   const chunks = [];
   let start = 0;
