@@ -241,3 +241,149 @@ router.post('/:classId/ai-quiz/preview', authenticateToken, requireRole('teacher
 });
 
 module.exports = router;
+
+/**
+ * POST /api/classes/:classId/ai-quiz/auto-generate
+ * Body: { title, description?, grade_level, subject, num_questions?: number }
+ * AI generates quiz questions on its own from the Rwandan curriculum — no content needed from teacher.
+ */
+router.post('/:classId/ai-quiz/auto-generate', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = parseInt(req.params.classId, 10);
+  if (Number.isNaN(classId)) return res.status(400).json({ error: 'Invalid class ID.' });
+  const manage = await userCanManageClass(req.user, classId);
+  if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
+
+  const { title, description, grade_level, subject, num_questions, preview_only } = req.body;
+  if (!title || !title.trim()) return res.status(400).json({ error: 'Quiz title is required.' });
+  if (!grade_level || !grade_level.trim()) return res.status(400).json({ error: 'Grade level is required.' });
+  if (!subject || !subject.trim()) return res.status(400).json({ error: 'Subject is required.' });
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return res.status(503).json({ error: 'AI service not configured.' });
+
+  const totalQuestions = Math.min(50, Math.max(5, parseInt(num_questions, 10) || 20));
+
+  const isPrimary = grade_level.startsWith('P');
+  const levelDesc = isPrimary
+    ? `Primary ${grade_level} level in Rwanda. Use simple, age-appropriate language. Topics should match what a ${grade_level} student learns in the Rwandan primary curriculum.`
+    : `Secondary ${grade_level} level in Rwanda. Use appropriate academic depth. Topics should match the Rwandan secondary curriculum for ${grade_level}, following CBC (Competence-Based Curriculum).`;
+
+  const prompt = `You are an expert exam creator for the Rwandan education system.
+
+TASK: Create ${totalQuestions} multiple choice questions (MCQ) for ${subject} at ${levelDesc}
+
+IMPORTANT RULES:
+1. Create exactly ${totalQuestions} questions — do NOT generate fewer.
+2. Cover a variety of topics from the ${grade_level} ${subject} Rwandan national curriculum.
+3. Each question must have exactly 4 options labeled A, B, C, D.
+4. The correct answer must be one of A, B, C, or D.
+5. Questions should be clear, accurate, and test real understanding.
+6. Distractors (wrong options) should be plausible but clearly incorrect.
+7. Mix difficulty levels — some easy, some medium, some challenging.
+8. Make questions practical and relevant to real-world applications where possible.
+9. Use English as the primary language unless the subject is Kinyarwanda or French.
+
+Respond ONLY with a valid JSON array. No markdown, no explanation. Each element must have this exact structure:
+[
+  {
+    "question": "The question text here?",
+    "option_a": "First option text",
+    "option_b": "Second option text",
+    "option_c": "Third option text",
+    "option_d": "Fourth option text",
+    "correct_answer": "a"
+  }
+]
+
+The "correct_answer" must be lowercase: "a", "b", "c", or "d".`;
+
+  try {
+    const url = `${GEMINI_URL}?key=${apiKey}`;
+    const aiRes = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 8192, temperature: 0.7 },
+      }),
+    });
+
+    if (!aiRes.ok) {
+      const errText = await aiRes.text();
+      console.error('[AI Quiz Auto-Gen] Gemini error', aiRes.status, errText);
+      return res.status(502).json({ error: `AI error: ${aiRes.status}` });
+    }
+
+    const data = await aiRes.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const cleaned = text.replace(/```json|```/g, '').trim();
+
+    let allQuestions;
+    try {
+      allQuestions = JSON.parse(cleaned);
+    } catch {
+      const match = cleaned.match(/\[[\s\S]*\]/);
+      if (match) {
+        try { allQuestions = JSON.parse(match[0]); }
+        catch { allQuestions = []; }
+      } else { allQuestions = []; }
+    }
+
+    // Validate and normalize
+    allQuestions = allQuestions.filter(q => q.question && q.option_a && q.option_b && q.option_c && q.option_d).map(q => ({
+      question: String(q.question).trim(),
+      option_a: String(q.option_a).trim(),
+      option_b: String(q.option_b).trim(),
+      option_c: String(q.option_c).trim(),
+      option_d: String(q.option_d).trim(),
+      correct_answer: String(q.correct_answer || 'a').toLowerCase().trim().charAt(0),
+    }));
+
+    if (!allQuestions.length) {
+      return res.status(422).json({ error: 'AI could not generate questions. Try again or adjust the settings.' });
+    }
+
+    // If preview only, return questions without saving
+    if (preview_only) {
+      return res.json({
+        questions: allQuestions,
+        message: `AI generated ${allQuestions.length} questions for ${grade_level} ${subject}.`,
+      });
+    }
+
+    // Save as a real quiz
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const quizResult = await client.query(
+        'INSERT INTO quizzes (class_id, title, description, grade_level, subject) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+        [classId, title.trim(), description || null, grade_level.trim(), subject.trim()]
+      );
+      const quiz = quizResult.rows[0];
+
+      for (let i = 0; i < allQuestions.length; i++) {
+        const q = allQuestions[i];
+        await client.query(
+          `INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, order_num)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [quiz.id, q.question, q.option_a, q.option_b, q.option_c, q.option_d, q.correct_answer, 'multiple_choice', i]
+        );
+      }
+
+      await client.query('COMMIT');
+      res.status(201).json({
+        quiz,
+        questions: allQuestions,
+        message: `Generated ${allQuestions.length} questions for ${grade_level} ${subject}.`,
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error('[AI Quiz Auto-Gen]', err);
+    res.status(500).json({ error: err.message || 'Failed to auto-generate quiz.' });
+  }
+});
