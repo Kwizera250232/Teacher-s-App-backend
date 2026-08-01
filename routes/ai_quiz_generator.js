@@ -36,38 +36,52 @@ function chunkText(text, maxChars = 6000) {
  * Call Groq API (OpenAI-compatible). Permanently free tier.
  * Returns the text content from the response.
  */
-async function callGroq(messages, maxTokens = 8192, temperature = 0.4) {
+async function callGroq(messages, maxTokens = 4096, temperature = 0.3) {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error('GROQ_API_KEY not configured');
 
-  const res = await fetch(GROQ_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: GROQ_MODEL,
-      messages,
-      temperature,
-      max_tokens: maxTokens,
-    }),
+  const body = JSON.stringify({
+    model: GROQ_MODEL,
+    messages,
+    temperature,
+    max_tokens: maxTokens,
   });
 
-  if (res.status === 429) {
-    const e = new Error('RATE_LIMITED');
-    e.status = 429;
-    throw e;
+  // Retry up to 3 times on rate limit (429) with exponential backoff
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await fetch(GROQ_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body,
+    });
+
+    if (res.status === 429) {
+      const retryAfter = parseInt(res.headers.get('retry-after') || '0', 10);
+      const waitMs = retryAfter > 0 ? retryAfter * 1000 : (attempt + 1) * 5000;
+      console.log(`[Groq] 429 rate limited, waiting ${waitMs}ms before retry ${attempt + 1}/3`);
+      if (attempt < 2) {
+        await new Promise(resolve => setTimeout(resolve, waitMs));
+        continue;
+      }
+      const e = new Error('RATE_LIMITED');
+      e.status = 429;
+      throw e;
+    }
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error('[Groq] error', res.status, errText.slice(0, 500));
+      throw new Error(`Groq API error: ${res.status} - ${errText.slice(0, 200)}`);
+    }
+
+    const data = await res.json();
+    return data?.choices?.[0]?.message?.content || '';
   }
 
-  if (!res.ok) {
-    const errText = await res.text();
-    console.error('[Groq] error', res.status, errText.slice(0, 500));
-    throw new Error(`Groq API error: ${res.status} - ${errText.slice(0, 200)}`);
-  }
-
-  const data = await res.json();
-  return data?.choices?.[0]?.message?.content || '';
+  throw new Error('Groq API: max retries exceeded');
 }
 
 /**
@@ -310,8 +324,8 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
       .join('\n');
   }
 
-  // Truncate total context to stay within Groq limits
-  searchContext = searchContext.slice(0, 5000);
+  // Truncate total context to stay within Groq free tier TPM limit (~12K TPM)
+  searchContext = searchContext.slice(0, 3500);
 
   const yearInstr = year ? ` The questions must be from the ${year} ${subject} national exam for ${gradeLevel}.` : '';
   const isPrimary = gradeLevel && gradeLevel.startsWith('P');
