@@ -60,7 +60,7 @@ async function callGroq(messages, maxTokens = 4096, temperature = 0.3) {
 
     if (res.status === 429) {
       const retryAfter = parseInt(res.headers.get('retry-after') || '0', 10);
-      const waitMs = retryAfter > 0 ? retryAfter * 1000 : (attempt + 1) * 5000;
+      const waitMs = retryAfter > 0 ? retryAfter * 1000 : (attempt + 1) * 2000;
       console.log(`[Groq] 429 rate limited, waiting ${waitMs}ms before retry ${attempt + 1}/3`);
       if (attempt < 2) {
         await new Promise(resolve => setTimeout(resolve, waitMs));
@@ -118,7 +118,7 @@ async function fetchPageContent(pageUrl, maxChars = 3000) {
     const isPdf = lowerUrl.match(/\.(pdf)(\?|$)/) || lowerUrl.includes('eID=dumpFile');
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timeout = setTimeout(() => controller.abort(), 6000);
     const res = await fetch(pageUrl, {
       signal: controller.signal,
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
@@ -282,14 +282,15 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
     `Rwanda ${gradeLevel} ${subject} national exam${yearPart} past paper PDF`,
   ];
 
-  console.log(`[AI Quiz] Searching web (${queries.length} queries): ${queries[0]}`);
+  // Run all searches in PARALLEL for speed
+  console.log(`[AI Quiz] Searching web (${queries.length} queries in parallel)...`);
+  const searchPromises = queries.map(q => searchWeb(q, 3));
+  const searchResponses = await Promise.all(searchPromises);
   const allResults = [];
-  for (const q of queries) {
-    const results = await searchWeb(q, 3);
+  for (const results of searchResponses) {
     for (const r of results) {
       if (!allResults.some(x => x.url === r.url)) allResults.push(r);
     }
-    if (allResults.length >= 10) break;
   }
   const searchResults = allResults.slice(0, 10);
 
@@ -298,17 +299,14 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
     return { questions: [], source: 'web-search (no results)' };
   }
 
-  // Fetch FULL page content from the most relevant results (including PDFs)
-  console.log(`[AI Quiz] Fetching full content from top results (PDFs included)...`);
-  const pageContents = [];
-  for (let i = 0; i < Math.min(searchResults.length, 6); i++) {
-    const r = searchResults[i];
-    const fullText = await fetchPageContent(r.url, 3000);
-    if (fullText && fullText.length > 100) {
-      pageContents.push({ title: r.title, url: r.url, text: fullText });
-      console.log(`[AI Quiz] Fetched ${fullText.length} chars from: ${r.url.slice(0, 80)}`);
-    }
-    if (pageContents.length >= 3) break; // Enough content
+  // Fetch FULL page content from top results IN PARALLEL (including PDFs)
+  const topResults = searchResults.slice(0, 5);
+  console.log(`[AI Quiz] Fetching ${topResults.length} pages in parallel (PDFs included)...`);
+  const fetchPromises = topResults.map(r => fetchPageContent(r.url, 2500).then(text => ({ title: r.title, url: r.url, text })));
+  const fetchResults = await Promise.all(fetchPromises);
+  const pageContents = fetchResults.filter(r => r.text && r.text.length > 100);
+  for (const p of pageContents) {
+    console.log(`[AI Quiz] Fetched ${p.text.length} chars from: ${p.url.slice(0, 80)}`);
   }
 
   // Build context from full page content + snippets as fallback
