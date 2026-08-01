@@ -5,11 +5,12 @@ const { userCanManageClass } = require('../lib/classAccess');
 
 const router = express.Router();
 
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_MODEL = 'llama-3.1-8b-instant';
+const SEARXNG_URL = 'http://localhost:8888';
 
 /**
- * Split large text into chunks that fit within Gemini's context window.
- * We keep chunks at ~12000 chars to leave room for the prompt + response.
+ * Split large text into chunks for processing.
  */
 function chunkText(text, maxChars = 12000) {
   if (text.length <= maxChars) return [text];
@@ -17,7 +18,6 @@ function chunkText(text, maxChars = 12000) {
   let start = 0;
   while (start < text.length) {
     let end = start + maxChars;
-    // Try to break at a newline or sentence boundary
     if (end < text.length) {
       const nl = text.lastIndexOf('\n', end);
       const dot = text.lastIndexOf('. ', end);
@@ -30,69 +30,109 @@ function chunkText(text, maxChars = 12000) {
   return chunks;
 }
 
-async function callGeminiWithRetry(url, body, maxRetries = 3) {
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+/**
+ * Call Groq API (OpenAI-compatible). Permanently free tier.
+ * Returns the text content from the response.
+ */
+async function callGroq(messages, maxTokens = 8192, temperature = 0.4) {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) throw new Error('GROQ_API_KEY not configured');
 
-    if (res.ok) return res;
+  const res = await fetch(GROQ_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      messages,
+      temperature,
+      max_tokens: maxTokens,
+    }),
+  });
 
-    // Return 429 immediately — frontend handles retry with countdown
-    if (res.status === 429) {
-      const e = new Error('RATE_LIMITED');
-      e.status = 429;
-      throw e;
-    }
-
-    // Retry 503 (server overloaded) but only briefly
-    if (res.status === 503 && attempt < maxRetries) {
-      const wait = 2000;
-      console.log(`[Gemini] 503 overloaded, retry ${attempt + 1}/${maxRetries} in ${wait}ms`);
-      await new Promise(r => setTimeout(r, wait));
-      continue;
-    }
-
-    // Non-retryable error
-    const errText = await res.text();
-    console.error('[Gemini] error', res.status, errText.slice(0, 300));
-    const e = new Error(`Gemini API error: ${res.status}`);
-    e.status = res.status;
+  if (res.status === 429) {
+    const e = new Error('RATE_LIMITED');
+    e.status = 429;
     throw e;
+  }
+
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error('[Groq] error', res.status, errText.slice(0, 300));
+    throw new Error(`Groq API error: ${res.status}`);
+  }
+
+  const data = await res.json();
+  return data?.choices?.[0]?.message?.content || '';
+}
+
+/**
+ * Search the web using SearXNG (self-hosted, permanently free).
+ * Returns array of { title, content, url }.
+ */
+async function searchWeb(query, numResults = 10) {
+  try {
+    const url = `${SEARXNG_URL}/search?q=${encodeURIComponent(query)}&format=json&categories=general&pageno=1`;
+    const res = await fetch(url, { timeout: 8000 });
+    if (!res.ok) {
+      console.error('[SearXNG] error', res.status);
+      return [];
+    }
+    const data = await res.json();
+    return (data.results || []).slice(0, numResults).map(r => ({
+      title: r.title || '',
+      content: r.content || '',
+      url: r.url || '',
+    }));
+  } catch (err) {
+    console.error('[SearXNG] fetch error', err.message);
+    return [];
   }
 }
 
 /**
- * Call Gemini to generate MCQ questions from a chunk of content.
+ * Parse JSON questions from AI text response.
+ */
+function parseQuestionsFromText(text) {
+  const cleaned = text.replace(/```json|```/g, '').trim();
+  let questions;
+  try {
+    questions = JSON.parse(cleaned);
+  } catch {
+    const match = cleaned.match(/\[[\s\S]*\]/);
+    if (match) {
+      try {
+        questions = JSON.parse(match[0]);
+      } catch {
+        return [];
+      }
+    } else {
+      return [];
+    }
+  }
+  return questions;
+}
+
+/**
+ * Generate MCQ questions from a chunk of content using Groq AI (permanently free).
  * Returns array of question objects: { question, option_a, option_b, option_c, option_d, correct_answer }
  */
 async function generateQuestionsFromChunk(chunk, chunkIndex, totalChunks, numQuestions, gradeLevel, subject) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY not configured');
-
   const gradeDesc = gradeLevel ? `\nGRADE LEVEL: ${gradeLevel} (Rwandan education system). ${gradeLevel.startsWith('P') ? 'Primary school level — use simple, age-appropriate language and concepts matching the Rwandan curriculum for ' + gradeLevel + '.' : 'Secondary school level — use appropriate depth and complexity matching the Rwandan curriculum for ' + gradeLevel + '.'}` : '';
   const subjectDesc = subject ? `\nSUBJECT: ${subject}. Generate questions strictly related to this subject following the Rwandan national curriculum for ${gradeLevel || 'the selected grade'}.` : '';
 
-  const prompt = `You are an expert exam creator for the Rwandan education system. Your task is to create multiple choice questions (MCQ) from the educational content below.${gradeDesc}${subjectDesc}
+  const systemPrompt = `You are an expert exam creator for the Rwandan education system. Create multiple choice questions (MCQ) from educational content.${gradeDesc}${subjectDesc}
 
 IMPORTANT RULES:
 1. Create exactly ${numQuestions} multiple choice questions from this content.
-2. Do NOT skip any topic or question in the content — every piece of information should be covered.
-3. Each question must have exactly 4 options labeled A, B, C, D.
-4. The correct answer must be one of A, B, C, or D.
-5. Questions should be clear, accurate, and test understanding of the content.
-6. Distractors (wrong options) should be plausible but clearly incorrect.
-7. If the content already contains questions, convert them into MCQ format with 4 options.
-8. If the content contains fill-in-the-blank or short answer questions, create 4 plausible options and mark the correct one.
-9. Adapt the difficulty and language to match ${gradeLevel || 'the selected'} level in the Rwandan curriculum.
-10. If the pasted content is above or below the selected grade level, simplify or adapt it to match ${gradeLevel || 'the selected grade'} standards.
-
-CONTENT (Part ${chunkIndex + 1} of ${totalChunks}):
-"""
-${chunk}
-"""
+2. Each question must have exactly 4 options labeled A, B, C, D.
+3. The correct answer must be one of A, B, C, or D.
+4. Questions should be clear, accurate, and test understanding of the content.
+5. Distractors (wrong options) should be plausible but clearly incorrect.
+6. If the content already contains questions, convert them into MCQ format with 4 options.
+7. Adapt the difficulty and language to match ${gradeLevel || 'the selected'} level in the Rwandan curriculum.
 
 Respond ONLY with a valid JSON array. No markdown, no explanation. Each element must have this exact structure:
 [
@@ -108,41 +148,19 @@ Respond ONLY with a valid JSON array. No markdown, no explanation. Each element 
 
 The "correct_answer" must be lowercase: "a", "b", "c", or "d".`;
 
-  const res = await callGeminiWithRetry(`${GEMINI_URL}?key=${apiKey}`, {
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { maxOutputTokens: 8192, temperature: 0.4 },
-  });
+  const userPrompt = `CONTENT (Part ${chunkIndex + 1} of ${totalChunks}):\n"""\n${chunk}\n"""`;
 
-  if (!res.ok) {
-    const errText = await res.text();
-    console.error('[AI Quiz Gen] Gemini error', res.status, errText);
-    throw new Error(`Gemini API error: ${res.status} - ${errText.slice(0, 200)}`);
+  const text = await callGroq([
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt },
+  ]);
+
+  const questions = parseQuestionsFromText(text);
+  if (!questions.length) {
+    console.error('[AI Quiz Gen] No questions parsed from Groq response', text.slice(0, 300));
+    return [];
   }
 
-  const data = await res.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  const cleaned = text.replace(/```json|```/g, '').trim();
-
-  let questions;
-  try {
-    questions = JSON.parse(cleaned);
-  } catch {
-    // Try to extract JSON array from text
-    const match = cleaned.match(/\[[\s\S]*\]/);
-    if (match) {
-      try {
-        questions = JSON.parse(match[0]);
-      } catch {
-        console.error('[AI Quiz Gen] Failed to parse chunk', chunkIndex, cleaned.slice(0, 300));
-        return [];
-      }
-    } else {
-      console.error('[AI Quiz Gen] No JSON array found in response', cleaned.slice(0, 300));
-      return [];
-    }
-  }
-
-  // Validate and normalize each question
   return questions.filter(q => q.question && q.option_a && q.option_b && q.option_c && q.option_d).map(q => ({
     question: String(q.question).trim(),
     option_a: String(q.option_a).trim(),
@@ -151,6 +169,81 @@ The "correct_answer" must be lowercase: "a", "b", "c", or "d".`;
     option_d: String(q.option_d).trim(),
     correct_answer: String(q.correct_answer || 'a').toLowerCase().trim().charAt(0),
   }));
+}
+
+/**
+ * Generate MCQ questions from web search results using Groq AI.
+ * Combines SearXNG search results + Groq question generation.
+ */
+async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQuestions) {
+  const searchQuery = year
+    ? `Rwanda ${gradeLevel} ${subject} national exam past paper ${year} questions answers`
+    : `Rwanda ${gradeLevel} ${subject} national exam past paper questions answers`;
+
+  console.log(`[AI Quiz] Searching web: ${searchQuery}`);
+  const searchResults = await searchWeb(searchQuery, 10);
+
+  if (!searchResults.length) {
+    console.log('[AI Quiz] No search results found');
+    return { questions: [], source: 'web-search (no results)' };
+  }
+
+  // Combine search result snippets into a single context
+  const searchContext = searchResults
+    .map((r, i) => `[${i + 1}] ${r.title}\n${r.content}`)
+    .join('\n\n');
+
+  const gradeDesc = gradeLevel ? `\nGRADE LEVEL: ${gradeLevel} (Rwandan education system).` : '';
+  const subjectDesc = subject ? `\nSUBJECT: ${subject}.` : '';
+
+  const systemPrompt = `You are an expert exam creator for the Rwandan education system. Below are web search results about ${subject} past papers for ${gradeLevel}.${gradeDesc}${subjectDesc}
+
+Create exactly ${numQuestions} multiple choice questions based on the search results. Use the information from the search snippets to create accurate questions with correct answers.
+
+IMPORTANT RULES:
+1. Each question must have exactly 4 options labeled A, B, C, D.
+2. The correct answer must be one of A, B, C, or D.
+3. Questions should be relevant to the Rwandan national curriculum for ${gradeLevel}.
+4. Distractors should be plausible but clearly incorrect.
+5. If the search results mention specific exam questions, use them as inspiration.
+
+Respond ONLY with a valid JSON array. No markdown, no explanation:
+[
+  {
+    "question": "Question text?",
+    "option_a": "Option A",
+    "option_b": "Option B",
+    "option_c": "Option C",
+    "option_d": "Option D",
+    "correct_answer": "a"
+  }
+]
+
+The "correct_answer" must be lowercase: "a", "b", "c", or "d".`;
+
+  const userPrompt = `WEB SEARCH RESULTS:\n${searchContext}`;
+
+  const text = await callGroq([
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt },
+  ]);
+
+  const questions = parseQuestionsFromText(text);
+  if (!questions.length) {
+    console.error('[AI Quiz] No questions parsed from Groq web search response', text.slice(0, 300));
+    return { questions: [], source: 'web-search (AI parse failed)' };
+  }
+
+  const valid = questions.filter(q => q.question && q.option_a && q.option_b && q.option_c && q.option_d).map(q => ({
+    question: String(q.question).trim(),
+    option_a: String(q.option_a).trim(),
+    option_b: String(q.option_b).trim(),
+    option_c: String(q.option_c).trim(),
+    option_d: String(q.option_d).trim(),
+    correct_answer: String(q.correct_answer || 'a').toLowerCase().trim().charAt(0),
+  }));
+
+  return { questions: valid, source: `web search + AI (${searchResults.length} results)` };
 }
 
 /**
@@ -170,8 +263,8 @@ router.post('/:classId/ai-quiz/generate', authenticateToken, requireRole('teache
   if (!grade_level || !grade_level.trim()) return res.status(400).json({ error: 'Grade level is required.' });
   if (!subject || !subject.trim()) return res.status(400).json({ error: 'Subject is required.' });
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return res.status(503).json({ error: 'AI service not configured. Set GEMINI_API_KEY.' });
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return res.status(503).json({ error: 'AI service not configured. Set GROQ_API_KEY.' });
 
   try {
     // Chunk the content
@@ -245,7 +338,7 @@ router.post('/:classId/ai-quiz/preview', authenticateToken, requireRole('teacher
   if (!grade_level || !grade_level.trim()) return res.status(400).json({ error: 'Grade level is required.' });
   if (!subject || !subject.trim()) return res.status(400).json({ error: 'Subject is required.' });
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return res.status(503).json({ error: 'AI service not configured.' });
 
   try {
@@ -277,8 +370,8 @@ router.post('/:classId/ai-quiz/preview', authenticateToken, requireRole('teacher
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// DATABASE-POWERED QUIZ GENERATOR (No external AI needed)
-// Pulls real questions from: past_paper_questions → quiz_questions → textbooks
+// AI-POWERED QUIZ GENERATOR (SearXNG web search + Groq AI — permanently free)
+// Flow: web search → Groq AI generates questions → database fallback
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
@@ -429,7 +522,7 @@ function generateQuestionsFromText(text, subject, gradeLevel, maxQuestions) {
 /**
  * POST /api/classes/:classId/ai-quiz/auto-generate
  * Body: { title, description?, grade_level, subject, num_questions?, year?, preview_only? }
- * Generates quiz from: past papers → existing quizzes → textbook content. No external AI.
+ * Generates quiz from: web search + Groq AI → past papers → existing quizzes → textbooks.
  */
 router.post('/:classId/ai-quiz/auto-generate', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
@@ -448,7 +541,23 @@ router.post('/:classId/ai-quiz/auto-generate', authenticateToken, requireRole('t
   try {
     let allQuestions = [];
 
-    // ── SOURCE 1: Past Paper Questions (real national exam questions) ────────
+    // ── SOURCE 1: Web Search + Groq AI (primary — searches Google for past papers) ──
+    try {
+      const webResult = await generateQuestionsFromWebSearch(subject, grade_level, year, totalQuestions);
+      if (webResult.questions.length > 0) {
+        sources.push(webResult.source);
+        allQuestions.push(...webResult.questions);
+        console.log(`[AI Quiz] Web search + Groq generated ${webResult.questions.length} questions`);
+      }
+    } catch (err) {
+      if (err.message === 'RATE_LIMITED' || err.status === 429) {
+        return res.status(429).json({ error: 'AI is busy. Please wait a moment and try again.' });
+      }
+      console.error('[AI Quiz] Web search + Groq failed, falling back to database:', err.message);
+    }
+
+    // ── SOURCE 2: Past Paper Questions (real national exam questions from database) ──
+    if (allQuestions.length < totalQuestions) {
     let pastPaperQuery, pastPaperParams;
     if (year) {
       pastPaperQuery = `
@@ -483,7 +592,9 @@ router.post('/:classId/ai-quiz/auto-generate', authenticateToken, requireRole('t
       })));
     }
 
-    // ── SOURCE 2: Existing Quiz Questions (from all classes with matching subject) ──
+    }
+
+    // ── SOURCE 3: Existing Quiz Questions (from all classes with matching subject) ──
     if (allQuestions.length < totalQuestions) {
       const matchingClasses = await pool.query(
         `SELECT id FROM classes WHERE subject ILIKE $1 OR name ILIKE $1`,
@@ -539,7 +650,7 @@ router.post('/:classId/ai-quiz/auto-generate', authenticateToken, requireRole('t
       }
     }
 
-    // ── SOURCE 3: Textbook content (generate questions from extracted text) ──
+    // ── SOURCE 4: Textbook content (generate questions from extracted text) ──
     if (allQuestions.length < totalQuestions) {
       const needed = totalQuestions - allQuestions.length;
       const textbooks = await pool.query(
@@ -612,7 +723,7 @@ router.post('/:classId/ai-quiz/auto-generate', authenticateToken, requireRole('t
 
     if (!allQuestions.length) {
       return res.status(404).json({
-        error: `No questions found for ${subject} at ${grade_level} level. Try a different subject or add past papers/textbooks first.`,
+        error: `No questions found for ${subject} at ${grade_level} level. Try a different subject or year.`,
       });
     }
 
