@@ -30,6 +30,40 @@ function chunkText(text, maxChars = 12000) {
   return chunks;
 }
 
+async function callGeminiWithRetry(url, body, maxRetries = 4) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (res.ok) return res;
+
+    if (res.status === 429 && attempt < maxRetries) {
+      // Exponential backoff: 2s, 4s, 8s, 16s
+      const wait = Math.pow(2, attempt + 1) * 1000;
+      console.log(`[Gemini] 429 rate limited, retry ${attempt + 1}/${maxRetries} in ${wait}ms`);
+      await new Promise(r => setTimeout(r, wait));
+      continue;
+    }
+
+    if (res.status === 503 && attempt < maxRetries) {
+      const wait = Math.pow(2, attempt + 1) * 1000;
+      console.log(`[Gemini] 503 overloaded, retry ${attempt + 1}/${maxRetries} in ${wait}ms`);
+      await new Promise(r => setTimeout(r, wait));
+      continue;
+    }
+
+    // Non-retryable error
+    const errText = await res.text();
+    console.error('[Gemini] error', res.status, errText.slice(0, 300));
+    const e = new Error(`Gemini API error: ${res.status}`);
+    e.status = res.status;
+    throw e;
+  }
+}
+
 /**
  * Call Gemini to generate MCQ questions from a chunk of content.
  * Returns array of question objects: { question, option_a, option_b, option_c, option_d, correct_answer }
@@ -74,13 +108,9 @@ Respond ONLY with a valid JSON array. No markdown, no explanation. Each element 
 
 The "correct_answer" must be lowercase: "a", "b", "c", or "d".`;
 
-  const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { maxOutputTokens: 8192, temperature: 0.4 },
-    }),
+  const res = await callGeminiWithRetry(`${GEMINI_URL}?key=${apiKey}`, {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { maxOutputTokens: 8192, temperature: 0.4 },
   });
 
   if (!res.ok) {
@@ -299,13 +329,9 @@ The "correct_answer" must be lowercase: "a", "b", "c", or "d".`;
 
   try {
     const url = `${GEMINI_URL}?key=${apiKey}`;
-    const aiRes = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 8192, temperature: 0.7 },
-      }),
+    const aiRes = await callGeminiWithRetry(url, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: 8192, temperature: 0.7 },
     });
 
     if (!aiRes.ok) {
