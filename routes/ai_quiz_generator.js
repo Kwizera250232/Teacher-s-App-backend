@@ -298,20 +298,22 @@ router.post('/:classId/ai-quiz/auto-generate', authenticateToken, requireRole('t
     ? `Primary ${grade_level} level in Rwanda. Use simple, age-appropriate language. Topics should match what a ${grade_level} student learns in the Rwandan primary curriculum.`
     : `Secondary ${grade_level} level in Rwanda. Use appropriate academic depth. Topics should match the Rwandan secondary curriculum for ${grade_level}, following CBC (Competence-Based Curriculum).`;
 
-  const prompt = `You are an expert exam creator for the Rwandan education system.
+  const prompt = `You are an expert exam creator for the Rwandan education system with deep knowledge of Rwandan national exams (Akarere ka Rwanda exams, National Examinations).
 
 TASK: Create ${totalQuestions} multiple choice questions (MCQ) for ${subject} at ${levelDesc}
 
-IMPORTANT RULES:
-1. Create exactly ${totalQuestions} questions — do NOT generate fewer.
-2. Cover a variety of topics from the ${grade_level} ${subject} Rwandan national curriculum.
-3. Each question must have exactly 4 options labeled A, B, C, D.
-4. The correct answer must be one of A, B, C, or D.
-5. Questions should be clear, accurate, and test real understanding.
-6. Distractors (wrong options) should be plausible but clearly incorrect.
-7. Mix difficulty levels — some easy, some medium, some challenging.
-8. Make questions practical and relevant to real-world applications where possible.
-9. Use English as the primary language unless the subject is Kinyarwanda or French.
+CRITICAL RULES — FOLLOW EXACTLY:
+1. Search your knowledge for ACTUAL past Rwandan national exam questions for ${grade_level} ${subject}. Use real questions from past national exams (Primary Leaving Exam, O-Level, A-Level, etc.) where available.
+2. If you know actual past exam questions, use them EXACTLY as they appeared — same wording, same options, same correct answer.
+3. If you cannot recall a specific past exam question, create questions that MATCH the style, difficulty, and content of real Rwandan national exams for this level and subject.
+4. Create exactly ${totalQuestions} questions — do NOT generate fewer.
+5. Each question must have exactly 4 options labeled A, B, C, D.
+6. The correct answer must be one of A, B, C, or D — and must be factually accurate.
+7. Questions must be at the correct difficulty level for ${grade_level} in the Rwandan curriculum.
+8. Cover topics that actually appear in Rwandan national exams for this level and subject.
+9. Distractors (wrong options) should be plausible — similar to how real exam distractors are designed.
+10. Use English as the primary language unless the subject is Kinyarwanda or French.
+11. Make sure every question is factually correct — the answer must be verifiable from the Rwandan curriculum.
 
 Respond ONLY with a valid JSON array. No markdown, no explanation. Each element must have this exact structure:
 [
