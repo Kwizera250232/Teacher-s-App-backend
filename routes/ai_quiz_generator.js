@@ -30,7 +30,7 @@ function chunkText(text, maxChars = 12000) {
   return chunks;
 }
 
-async function callGeminiWithRetry(url, body, maxRetries = 4) {
+async function callGeminiWithRetry(url, body, maxRetries = 3) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const res = await fetch(url, {
       method: 'POST',
@@ -41,15 +41,15 @@ async function callGeminiWithRetry(url, body, maxRetries = 4) {
     if (res.ok) return res;
 
     if (res.status === 429 && attempt < maxRetries) {
-      // Exponential backoff: 2s, 4s, 8s, 16s
-      const wait = Math.pow(2, attempt + 1) * 1000;
+      // Waits: 3s, 6s, 12s = 21s total (under Vercel 30s proxy timeout)
+      const wait = [3000, 6000, 12000][attempt] || 12000;
       console.log(`[Gemini] 429 rate limited, retry ${attempt + 1}/${maxRetries} in ${wait}ms`);
       await new Promise(r => setTimeout(r, wait));
       continue;
     }
 
     if (res.status === 503 && attempt < maxRetries) {
-      const wait = Math.pow(2, attempt + 1) * 1000;
+      const wait = [3000, 6000, 12000][attempt] || 12000;
       console.log(`[Gemini] 503 overloaded, retry ${attempt + 1}/${maxRetries} in ${wait}ms`);
       await new Promise(r => setTimeout(r, wait));
       continue;
@@ -58,7 +58,7 @@ async function callGeminiWithRetry(url, body, maxRetries = 4) {
     // Non-retryable error
     const errText = await res.text();
     console.error('[Gemini] error', res.status, errText.slice(0, 300));
-    const e = new Error(`Gemini API error: ${res.status}`);
+    const e = new Error(res.status === 429 ? 'RATE_LIMITED' : `Gemini API error: ${res.status}`);
     e.status = res.status;
     throw e;
   }
@@ -412,6 +412,9 @@ The "correct_answer" must be lowercase: "a", "b", "c", or "d".`;
     }
   } catch (err) {
     console.error('[AI Quiz Auto-Gen]', err);
+    if (err.message === 'RATE_LIMITED' || err.status === 429) {
+      return res.status(429).json({ error: 'AI is busy. Please wait 1 minute and try again.' });
+    }
     res.status(500).json({ error: err.message || 'Failed to auto-generate quiz.' });
   }
 });
