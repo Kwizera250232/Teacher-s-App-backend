@@ -40,16 +40,16 @@ async function callGeminiWithRetry(url, body, maxRetries = 3) {
 
     if (res.ok) return res;
 
-    if (res.status === 429 && attempt < maxRetries) {
-      // Waits: 3s, 6s, 12s = 21s total (under Vercel 30s proxy timeout)
-      const wait = [3000, 6000, 12000][attempt] || 12000;
-      console.log(`[Gemini] 429 rate limited, retry ${attempt + 1}/${maxRetries} in ${wait}ms`);
-      await new Promise(r => setTimeout(r, wait));
-      continue;
+    // Return 429 immediately — frontend handles retry with countdown
+    if (res.status === 429) {
+      const e = new Error('RATE_LIMITED');
+      e.status = 429;
+      throw e;
     }
 
+    // Retry 503 (server overloaded) but only briefly
     if (res.status === 503 && attempt < maxRetries) {
-      const wait = [3000, 6000, 12000][attempt] || 12000;
+      const wait = 2000;
       console.log(`[Gemini] 503 overloaded, retry ${attempt + 1}/${maxRetries} in ${wait}ms`);
       await new Promise(r => setTimeout(r, wait));
       continue;
@@ -58,7 +58,7 @@ async function callGeminiWithRetry(url, body, maxRetries = 3) {
     // Non-retryable error
     const errText = await res.text();
     console.error('[Gemini] error', res.status, errText.slice(0, 300));
-    const e = new Error(res.status === 429 ? 'RATE_LIMITED' : `Gemini API error: ${res.status}`);
+    const e = new Error(`Gemini API error: ${res.status}`);
     e.status = res.status;
     throw e;
   }
@@ -222,6 +222,9 @@ router.post('/:classId/ai-quiz/generate', authenticateToken, requireRole('teache
     }
   } catch (err) {
     console.error('[AI Quiz Gen]', err);
+    if (err.message === 'RATE_LIMITED' || err.status === 429) {
+      return res.status(429).json({ error: 'AI is busy. Retrying automatically...' });
+    }
     res.status(500).json({ error: err.message || 'Failed to generate quiz.' });
   }
 });
@@ -266,6 +269,9 @@ router.post('/:classId/ai-quiz/preview', authenticateToken, requireRole('teacher
     });
   } catch (err) {
     console.error('[AI Quiz Preview]', err);
+    if (err.message === 'RATE_LIMITED' || err.status === 429) {
+      return res.status(429).json({ error: 'AI is busy. Retrying automatically...' });
+    }
     res.status(500).json({ error: err.message || 'Failed to generate preview.' });
   }
 });
