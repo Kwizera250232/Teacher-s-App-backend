@@ -274,12 +274,14 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
     : 'exam questions';
 
   // Search queries targeting Rwandan exam websites + general
+  // Multiple queries to maximize finding real past paper PDFs
   const queries = [
     `site:nesa.gov.rw ${gradeLevel} ${subject} past paper${yearPart}`,
+    `site:nesa.gov.rw Past_Papers ${gradeLevel} ${subject}${yearPart}`,
     `site:nationalexamination.rw ${gradeLevel} ${subject}${yearPart}`,
     `site:rwandapapers.co.rw ${gradeLevel} ${subject}${yearPart}`,
-    `Rwanda ${gradeLevel} ${subject} ${typePart}${yearPart} questions answers`,
-    `Rwanda ${gradeLevel} ${subject} national exam${yearPart} past paper PDF`,
+    `Rwanda ${gradeLevel} ${subject} national exam${yearPart} past paper PDF questions`,
+    `nesa.gov.rw ${gradeLevel} ${subject} exam${yearPart} answers`,
   ];
 
   // Run all searches in PARALLEL for speed
@@ -300,11 +302,18 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
   }
 
   // Fetch FULL page content from top results IN PARALLEL (including PDFs)
-  const topResults = searchResults.slice(0, 5);
+  // PDFs get more chars since they contain the actual exam content
+  const topResults = searchResults.slice(0, 6);
   console.log(`[AI Quiz] Fetching ${topResults.length} pages in parallel (PDFs included)...`);
-  const fetchPromises = topResults.map(r => fetchPageContent(r.url, 2500).then(text => ({ title: r.title, url: r.url, text })));
+  const fetchPromises = topResults.map(r => {
+    const isPdf = r.url.toLowerCase().match(/\.(pdf)(\?|$)/) || r.url.toLowerCase().includes('eID=dumpFile');
+    const maxChars = isPdf ? 4000 : 2000; // PDFs have real exam content, give them more space
+    return fetchPageContent(r.url, maxChars).then(text => ({ title: r.title, url: r.url, text }));
+  });
   const fetchResults = await Promise.all(fetchPromises);
   const pageContents = fetchResults.filter(r => r.text && r.text.length > 100);
+  // Sort by content length — longest first (likely most exam content)
+  pageContents.sort((a, b) => b.text.length - a.text.length);
   for (const p of pageContents) {
     console.log(`[AI Quiz] Fetched ${p.text.length} chars from: ${p.url.slice(0, 80)}`);
   }
@@ -323,7 +332,8 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
   }
 
   // Truncate total context to stay within Groq free tier TPM limit (~12K TPM)
-  searchContext = searchContext.slice(0, 3500);
+  // Prioritize PDF content (real exam questions) over HTML snippets
+  searchContext = searchContext.slice(0, 4000);
 
   const yearInstr = year ? ` The questions must be from the ${year} ${subject} national exam for ${gradeLevel}.` : '';
   const isPrimary = gradeLevel && gradeLevel.startsWith('P');
@@ -332,28 +342,26 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
     : 'Secondary school level — use appropriate depth and complexity for the Rwandan curriculum.';
   const templateInstr = templateLabel ? `\n12. The quiz template selected is: "${templateLabel}". Generate questions that match this exactly.` : '';
 
-  const systemPrompt = `You are an exam extractor for the Rwandan education system. Your job is to READ actual past exam papers and EXTRACT the real questions from them. You do NOT invent or create new questions.
+  const systemPrompt = `You are a Rwandan past paper exam extractor. Your ONLY job is to read the provided content from REAL Rwandan exam papers and extract the actual questions exactly as they appear.
 
-CRITICAL RULES — FOLLOW EXACTLY:
-1. READ the provided content carefully. It contains REAL exam questions from Rwandan past papers.
-2. EXTRACT exactly ${numQuestions} multiple choice questions from the content. These must be the ACTUAL questions found in the text.
-3. ALL questions must be STRICTLY about: ${subject} for ${gradeLevel} (Rwandan curriculum).${yearInstr}
-4. Do NOT create questions about other subjects or unrelated content.
-5. Do NOT skip any questions — go from question 1 to the last one, in order.
-6. Do NOT add extra questions that are not in the source material.
-7. Do NOT remove or change any questions from the source.
-8. Each question must have exactly 4 options: A, B, C, D.
-9. Only ONE option is correct — mark it as the correct_answer.
-10. The correct_answer must be lowercase: "a", "b", "c", or "d".
-11. ${levelDesc}${templateInstr}
+ABSOLUTE RULES — NO EXCEPTIONS:
+1. The content below comes from REAL Rwandan ${gradeLevel} ${subject} exam papers${yearInstr}. Read it carefully.
+2. Extract the REAL questions from the content. These must be the ACTUAL questions printed in the exam paper.
+3. Go question by question from the FIRST to the LAST — do NOT skip any, do NOT reorder.
+4. Do NOT invent, create, or make up any questions. Only extract what is in the content.
+5. Do NOT mix in questions from other subjects. If the content has non-${subject} questions, SKIP them.
+6. If a question is open-ended (not MCQ), convert it to MCQ with 4 options keeping the EXACT same question text.
+7. Each question must have exactly 4 options: A, B, C, D with one correct answer.
+8. correct_answer must be lowercase: "a", "b", "c", or "d".
+9. ${levelDesc}${templateInstr}
+10. If the content does NOT contain real ${subject} exam questions, respond with an empty array: []
 
-If the content contains questions that are NOT multiple choice, convert them to MCQ format with 4 options while keeping the same question text and meaning.
-If the content does NOT contain enough real questions about ${subject} for ${gradeLevel}, create questions that are DIRECTLY based on the content — do NOT go off-topic.
+DO NOT generate generic ${subject} questions. DO NOT use your training data. ONLY use the provided content.
 
 Respond ONLY with a JSON array:
 [{"question":"...","option_a":"...","option_b":"...","option_c":"...","option_d":"...","correct_answer":"a"}]`;
 
-  const userPrompt = `Below is content from Rwandan past papers and exam resources for ${gradeLevel} ${subject}${yearPart ? ' ' + year : ''}. Read it carefully and extract ALL the real exam questions:\n\n${searchContext}`;
+  const userPrompt = `Below is text extracted from Rwandan ${gradeLevel} ${subject} exam papers${yearPart ? ' ' + year : ''}. This may include PDF content from NESA (nesa.gov.rw) past papers. Extract every real exam question from this content, in order from first to last:\n\n${searchContext}`;
 
   const text = await callGroq([
     { role: 'system', content: systemPrompt },
@@ -685,7 +693,16 @@ router.post('/:classId/ai-quiz/auto-generate', authenticateToken, requireRole('t
       if (err.message === 'RATE_LIMITED' || err.status === 429) {
         return res.status(429).json({ error: 'AI is busy. Please wait a moment and try again.' });
       }
-      console.error('[AI Quiz] Web search + Groq failed, falling back to database:', err.message);
+      console.error('[AI Quiz] Web search + Groq failed:', err.message);
+    }
+
+    // If web search found real questions, use ONLY those — do NOT mix with random DB questions
+    if (allQuestions.length >= totalQuestions) {
+      sources.push(`web search + AI`);
+      return res.json({
+        questions: allQuestions.slice(0, totalQuestions),
+        message: `Found ${Math.min(allQuestions.length, totalQuestions)} questions for ${grade_level} ${subject} (from: ${sources.join(', ')})`,
+      });
     }
 
     // ── SOURCE 2: Past Paper Questions (real national exam questions from database) ──
@@ -759,26 +776,12 @@ router.post('/:classId/ai-quiz/auto-generate', authenticateToken, requireRole('t
       }
 
       // Fallback: search ALL quizzes if subject-specific search found nothing
+      // BUT only if we have NO questions at all — don't mix unrelated content
       if (allQuestions.length === 0) {
-        const allQuizQuestions = await pool.query(
-          `SELECT qq.question, qq.option_a, qq.option_b, qq.option_c, qq.option_d, qq.correct_answer
-           FROM quiz_questions qq
-           JOIN quizzes q ON q.id = qq.quiz_id
-           ORDER BY RANDOM()
-           LIMIT $1`,
-          [totalQuestions * 2]
-        );
-        if (allQuizQuestions.rows.length > 0) {
-          sources.push(`${allQuizQuestions.rows.length} from all quizzes (fallback)`);
-          allQuestions.push(...allQuizQuestions.rows.map(q => ({
-            question: q.question,
-            option_a: q.option_a,
-            option_b: q.option_b,
-            option_c: q.option_c || '',
-            option_d: q.option_d || '',
-            correct_answer: q.correct_answer,
-          })));
-        }
+        console.log('[AI Quiz] No questions found from any source. Returning empty.');
+        return res.status(422).json({
+          error: `Could not find real ${subject} past paper questions for ${grade_level}${year ? ' ' + year : ''}. Try a different year or subject.`,
+        });
       }
     }
 
