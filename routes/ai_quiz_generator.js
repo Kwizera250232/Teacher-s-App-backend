@@ -275,7 +275,7 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
 
   // Search queries targeting Rwandan exam websites + general
   // Exclude teacher guides, textbooks, syllabi — we only want PAST PAPERS
-  const excludeTerms = '-"teacher guide" -"teacher's guide" -textbook -syllabus -curriculum';
+  const excludeTerms = '-teacher guide -textbook -syllabus -curriculum';
   const queries = [
     `site:nesa.gov.rw Past_Papers ${gradeLevel} ${subject}${yearPart}`,
     `site:nesa.gov.rw ${gradeLevel} ${subject} past paper${yearPart} ${excludeTerms}`,
