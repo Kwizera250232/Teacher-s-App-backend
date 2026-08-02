@@ -319,7 +319,7 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
   console.log(`[AI Quiz] Fetching ${topResults.length} pages in parallel (PDFs included)...`);
   const fetchPromises = topResults.map(r => {
     const isPdf = r.url.toLowerCase().match(/\.(pdf)(\?|$)/) || r.url.toLowerCase().includes('eID=dumpFile');
-    const maxChars = isPdf ? 4000 : 2000;
+    const maxChars = isPdf ? 8000 : 2000;
     return fetchPageContent(r.url, maxChars).then(text => ({ title: r.title, url: r.url, text }));
   });
   const fetchResults = await Promise.all(fetchPromises);
@@ -356,9 +356,8 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
       .join('\n');
   }
 
-  // Truncate total context to stay within Groq free tier TPM limit (~12K TPM)
-  // Prioritize PDF content (real exam questions) over HTML snippets
-  searchContext = searchContext.slice(0, 4000);
+  // Truncate total context — give Groq as much real exam content as possible
+  searchContext = searchContext.slice(0, 8000);
 
   const yearInstr = year ? ` The questions must be from the ${year} ${subject} national exam for ${gradeLevel}.` : '';
   const isPrimary = gradeLevel && gradeLevel.startsWith('P');
@@ -400,7 +399,7 @@ Respond ONLY with a JSON array:
   const text = await callGroq([
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userPrompt },
-  ]);
+  ], 8192, 0.3);
 
   const questions = parseQuestionsFromText(text);
   if (!questions.length) {
@@ -730,12 +729,12 @@ router.post('/:classId/ai-quiz/auto-generate', authenticateToken, requireRole('t
       console.error('[AI Quiz] Web search + Groq failed:', err.message);
     }
 
-    // If web search found real questions, use ONLY those — do NOT mix with random DB questions
-    if (allQuestions.length >= totalQuestions) {
+    // If web search found ANY real past paper questions, use ONLY those — do NOT mix with database
+    if (allQuestions.length > 0) {
       sources.push(`web search + AI`);
       return res.json({
         questions: allQuestions.slice(0, totalQuestions),
-        message: `Found ${Math.min(allQuestions.length, totalQuestions)} questions for ${grade_level} ${subject} (from: ${sources.join(', ')})`,
+        message: `Found ${allQuestions.length} real past paper questions for ${grade_level} ${subject} (from: ${sources.join(', ')})`,
       });
     }
 
