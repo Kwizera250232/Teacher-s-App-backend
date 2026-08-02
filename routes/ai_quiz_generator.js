@@ -416,7 +416,21 @@ Respond ONLY with a JSON array:
     correct_answer: String(q.correct_answer || 'a').toLowerCase().trim().charAt(0),
   }));
 
-  return { questions: valid, source: `web search + AI (${searchResults.length} results)` };
+  // Build exam header for display
+  const examYear = year || new Date().getFullYear().toString();
+  const examBody = quizType === 'National Exam Past Paper' ? 'NESA (National Examination and School Inspection Authority)' : quizType;
+  const examLevel = gradeLevel.startsWith('P') && gradeLevel === 'P6'
+    ? 'PRIMARY LEAVING NATIONAL EXAMINATIONS'
+    : gradeLevel.startsWith('P')
+    ? `PRIMARY ${gradeLevel.replace('P', 'P')} NATIONAL EXAMINATIONS`
+    : gradeLevel === 'S3'
+    ? 'ORDINARY LEVEL NATIONAL EXAMINATIONS'
+    : gradeLevel === 'S6'
+    ? 'ADVANCED LEVEL NATIONAL EXAMINATIONS'
+    : `${gradeLevel} NATIONAL EXAMINATIONS`;
+  const examHeader = `${examYear} ${examBody}\n${examLevel}\nSUBJECT: ${subject.toUpperCase()}`;
+
+  return { questions: valid, source: `web search + AI (${searchResults.length} results)`, examHeader };
 }
 
 /**
@@ -735,6 +749,7 @@ router.post('/:classId/ai-quiz/auto-generate', authenticateToken, requireRole('t
       return res.json({
         questions: allQuestions.slice(0, totalQuestions),
         message: `Found ${allQuestions.length} real past paper questions for ${grade_level} ${subject} (from: ${sources.join(', ')})`,
+        examHeader: webResult.examHeader || null,
       });
     }
 
