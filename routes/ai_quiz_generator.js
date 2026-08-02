@@ -274,14 +274,15 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
     : 'exam questions';
 
   // Search queries targeting Rwandan exam websites + general
-  // Multiple queries to maximize finding real past paper PDFs
+  // Exclude teacher guides, textbooks, syllabi — we only want PAST PAPERS
+  const excludeTerms = '-"teacher guide" -"teacher's guide" -textbook -syllabus -curriculum';
   const queries = [
-    `site:nesa.gov.rw ${gradeLevel} ${subject} past paper${yearPart}`,
     `site:nesa.gov.rw Past_Papers ${gradeLevel} ${subject}${yearPart}`,
+    `site:nesa.gov.rw ${gradeLevel} ${subject} past paper${yearPart} ${excludeTerms}`,
     `site:nationalexamination.rw ${gradeLevel} ${subject}${yearPart}`,
     `site:rwandapapers.co.rw ${gradeLevel} ${subject}${yearPart}`,
     `Rwanda ${gradeLevel} ${subject} national exam${yearPart} past paper PDF questions`,
-    `nesa.gov.rw ${gradeLevel} ${subject} exam${yearPart} answers`,
+    `nesa.gov.rw ${gradeLevel} ${subject} exam${yearPart} questions answers`,
   ];
 
   // Run all searches in PARALLEL for speed
@@ -294,7 +295,18 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
       if (!allResults.some(x => x.url === r.url)) allResults.push(r);
     }
   }
-  const searchResults = allResults.slice(0, 10);
+  // Filter out non-past-paper results (teacher guides, textbooks, syllabi)
+  const badPatterns = /teacher.?s?.guide|textbook|syllabus|curriculum|teacher.?guide|lesson.?plan/i;
+  const filteredResults = allResults.filter(r => {
+    const titleBad = badPatterns.test(r.title || '');
+    const urlBad = badPatterns.test(r.url || '');
+    if (titleBad || urlBad) {
+      console.log(`[AI Quiz] Filtering out non-past-paper: ${r.title.slice(0, 60)}`);
+      return false;
+    }
+    return true;
+  });
+  const searchResults = filteredResults.slice(0, 10);
 
   if (!searchResults.length) {
     console.log('[AI Quiz] No search results found');
@@ -307,11 +319,24 @@ async function generateQuestionsFromWebSearch(subject, gradeLevel, year, numQues
   console.log(`[AI Quiz] Fetching ${topResults.length} pages in parallel (PDFs included)...`);
   const fetchPromises = topResults.map(r => {
     const isPdf = r.url.toLowerCase().match(/\.(pdf)(\?|$)/) || r.url.toLowerCase().includes('eID=dumpFile');
-    const maxChars = isPdf ? 4000 : 2000; // PDFs have real exam content, give them more space
+    const maxChars = isPdf ? 4000 : 2000;
     return fetchPageContent(r.url, maxChars).then(text => ({ title: r.title, url: r.url, text }));
   });
   const fetchResults = await Promise.all(fetchPromises);
-  const pageContents = fetchResults.filter(r => r.text && r.text.length > 100);
+  let pageContents = fetchResults.filter(r => r.text && r.text.length > 100);
+
+  // Filter out content that looks like teacher guides / textbook covers / TOC
+  // Real exam papers have numbered questions, not "Unit 2" or "Teacher's Guide"
+  const nonExamPatterns = /teacher.?s?.guide|director general|REB|basic education board|table of contents|unit \d|lesson plan|prerequisites|learning outcomes|all rights reserved|© \d{4}/i;
+  pageContents = pageContents.filter(p => {
+    const looksLikeGuide = nonExamPatterns.test(p.text.slice(0, 500));
+    if (looksLikeGuide) {
+      console.log(`[AI Quiz] Filtering out non-exam content (guide/textbook): ${p.url.slice(0, 60)}`);
+      return false;
+    }
+    return true;
+  });
+
   // Sort by content length — longest first (likely most exam content)
   pageContents.sort((a, b) => b.text.length - a.text.length);
   for (const p of pageContents) {
@@ -355,6 +380,15 @@ ABSOLUTE RULES — NO EXCEPTIONS:
 8. correct_answer must be lowercase: "a", "b", "c", or "d".
 9. ${levelDesc}${templateInstr}
 10. If the content does NOT contain real ${subject} exam questions, respond with an empty array: []
+
+CONTENT TO IGNORE (these are NOT exam questions):
+- Cover pages: "Teacher's Guide", "Director General", "REB", "Rwanda Basic Education Board", author names
+- Table of contents: "Unit 1", "Unit 2", page numbers like "35", "34"
+- Preface/foreword text: "This guide is divided into", "All rights reserved", "© 2025"
+- Chapter/unit titles: "MAKING FUTURE PLANS", "Prerequisites", "Learning outcomes"
+- Any text that is NOT a question with a question mark or a numbered exam question
+
+ONLY extract text that is clearly an EXAM QUESTION — a sentence or phrase that asks something or requires filling in a blank, typically numbered (1, 2, 3...) in exam papers.
 
 DO NOT generate generic ${subject} questions. DO NOT use your training data. ONLY use the provided content.
 
