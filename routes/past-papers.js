@@ -11,6 +11,7 @@ pool.query(`
     subject VARCHAR(100) NOT NULL,
     year INTEGER NOT NULL,
     class_level VARCHAR(50),
+    exam_type VARCHAR(50) DEFAULT 'National Exam',
     description TEXT,
     duration_minutes INTEGER DEFAULT 120,
     is_published BOOLEAN DEFAULT TRUE,
@@ -19,6 +20,7 @@ pool.query(`
   );
   CREATE INDEX IF NOT EXISTS idx_pp_exams_year ON past_paper_exams(year);
   CREATE INDEX IF NOT EXISTS idx_pp_exams_subject ON past_paper_exams(subject);
+  CREATE INDEX IF NOT EXISTS idx_pp_exams_type ON past_paper_exams(exam_type);
 
   CREATE TABLE IF NOT EXISTS past_paper_questions (
     id SERIAL PRIMARY KEY,
@@ -49,6 +51,9 @@ pool.query(`
   );
   CREATE INDEX IF NOT EXISTS idx_pp_attempts_exam ON past_paper_attempts(exam_id);
   CREATE INDEX IF NOT EXISTS idx_pp_attempts_student ON past_paper_attempts(student_id);
+
+  ALTER TABLE past_paper_exams ADD COLUMN IF NOT EXISTS exam_type VARCHAR(50) DEFAULT 'National Exam';
+  CREATE INDEX IF NOT EXISTS idx_pp_exams_type ON past_paper_exams(exam_type);
 `).catch(e => console.error('[past-papers] schema:', e.message));
 
 // ── Gemini AI helper ──────────────────────────────────────────────────────────
@@ -96,6 +101,52 @@ router.get('/subjects/:year', authenticateToken, async (req, res) => {
     res.json({ subjects: result.rows.map(r => r.subject) });
   } catch (err) {
     console.error('[past-papers/subjects]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── Get exam types for a year + subject ──────────────────────────────────────
+router.get('/exam-types/:year/:subject', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT DISTINCT exam_type FROM past_paper_exams WHERE year=$1 AND subject ILIKE $2 AND is_published=TRUE ORDER BY exam_type`,
+      [parseInt(req.params.year), `%${req.params.subject}%`]
+    );
+    res.json({ exam_types: result.rows.map(r => r.exam_type) });
+  } catch (err) {
+    console.error('[past-papers/exam-types]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── Get all questions for a year + subject + exam_type (for AI quiz generation) ──
+router.get('/questions/:year/:subject', authenticateToken, async (req, res) => {
+  const { exam_type } = req.query;
+  try {
+    let query, params;
+    if (exam_type) {
+      query = `
+        SELECT pp.question, pp.option_a, pp.option_b, pp.option_c, pp.option_d, pp.correct_answer,
+               e.title as exam_title, e.year, e.subject, e.class_level, e.exam_type
+        FROM past_paper_questions pp
+        JOIN past_paper_exams e ON e.id = pp.exam_id
+        WHERE e.year = $1 AND e.subject ILIKE $2 AND e.exam_type = $3 AND e.is_published = TRUE
+        ORDER BY pp.order_num, pp.id`;
+      params = [parseInt(req.params.year), `%${req.params.subject}%`, exam_type];
+    } else {
+      query = `
+        SELECT pp.question, pp.option_a, pp.option_b, pp.option_c, pp.option_d, pp.correct_answer,
+               e.title as exam_title, e.year, e.subject, e.class_level, e.exam_type
+        FROM past_paper_questions pp
+        JOIN past_paper_exams e ON e.id = pp.exam_id
+        WHERE e.year = $1 AND e.subject ILIKE $2 AND e.is_published = TRUE
+        ORDER BY pp.order_num, pp.id`;
+      params = [parseInt(req.params.year), `%${req.params.subject}%`];
+    }
+    const result = await pool.query(query, params);
+    res.json({ questions: result.rows, count: result.rows.length });
+  } catch (err) {
+    console.error('[past-papers/questions]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
@@ -265,7 +316,7 @@ router.get('/admin/exams', authenticateToken, requireRole('admin', 'head_teacher
 
 // ── ADMIN: Create a new exam with questions ──────────────────────────────────
 router.post('/admin/exams', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
-  const { title, subject, year, class_level, description, duration_minutes, questions } = req.body;
+  const { title, subject, year, class_level, exam_type, description, duration_minutes, questions } = req.body;
   if (!title?.trim() || !subject?.trim() || !year) {
     return res.status(400).json({ error: 'Title, subject, and year are required.' });
   }
@@ -275,9 +326,9 @@ router.post('/admin/exams', authenticateToken, requireRole('admin', 'head_teache
 
   try {
     const examRes = await pool.query(
-      `INSERT INTO past_paper_exams (title, subject, year, class_level, description, duration_minutes, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-      [title.trim(), subject.trim(), parseInt(year), class_level || null, description || null, parseInt(duration_minutes) || 120, req.user.id]
+      `INSERT INTO past_paper_exams (title, subject, year, class_level, exam_type, description, duration_minutes, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [title.trim(), subject.trim(), parseInt(year), class_level || null, exam_type || 'National Exam', description || null, parseInt(duration_minutes) || 120, req.user.id]
     );
     const examId = examRes.rows[0].id;
 

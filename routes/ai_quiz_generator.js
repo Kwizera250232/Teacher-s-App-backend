@@ -728,57 +728,41 @@ router.post('/:classId/ai-quiz/auto-generate', authenticateToken, requireRole('t
   try {
     let allQuestions = [];
 
-    // ── SOURCE 1: Web Search + Groq AI (primary — searches Google for past papers) ──
-    try {
-      const webResult = await generateQuestionsFromWebSearch(subject, grade_level, year, totalQuestions, quiz_type, description);
-      if (webResult.questions.length > 0) {
-        sources.push(webResult.source);
-        allQuestions.push(...webResult.questions);
-        console.log(`[AI Quiz] Web search + Groq generated ${webResult.questions.length} questions`);
-      }
-    } catch (err) {
-      if (err.message === 'RATE_LIMITED' || err.status === 429) {
-        return res.status(429).json({ error: 'AI is busy. Please wait a moment and try again.' });
-      }
-      console.error('[AI Quiz] Web search + Groq failed:', err.message);
-    }
+    // ── SOURCE 1: Past Paper Questions from database (admin-created real past papers) ──
+    let ppQuery, ppParams;
+    const conditions = ['e.subject ILIKE $1', 'e.is_published = TRUE'];
+    ppParams = [`%${subject}%`];
+    let paramIdx = 2;
 
-    // If web search found ANY real past paper questions, use ONLY those — do NOT mix with database
-    if (allQuestions.length > 0) {
-      sources.push(`web search + AI`);
-      return res.json({
-        questions: allQuestions.slice(0, totalQuestions),
-        message: `Found ${allQuestions.length} real past paper questions for ${grade_level} ${subject} (from: ${sources.join(', ')})`,
-        examHeader: webResult.examHeader || null,
-      });
-    }
-
-    // ── SOURCE 2: Past Paper Questions (real national exam questions from database) ──
-    if (allQuestions.length < totalQuestions) {
-    let pastPaperQuery, pastPaperParams;
     if (year) {
-      pastPaperQuery = `
-        SELECT pp.question, pp.option_a, pp.option_b, pp.option_c, pp.option_d, pp.correct_answer,
-               e.title as exam_title, e.year, e.subject, e.class_level
-        FROM past_paper_questions pp
-        JOIN past_paper_exams e ON e.id = pp.exam_id
-        WHERE e.subject ILIKE $1 AND e.year = $2
-        ORDER BY RANDOM()`;
-      pastPaperParams = [`%${subject}%`, parseInt(year)];
-    } else {
-      pastPaperQuery = `
-        SELECT pp.question, pp.option_a, pp.option_b, pp.option_c, pp.option_d, pp.correct_answer,
-               e.title as exam_title, e.year, e.subject, e.class_level
-        FROM past_paper_questions pp
-        JOIN past_paper_exams e ON e.id = pp.exam_id
-        WHERE e.subject ILIKE $1
-        ORDER BY RANDOM()`;
-      pastPaperParams = [`%${subject}%`];
+      conditions.push(`e.year = $${paramIdx}`);
+      ppParams.push(parseInt(year));
+      paramIdx++;
+    }
+    if (grade_level) {
+      conditions.push(`e.class_level ILIKE $${paramIdx}`);
+      ppParams.push(`%${grade_level}%`);
+      paramIdx++;
+    }
+    if (quiz_type === 'National Exam Past Paper' || quiz_type === 'Mock Exam') {
+      const examTypeFilter = quiz_type === 'National Exam Past Paper' ? 'National Exam' : 'Mock Exam';
+      conditions.push(`e.exam_type = $${paramIdx}`);
+      ppParams.push(examTypeFilter);
+      paramIdx++;
     }
 
-    const pastPaperResult = await pool.query(pastPaperQuery, pastPaperParams);
+    ppQuery = `
+      SELECT pp.question, pp.option_a, pp.option_b, pp.option_c, pp.option_d, pp.correct_answer,
+             e.title as exam_title, e.year, e.subject, e.class_level, e.exam_type
+      FROM past_paper_questions pp
+      JOIN past_paper_exams e ON e.id = pp.exam_id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY pp.order_num, pp.id`;
+
+    const pastPaperResult = await pool.query(ppQuery, ppParams);
+
     if (pastPaperResult.rows.length > 0) {
-      sources.push(`${pastPaperResult.rows.length} from past papers (${pastPaperResult.rows[0].exam_title})`);
+      sources.push(`${pastPaperResult.rows.length} from ${pastPaperResult.rows[0].exam_type || 'past paper'} (${pastPaperResult.rows[0].exam_title})`);
       allQuestions.push(...pastPaperResult.rows.map(q => ({
         question: q.question,
         option_a: q.option_a,
@@ -787,170 +771,98 @@ router.post('/:classId/ai-quiz/auto-generate', authenticateToken, requireRole('t
         option_d: q.option_d || '',
         correct_answer: q.correct_answer,
       })));
+      console.log(`[AI Quiz] Found ${pastPaperResult.rows.length} real past paper questions from database`);
     }
 
-    }
+    // If we found real past paper questions, return them — do NOT mix with other sources
+    if (allQuestions.length > 0) {
+      // Build exam header
+      const examInfo = pastPaperResult.rows[0];
+      const examYear = examInfo.year || year || new Date().getFullYear().toString();
+      const examBody = examInfo.exam_type === 'National Exam'
+        ? 'NESA (National Examination and School Inspection Authority)'
+        : examInfo.exam_type || 'Mock Exam';
+      const examLevel = grade_level === 'P6'
+        ? 'PRIMARY LEAVING NATIONAL EXAMINATIONS'
+        : grade_level === 'S3'
+        ? 'ORDINARY LEVEL NATIONAL EXAMINATIONS'
+        : grade_level === 'S6'
+        ? 'ADVANCED LEVEL NATIONAL EXAMINATIONS'
+        : `${grade_level} NATIONAL EXAMINATIONS`;
+      const examHeader = `${examYear} ${examBody}\n${examLevel}\nSUBJECT: ${subject.toUpperCase()}`;
 
-    // ── SOURCE 3: Existing Quiz Questions (from all classes with matching subject) ──
-    if (allQuestions.length < totalQuestions) {
-      const matchingClasses = await pool.query(
-        `SELECT id FROM classes WHERE subject ILIKE $1 OR name ILIKE $1`,
-        [`%${subject}%`]
-      );
-      const classIds = matchingClasses.rows.map(c => c.id);
+      // Deduplicate
+      const seen = new Set();
+      allQuestions = allQuestions.filter(q => {
+        const key = q.question.toLowerCase().trim();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
 
-      if (classIds.length > 0) {
-        const quizQuestions = await pool.query(
-          `SELECT qq.question, qq.option_a, qq.option_b, qq.option_c, qq.option_d, qq.correct_answer,
-                  q.title as quiz_title
-           FROM quiz_questions qq
-           JOIN quizzes q ON q.id = qq.quiz_id
-           WHERE q.class_id = ANY($1::int[])
-           ORDER BY RANDOM()
-           LIMIT $2`,
-          [classIds, totalQuestions * 2]
-        );
-        if (quizQuestions.rows.length > 0) {
-          sources.push(`${quizQuestions.rows.length} from existing quizzes`);
-          allQuestions.push(...quizQuestions.rows.map(q => ({
-            question: q.question,
-            option_a: q.option_a,
-            option_b: q.option_b,
-            option_c: q.option_c || '',
-            option_d: q.option_d || '',
-            correct_answer: q.correct_answer,
-          })));
-        }
-      }
+      // Limit to requested count
+      allQuestions = allQuestions.slice(0, totalQuestions);
 
-      // Fallback: search ALL quizzes if subject-specific search found nothing
-      // BUT only if we have NO questions at all — don't mix unrelated content
-      if (allQuestions.length === 0) {
-        console.log('[AI Quiz] No questions found from any source. Returning empty.');
-        return res.status(422).json({
-          error: `Could not find real ${subject} past paper questions for ${grade_level}${year ? ' ' + year : ''}. Try a different year or subject.`,
+      // Validate and normalize
+      allQuestions = allQuestions.filter(q => q.question && q.option_a && q.option_b).map(q => ({
+        question: String(q.question).trim(),
+        option_a: String(q.option_a).trim(),
+        option_b: String(q.option_b).trim(),
+        option_c: String(q.option_c || '').trim() || '—',
+        option_d: String(q.option_d || '').trim() || '—',
+        correct_answer: String(q.correct_answer || 'a').toLowerCase().trim().charAt(0),
+      }));
+
+      const sourceMsg = sources.join(', ');
+
+      // If preview only, return without saving
+      if (preview_only) {
+        return res.json({
+          questions: allQuestions,
+          message: `Found ${allQuestions.length} real past paper questions for ${grade_level} ${subject}${year ? ' ' + year : ''} (from: ${sourceMsg}).`,
+          examHeader,
         });
       }
-    }
 
-    // ── SOURCE 4: Textbook content (generate questions from extracted text) ──
-    if (allQuestions.length < totalQuestions) {
-      const needed = totalQuestions - allQuestions.length;
-      const textbooks = await pool.query(
-        `SELECT title, content FROM textbooks
-         WHERE subject ILIKE $1 AND grade_level ILIKE $2 AND content IS NOT NULL AND content <> ''
-         ORDER BY book_type DESC, id ASC`,
-        [`%${subject}%`, `%${grade_level}%`]
-      );
-
-      // Fallback: any textbook with matching grade
-      let bookResults = textbooks;
-      if (textbooks.rows.length === 0) {
-        bookResults = await pool.query(
-          `SELECT title, content FROM textbooks
-           WHERE grade_level ILIKE $1 AND content IS NOT NULL AND content <> ''
-           ORDER BY subject, id ASC`,
-          [`%${grade_level}%`]
+      // Save as a real quiz
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const quizResult = await client.query(
+          'INSERT INTO quizzes (class_id, title, description, grade_level, subject) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+          [classId, title.trim(), description || null, grade_level.trim(), subject.trim()]
         );
-      }
+        const quiz = quizResult.rows[0];
 
-      // Fallback: any textbook at all
-      if (bookResults.rows.length === 0) {
-        bookResults = await pool.query(
-          `SELECT title, content FROM textbooks
-           WHERE content IS NOT NULL AND content <> ''
-           ORDER BY RANDOM() LIMIT 3`
-        );
-      }
-
-      if (bookResults.rows.length > 0) {
-        const textQuestions = [];
-        for (const book of bookResults.rows) {
-          if (textQuestions.length >= needed) break;
-          const generated = generateQuestionsFromText(
-            book.content,
-            subject,
-            grade_level,
-            needed - textQuestions.length
+        for (let i = 0; i < allQuestions.length; i++) {
+          const q = allQuestions[i];
+          await client.query(
+            `INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, order_num)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+            [quiz.id, q.question, q.option_a, q.option_b, q.option_c, q.option_d, q.correct_answer, 'multiple_choice', i]
           );
-          textQuestions.push(...generated);
         }
-        if (textQuestions.length > 0) {
-          sources.push(`${textQuestions.length} generated from textbooks`);
-          allQuestions.push(...textQuestions);
-        }
+
+        await client.query('COMMIT');
+        res.status(201).json({
+          quiz,
+          questions: allQuestions,
+          message: `Generated ${allQuestions.length} questions for ${grade_level} ${subject} (from: ${sourceMsg}).`,
+          examHeader,
+        });
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
       }
     }
 
-    // ── Deduplicate by question text ────────────────────────────────────────
-    const seen = new Set();
-    allQuestions = allQuestions.filter(q => {
-      const key = q.question.toLowerCase().trim();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
+    // ── No questions found at all ──
+    return res.status(422).json({
+      error: `No ${subject} past paper questions found for ${grade_level}${year ? ' ' + year : ''}. Please ask the admin to add past papers for this subject and year.`,
     });
 
-    // ── Shuffle and limit ───────────────────────────────────────────────────
-    allQuestions = allQuestions.sort(() => Math.random() - 0.5).slice(0, totalQuestions);
-
-    // ── Validate and normalize ──────────────────────────────────────────────
-    allQuestions = allQuestions.filter(q => q.question && q.option_a && q.option_b).map(q => ({
-      question: String(q.question).trim(),
-      option_a: String(q.option_a).trim(),
-      option_b: String(q.option_b).trim(),
-      option_c: String(q.option_c || '').trim() || '—',
-      option_d: String(q.option_d || '').trim() || '—',
-      correct_answer: String(q.correct_answer || 'a').toLowerCase().trim().charAt(0),
-    }));
-
-    if (!allQuestions.length) {
-      return res.status(404).json({
-        error: `No questions found for ${subject} at ${grade_level} level. Try a different subject or year.`,
-      });
-    }
-
-    const sourceMsg = sources.length > 0 ? sources.join(', ') : 'database';
-
-    // ── If preview only, return without saving ──────────────────────────────
-    if (preview_only) {
-      return res.json({
-        questions: allQuestions,
-        message: `Found ${allQuestions.length} questions for ${grade_level} ${subject} (from: ${sourceMsg}).`,
-      });
-    }
-
-    // ── Save as a real quiz ─────────────────────────────────────────────────
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      const quizResult = await client.query(
-        'INSERT INTO quizzes (class_id, title, description, grade_level, subject) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-        [classId, title.trim(), description || null, grade_level.trim(), subject.trim()]
-      );
-      const quiz = quizResult.rows[0];
-
-      for (let i = 0; i < allQuestions.length; i++) {
-        const q = allQuestions[i];
-        await client.query(
-          `INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, order_num)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-          [quiz.id, q.question, q.option_a, q.option_b, q.option_c, q.option_d, q.correct_answer, 'multiple_choice', i]
-        );
-      }
-
-      await client.query('COMMIT');
-      res.status(201).json({
-        quiz,
-        questions: allQuestions,
-        message: `Generated ${allQuestions.length} questions for ${grade_level} ${subject} (from: ${sourceMsg}).`,
-      });
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
   } catch (err) {
     console.error('[AI Quiz Auto-Gen]', err);
     res.status(500).json({ error: err.message || 'Failed to generate quiz.' });
