@@ -29,7 +29,9 @@ function normalizeLegacySchoolDomainError(message) {
     return 'School email is now auto-generated from school name as schoolname.edu. Please try creating the account again.';
   }
   if (/mail\.umunsi\.com/i.test(text) && /email must end with/i.test(text)) {
-    return 'Student login uses @schoolname.edu (e.g. name@brightschool.edu), not @mail.umunsi.com. Update the API server, or leave email empty to auto-generate.';
+    const slugMatch = text.match(/@([a-z0-9]+)\.mail\.umunsi\.com/i);
+    const eduDomain = slugMatch ? `${slugMatch[1]}.edu` : 'schoolname.edu';
+    return `Email must end with @${eduDomain} (school login). The API server still expects @mail.umunsi.com — run the Hostinger deploy script, or leave email empty to auto-generate.`;
   }
   if (/mail\.umunsi\.com/i.test(text)) {
     return text.replace(/@[\w.-]*mail\.umunsi\.com/gi, '@schoolname.edu');
