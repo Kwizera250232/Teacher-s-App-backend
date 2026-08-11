@@ -178,4 +178,16 @@ router.delete('/:classId/entry/:markId', authenticateToken, requireRole('teacher
   }
 });
 
+router.delete('/:classId/entry/:studentId/:testNumber', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  try {
+    await pool.query(
+      `DELETE FROM cat_marks WHERE class_id = $1 AND student_id = $2 AND test_number = $3`,
+      [req.params.classId, req.params.studentId, req.params.testNumber]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 module.exports = router;
