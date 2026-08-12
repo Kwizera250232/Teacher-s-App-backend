@@ -131,6 +131,18 @@ router.get('/:classId/weekly-reports/:reportId', authenticateToken, requireRole(
       aiRevisionResults = aiRes.rows;
     }
 
+    // Get CAT marks from the Marks Sheet (cat_marks table) — auto-pulled, no manual entry needed
+    let catMarks = [];
+    if (studentIds.length > 0) {
+      const catRes = await pool.query(
+        `SELECT student_id, test_number, marks_obtained, total_marks, subject
+         FROM cat_marks WHERE class_id = $1
+         ORDER BY subject, test_number`,
+        [classId]
+      );
+      catMarks = catRes.rows;
+    }
+
     res.json({
       ...report.rows[0],
       columns: columns.rows,
@@ -139,6 +151,7 @@ router.get('/:classId/weekly-reports/:reportId', authenticateToken, requireRole(
       comments: comments.rows,
       systemQuizzes: systemQuizzes.rows,
       aiRevisionQuizzes: aiRevisionResults,
+      catMarks,
     });
   } catch (err) {
     console.error('[weekly-report GET one]', err);
@@ -434,6 +447,18 @@ router.post('/:classId/weekly-reports/:reportId/notify-parents', authenticateTok
     studentStats.sort((a, b) => b.total - a.total);
     studentStats.forEach((s, i) => { s.rank = i + 1; });
 
+    // Get CAT marks from Marks Sheet (cat_marks) for this class
+    const catMarksRows = await pool.query(
+      `SELECT student_id, test_number, marks_obtained, total_marks, subject
+       FROM cat_marks WHERE class_id = $1 ORDER BY subject, test_number`,
+      [classId]
+    );
+    const catMarksByStudent = {};
+    for (const cm of catMarksRows.rows) {
+      if (!catMarksByStudent[cm.student_id]) catMarksByStudent[cm.student_id] = [];
+      catMarksByStudent[cm.student_id].push(cm);
+    }
+
     let notified = 0;
     let emailed = 0;
     let noParent = 0;
@@ -544,6 +569,25 @@ ${Object.entries(subjectGroups).map(([subj, g]) => {
 
 Detailed Marks:
 ${studentMarks}`;
+
+      // Add CAT marks from Marks Sheet
+      const myCatMarks = catMarksByStudent[s.id] || [];
+      if (myCatMarks.length > 0) {
+        const catBySubj = {};
+        for (const cm of myCatMarks) {
+          const subj = cm.subject || 'General';
+          if (!catBySubj[subj]) catBySubj[subj] = [];
+          catBySubj[subj].push(cm);
+        }
+        body += '\n\nTeacher CAT Marks (from Marks Sheet):\n';
+        body += Object.entries(catBySubj).map(([subj, items]) => {
+          const tot = items.reduce((s, i) => s + parseFloat(i.marks_obtained), 0);
+          const max = items.reduce((s, i) => s + parseFloat(i.total_marks), 0);
+          const pct = max ? ((tot / max) * 100).toFixed(0) : 0;
+          const detail = items.map(i => `CAT ${i.test_number}: ${i.marks_obtained}/${i.total_marks}`).join(', ');
+          return `  ${subj}: ${detail} → Total: ${tot}/${max} (${pct}%)`;
+        }).join('\n');
+      }
 
       if (systemQuizzes.rows.length) {
         body += '\n\nUCLASS System Quizzes (auto):\n';
@@ -774,6 +818,50 @@ ${studentMarks}`;
         <tbody>${teacherMarksHtml}</tbody>
       </table>
     </div>
+
+    <!-- CAT Marks from Marks Sheet -->
+    ${(catMarksByStudent[s.id] || []).length > 0 ? `
+    <div style="padding:8px 28px 16px;">
+      <h3 style="color:#075e54;font-size:15px;margin:0 0 10px;">✍️ Teacher CAT Marks (from Marks Sheet)</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="background:#f0f9ff;">
+            <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #bae6fd;">Subject</th>
+            <th style="padding:8px 8px;text-align:left;border-bottom:2px solid #bae6fd;">CATs</th>
+            <th style="padding:8px 8px;text-align:center;border-bottom:2px solid #bae6fd;">Total</th>
+            <th style="padding:8px 8px;text-align:center;border-bottom:2px solid #bae6fd;">%</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${Object.entries(catMarksByStudent[s.id] || []).reduce((acc, [subj, items]) => {
+            // This won't work — catMarksByStudent[s.id] is an array, not object
+            return acc;
+          }, '')}
+          ${(() => {
+            const myCats = catMarksByStudent[s.id] || [];
+            const bySubj = {};
+            for (const cm of myCats) {
+              const subj = cm.subject || 'General';
+              if (!bySubj[subj]) bySubj[subj] = [];
+              bySubj[subj].push(cm);
+            }
+            return Object.entries(bySubj).map(([subj, items]) => {
+              const tot = items.reduce((sum, i) => sum + parseFloat(i.marks_obtained), 0);
+              const max = items.reduce((sum, i) => sum + parseFloat(i.total_marks), 0);
+              const pct = max ? ((tot / max) * 100).toFixed(0) : 0;
+              const color = pct >= 70 ? '#16a34a' : pct >= 50 ? '#facc15' : '#e11d48';
+              const detail = items.map(i => `CAT ${i.test_number}: ${i.marks_obtained}/${i.total_marks}`).join(', ');
+              return `<tr>
+                <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-weight:600;color:#1e293b;">${subj}</td>
+                <td style="padding:8px 8px;border-bottom:1px solid #f1f5f9;font-size:12px;">${detail}</td>
+                <td style="padding:8px 8px;border-bottom:1px solid #f1f5f9;text-align:center;font-weight:600;">${tot}/${max}</td>
+                <td style="padding:8px 8px;border-bottom:1px solid #f1f5f9;text-align:center;font-weight:700;color:${color};">${pct}%</td>
+              </tr>`;
+            }).join('');
+          })()}
+        </tbody>
+      </table>
+    </div>` : ''}
 
     <!-- Subject Summary with per-subject average, total, % -->
     ${Object.keys(subjectGroups).length > 0 ? `
