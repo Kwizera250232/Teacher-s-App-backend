@@ -397,13 +397,13 @@ router.post('/:classId/weekly-reports/:reportId/notify-parents', authenticateTok
     const className = await pool.query('SELECT name, subject, class_code FROM classes WHERE id = $1', [classId]);
     const weekLabel = await pool.query('SELECT week_label FROM weekly_quiz_reports WHERE id = $1', [reportId]);
 
-    // Get school name
-    const schoolInfo = await pool.query(
-      `SELECT s.name as school_name FROM schools s
-       JOIN classes c ON c.school_id = s.id WHERE c.id = $1`,
-      [classId]
-    );
-    const schoolName = schoolInfo.rows[0]?.school_name || '';
+    // Get school name from the teacher's school_id (enriched on req.user by auth middleware)
+    const schoolId = req.user.school_id || req.schoolId;
+    let schoolName = '';
+    if (schoolId) {
+      const schoolInfo = await pool.query('SELECT name FROM schools WHERE id = $1', [schoolId]);
+      schoolName = schoolInfo.rows[0]?.name || '';
+    }
 
     // Calculate rankings
     const studentStats = students.rows.map(s => {
