@@ -394,8 +394,16 @@ router.post('/:classId/weekly-reports/:reportId/notify-parents', authenticateTok
       [reportId]
     );
 
-    const className = await pool.query('SELECT name, subject FROM classes WHERE id = $1', [classId]);
+    const className = await pool.query('SELECT name, subject, class_code FROM classes WHERE id = $1', [classId]);
     const weekLabel = await pool.query('SELECT week_label FROM weekly_quiz_reports WHERE id = $1', [reportId]);
+
+    // Get school name
+    const schoolInfo = await pool.query(
+      `SELECT s.name as school_name FROM schools s
+       JOIN classes c ON c.school_id = s.id WHERE c.id = $1`,
+      [classId]
+    );
+    const schoolName = schoolInfo.rows[0]?.school_name || '';
 
     // Calculate rankings
     const studentStats = students.rows.map(s => {
@@ -486,15 +494,26 @@ router.post('/:classId/weekly-reports/:reportId/notify-parents', authenticateTok
       }
 
       const title = `📊 Weekly Quiz Report - ${weekLabel.rows[0]?.week_label || ''}`;
-      let body = `${s.name}'s report for ${className.rows[0]?.name || ''}:
+      let body = `UCLASS WEEKLY REPORT
+School: ${schoolName}
+Student: ${s.name}
+Class: ${className.rows[0]?.name || ''}
+Class Code: ${className.rows[0]?.class_code || 'N/A'}
+Week: ${weekLabel.rows[0]?.week_label || ''}
+
 Rank: ${s.rank} of ${studentStats.length}
-Quizzes taken: ${s.taken}
+Quizzes/CATs taken: ${s.taken}
 Total marks: ${s.total}
 Average: ${s.avg.toFixed(2)}
 
-${studentMarks}
+Subject Breakdown:
+${Object.entries(subjectGroups).map(([subj, g]) => {
+  const pct = g.max ? ((g.total / g.max) * 100).toFixed(0) : 0;
+  return `  ${subj}: ${g.total}/${g.max} (${pct}%) — ${g.count} CAT(s)`;
+}).join('\n')}
 
-By Subject: ${subjectSummary}`;
+Detailed Marks:
+${studentMarks}`;
 
       if (systemQuizzes.rows.length) {
         body += '\n\nSystem Quiz Results:\n';
@@ -529,8 +548,16 @@ By Subject: ${subjectSummary}`;
         totalStudents: studentStats.length,
       });
 
-      if (weakness.weaknessSummary) body += `\n\nPerformance Analysis: ${weakness.weaknessSummary}`;
-      if (weakness.overallAdvice) body += `\n\nAdvice: ${weakness.overallAdvice}`;
+      // UCLASS SYSTEM Feedback — per-subject recommendations
+      body += '\n\nUCLASS SYSTEM FEEDBACK:\n';
+      if (weakness.overallAdvice) body += `${weakness.overallAdvice}\n`;
+      if (weakness.adviceList && weakness.adviceList.length) {
+        body += weakness.adviceList.map(a => `  ${a.subject} (${a.percentage}%): ${a.advice}`).join('\n');
+      }
+      if (weakness.strongSubjects && weakness.strongSubjects.length) {
+        body += '\nStrong subjects: ' + weakness.strongSubjects.map(st => `${st.subject} (${st.percentage}%)`).join(', ');
+      }
+
       if (inviteLink) body += `\n\nSign up to see full details: ${inviteLink}`;
 
       // Build HTML email
@@ -568,9 +595,9 @@ By Subject: ${subjectSummary}`;
           </table>
         </div>` : '';
 
-      const weaknessHtml = (weakness.weakSubjects.length > 0 || weakness.strongSubjects.length > 0) ? `
+      const weaknessHtml = (weakness.weakSubjects.length > 0 || weakness.strongSubjects.length > 0 || weakness.overallAdvice) ? `
         <div style="margin-top:20px;">
-          <h3 style="color:#075e54;font-size:15px;margin:0 0 10px;">🎯 Performance Analysis & Advice</h3>
+          <h3 style="color:#075e54;font-size:15px;margin:0 0 10px;">🎯 UCLASS SYSTEM Feedback & Recommendations</h3>
 
           ${weakness.overallAdvice ? `
           <div style="background:#eff6ff;border-radius:10px;padding:12px 16px;border-left:4px solid #3b82f6;margin-bottom:12px;">
@@ -616,7 +643,9 @@ By Subject: ${subjectSummary}`;
     <div style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:24px 28px;text-align:center;">
       <div style="font-size:32px;">🎓</div>
       <h1 style="color:#fff;font-size:20px;margin:8px 0 4px;">UClass Weekly Report</h1>
-      <p style="color:rgba(255,255,255,0.9);font-size:13px;margin:0;">${weekLabel.rows[0]?.week_label || ''} · ${className.rows[0]?.name || ''}</p>
+      ${schoolName ? `<p style="color:rgba(255,255,255,0.95);font-size:14px;margin:0 0 4px;font-weight:600;">🏫 ${schoolName}</p>` : ''}
+      <p style="color:rgba(255,255,255,0.9);font-size:13px;margin:0;">${className.rows[0]?.name || ''} ${className.rows[0]?.class_code ? `· Code: ${className.rows[0].class_code}` : ''}</p>
+      <p style="color:rgba(255,255,255,0.8);font-size:12px;margin:4px 0 0;">${weekLabel.rows[0]?.week_label || ''}</p>
     </div>
 
     <!-- Thank you message -->
@@ -651,18 +680,48 @@ By Subject: ${subjectSummary}`;
 
     <!-- Teacher-added marks -->
     <div style="padding:16px 28px 8px;">
-      <h3 style="color:#075e54;font-size:15px;margin:0 0 10px;">📝 Teacher-Added Quiz Marks</h3>
+      <h3 style="color:#075e54;font-size:15px;margin:0 0 10px;">📝 CAT Marks This Week</h3>
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead>
           <tr style="background:#f1f5f9;">
-            <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #e2e8f0;">Quiz</th>
+            <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #e2e8f0;">Quiz / CAT</th>
             <th style="padding:8px 12px;text-align:right;border-bottom:2px solid #e2e8f0;">Marks</th>
           </tr>
         </thead>
         <tbody>${teacherMarksHtml}</tbody>
       </table>
-      ${subjectSummary ? `<p style="font-size:12px;color:#64748b;margin:8px 0 0;"><strong>By Subject:</strong> ${subjectSummary}</p>` : ''}
     </div>
+
+    <!-- Subject Summary with per-subject average, total, % -->
+    ${Object.keys(subjectGroups).length > 0 ? `
+    <div style="padding:8px 28px 16px;">
+      <h3 style="color:#075e54;font-size:15px;margin:0 0 10px;">📊 Subject Breakdown</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="background:#ede9fe;">
+            <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #c4b5fd;">Subject</th>
+            <th style="padding:8px 8px;text-align:center;border-bottom:2px solid #c4b5fd;">CATs</th>
+            <th style="padding:8px 8px;text-align:center;border-bottom:2px solid #c4b5fd;">Total</th>
+            <th style="padding:8px 8px;text-align:center;border-bottom:2px solid #c4b5fd;">Average</th>
+            <th style="padding:8px 8px;text-align:center;border-bottom:2px solid #c4b5fd;">%</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${Object.entries(subjectGroups).map(([subj, g]) => {
+            const pct = g.max ? ((g.total / g.max) * 100).toFixed(0) : 0;
+            const avg = g.count ? (g.total / g.count).toFixed(1) : '0';
+            const color = pct >= 70 ? '#16a34a' : pct >= 50 ? '#facc15' : '#e11d48';
+            return `<tr>
+              <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-weight:600;color:#1e293b;">${subj}</td>
+              <td style="padding:8px 8px;border-bottom:1px solid #f1f5f9;text-align:center;">${g.count}</td>
+              <td style="padding:8px 8px;border-bottom:1px solid #f1f5f9;text-align:center;">${g.total}/${g.max}</td>
+              <td style="padding:8px 8px;border-bottom:1px solid #f1f5f9;text-align:center;">${avg}</td>
+              <td style="padding:8px 8px;border-bottom:1px solid #f1f5f9;text-align:center;font-weight:700;color:${color};">${pct}%</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>` : ''}
 
     ${systemQuizHtml}
     ${weaknessHtml}
