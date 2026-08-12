@@ -4,6 +4,9 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const { userCanManageClass } = require('../lib/classAccess');
 const { insertParentNotification, resolveParentRecipients } = require('../lib/parentHub');
 const { maybeEmailParent } = require('../lib/parentNotifyEmail');
+const { getOrCreateParentInviteToken } = require('../lib/parentInvite');
+const { resolveFrontendUrl, buildParentInvitePath } = require('../lib/frontendUrl');
+const { analyzeWeaknesses } = require('../lib/weaknessAnalysis');
 
 const router = express.Router();
 
@@ -32,6 +35,8 @@ async function ensureSchema() {
       marks NUMERIC(6,2),
       UNIQUE(column_id, student_id)
     );
+    ALTER TABLE class_members ADD COLUMN IF NOT EXISTS parent_phone TEXT;
+    ALTER TABLE weekly_quiz_columns ADD COLUMN IF NOT EXISTS subject TEXT;
   `);
 }
 
@@ -72,7 +77,7 @@ router.get('/:classId/weekly-reports/:reportId', authenticateToken, requireRole(
     );
 
     const students = await pool.query(
-      `SELECT u.id, u.name, u.email, cm.parent_email FROM class_members cm
+      `SELECT u.id, u.name, u.email, u.avatar_path, cm.parent_email, cm.parent_phone FROM class_members cm
        JOIN users u ON u.id = cm.student_id
        WHERE cm.class_id = $1 AND u.role = 'student'
        ORDER BY u.name`,
@@ -342,7 +347,7 @@ router.post('/:classId/weekly-reports/:reportId/notify-parents', authenticateTok
   try {
     // Get all students in class
     const students = await pool.query(
-      `SELECT u.id, u.name FROM class_members cm
+      `SELECT u.id, u.name, u.avatar_path FROM class_members cm
        JOIN users u ON u.id = cm.student_id
        WHERE cm.class_id = $1 AND u.role = 'student' ORDER BY u.name`,
       [classId]
@@ -385,6 +390,8 @@ router.post('/:classId/weekly-reports/:reportId/notify-parents', authenticateTok
     const emailMap = {};
     for (const r of memberEmails.rows) emailMap[r.student_id] = r.parent_email;
 
+    const frontendBase = resolveFrontendUrl(req);
+
     for (const s of studentStats) {
       const parents = await resolveParentRecipients({
         senderId: req.user.id,
@@ -396,6 +403,7 @@ router.post('/:classId/weekly-reports/:reportId/notify-parents', authenticateTok
 
       if (!parents.length && !savedEmail) { noParent++; continue; }
 
+      // Build teacher-added marks summary
       const studentMarks = columns.rows.map(c => {
         const m = allMarks.rows.find(mk => mk.column_id === c.id && mk.student_id === s.id);
         const subj = c.subject ? `[${c.subject}] ` : '';
@@ -426,6 +434,26 @@ router.post('/:classId/weekly-reports/:reportId/notify-parents', authenticateTok
       );
       const teacherComment = commentRow.rows[0]?.comment || '';
 
+      // Get system quiz attempts for this student in this class (last 7 days)
+      const systemQuizzes = await pool.query(
+        `SELECT q.title, qa.score, qa.total, qa.attempted_at
+         FROM quiz_attempts qa
+         JOIN quizzes q ON q.id = qa.quiz_id
+         WHERE q.class_id = $1 AND qa.student_id = $2
+           AND qa.attempted_at >= NOW() - INTERVAL '7 days'
+         ORDER BY qa.attempted_at DESC LIMIT 10`,
+        [classId, s.id]
+      );
+
+      // Build parent invite link for this student
+      let inviteLink = '';
+      try {
+        const inviteToken = await getOrCreateParentInviteToken(s.id, req.user.id);
+        inviteLink = `${frontendBase}${buildParentInvitePath(inviteToken)}`;
+      } catch (e) {
+        console.error('[invite token for notify]', e.message);
+      }
+
       const title = `📊 Weekly Quiz Report - ${weekLabel.rows[0]?.week_label || ''}`;
       let body = `${s.name}'s report for ${className.rows[0]?.name || ''}:
 Rank: ${s.rank} of ${studentStats.length}
@@ -436,7 +464,199 @@ Average: ${s.avg.toFixed(2)}
 ${studentMarks}
 
 By Subject: ${subjectSummary}`;
+
+      if (systemQuizzes.rows.length) {
+        body += '\n\nSystem Quiz Results:\n';
+        body += systemQuizzes.rows.map(sq =>
+          `${sq.title}: ${sq.score}${sq.total ? '/' + sq.total : '%'}`
+        ).join('\n');
+      }
+
       if (teacherComment) body += `\n\nTeacher's Comment: ${teacherComment}`;
+      if (weakness.weaknessSummary) body += `\n\nPerformance Analysis: ${weakness.weaknessSummary}`;
+      if (weakness.overallAdvice) body += `\n\nAdvice: ${weakness.overallAdvice}`;
+      if (inviteLink) body += `\n\nSign up to see full details: ${inviteLink}`;
+
+      // Build HTML email
+      const teacherMarksHtml = columns.rows.map(c => {
+        const m = allMarks.rows.find(mk => mk.column_id === c.id && mk.student_id === s.id);
+        const val = m && m.marks !== null ? parseFloat(m.marks) : null;
+        const max = parseFloat(c.max_marks);
+        const color = val === null ? '#94a3b8' : (val / max >= 0.5 ? '#16a34a' : '#e11d48');
+        return `<tr>
+          <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">${c.subject ? `<span style="font-size:11px;color:#7c3aed;background:#f3e8ff;padding:1px 6px;border-radius:4px;margin-right:4px;">${c.subject}</span>` : ''}${c.name}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:600;color:${color};">${val === null ? 'N/A' : val + '/' + max}</td>
+        </tr>`;
+      }).join('');
+
+      const systemQuizHtml = systemQuizzes.rows.length ? `
+        <div style="margin-top:20px;">
+          <h3 style="color:#075e54;font-size:15px;margin:0 0 10px;">💻 System Quiz Results (this week)</h3>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr style="background:#f0fdf4;">
+                <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #bbf7d0;">Quiz</th>
+                <th style="padding:8px 12px;text-align:right;border-bottom:2px solid #bbf7d0;">Score</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${systemQuizzes.rows.map(sq => {
+                const pct = sq.total ? (parseFloat(sq.score) / parseFloat(sq.total)) * 100 : parseFloat(sq.score);
+                const color = pct >= 50 ? '#16a34a' : '#e11d48';
+                return `<tr>
+                  <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">${sq.title}</td>
+                  <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:600;color:${color};">${sq.score}${sq.total ? '/' + sq.total : '%'}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>` : '';
+
+      // Compute weakness analysis for email
+      const quizListForAnalysis = columns.rows.map(c => {
+        const m = allMarks.rows.find(mk => mk.column_id === c.id && mk.student_id === s.id);
+        return {
+          name: c.name,
+          subject: c.subject,
+          marks: m && m.marks !== null ? parseFloat(m.marks) : null,
+          max_marks: parseFloat(c.max_marks),
+        };
+      });
+      const totalMaxForPct = columns.rows.reduce((sum, c) => {
+        const m = allMarks.rows.find(mk => mk.column_id === c.id && mk.student_id === s.id);
+        return m && m.marks !== null ? sum + parseFloat(c.max_marks) : sum;
+      }, 0);
+      const pctForAnalysis = totalMaxForPct ? (s.total / totalMaxForPct) * 100 : 0;
+
+      const weakness = analyzeWeaknesses({
+        quizzes: quizListForAnalysis,
+        average: s.avg,
+        percentage: pctForAnalysis,
+        rank: s.rank,
+        totalStudents: studentStats.length,
+      });
+
+      const weaknessHtml = (weakness.weakSubjects.length > 0 || weakness.strongSubjects.length > 0) ? `
+        <div style="margin-top:20px;">
+          <h3 style="color:#075e54;font-size:15px;margin:0 0 10px;">🎯 Performance Analysis & Advice</h3>
+
+          ${weakness.overallAdvice ? `
+          <div style="background:#eff6ff;border-radius:10px;padding:12px 16px;border-left:4px solid #3b82f6;margin-bottom:12px;">
+            <div style="font-size:12px;font-weight:700;color:#1e40af;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">📊 Overall Assessment</div>
+            <div style="font-size:13px;color:#1e293b;line-height:1.6;">${weakness.overallAdvice}</div>
+          </div>` : ''}
+
+          ${weakness.weakSubjects.length > 0 ? `
+          <div style="background:#fef2f2;border-radius:10px;padding:12px 16px;border-left:4px solid #ef4444;margin-bottom:12px;">
+            <div style="font-size:12px;font-weight:700;color:#b91c1c;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">⚠️ Areas Needing Attention</div>
+            ${weakness.adviceList.map(a => `
+              <div style="margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #fecaca;">
+                <div style="font-size:13px;font-weight:700;color:#991b1b;">${a.subject} — ${a.percentage}%</div>
+                <div style="font-size:12px;color:#7f1d1d;line-height:1.5;margin-top:3px;">${a.advice}</div>
+              </div>`).join('')}
+          </div>` : ''}
+
+          ${weakness.strongSubjects.length > 0 ? `
+          <div style="background:#f0fdf4;border-radius:10px;padding:12px 16px;border-left:4px solid #22c55e;">
+            <div style="font-size:12px;font-weight:700;color:#15803d;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">✅ Strong Areas — Keep It Up!</div>
+            ${weakness.strongSubjects.map(st => `
+              <div style="font-size:13px;color:#166534;margin-bottom:3px;">${st.subject} — ${st.percentage}% 🌟</div>`).join('')}
+          </div>` : ''}
+        </div>` : '';
+
+      const teacherMsgHtml = teacherComment ? `
+        <div style="margin-top:20px;background:#fefce8;border-radius:10px;padding:14px 16px;border-left:4px solid #facc15;">
+          <div style="font-size:12px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">✍️ Teacher's Message</div>
+          <div style="font-size:14px;color:#1e293b;line-height:1.6;white-space:pre-wrap;">${teacherComment.replace(/</g, '&lt;')}</div>
+        </div>` : '';
+
+      const inviteHtml = inviteLink ? `
+        <div style="margin-top:24px;text-align:center;">
+          <a href="${inviteLink}" style="display:inline-block;background:linear-gradient(135deg,#25d366,#128c7e);color:#fff;text-decoration:none;padding:14px 32px;border-radius:10px;font-size:15px;font-weight:700;">🔐 Sign Up to View Full Details</a>
+          <p style="color:#64748b;font-size:12px;margin-top:8px;">Use this link to create your parent account and see all of ${s.name}'s progress</p>
+        </div>` : '';
+
+      const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f0f2f5;font-family:'Segoe UI',Tahoma,sans-serif;">
+  <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:0 0 16px 16px;overflow:hidden;">
+    <!-- Header -->
+    <div style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:24px 28px;text-align:center;">
+      <div style="font-size:32px;">🎓</div>
+      <h1 style="color:#fff;font-size:20px;margin:8px 0 4px;">UClass Weekly Report</h1>
+      <p style="color:rgba(255,255,255,0.9);font-size:13px;margin:0;">${weekLabel.rows[0]?.week_label || ''} · ${className.rows[0]?.name || ''}</p>
+    </div>
+
+    <!-- Thank you message -->
+    <div style="padding:20px 28px 8px;">
+      <p style="font-size:15px;color:#1e293b;line-height:1.6;margin:0;">
+        Dear Parent, thank you for choosing our school for <strong>${s.name}</strong>'s education.
+        We appreciate your trust and partnership. Here is this week's quiz report:
+      </p>
+    </div>
+
+    <!-- Stats summary -->
+    <div style="padding:12px 28px;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <div style="flex:1;background:#eff6ff;border-radius:10px;padding:10px 14px;text-align:center;min-width:80px;">
+          <div style="font-size:11px;color:#64748b;">Rank</div>
+          <div style="font-size:18px;font-weight:700;color:#92400e;">#${s.rank}<span style="font-size:11px;color:#94a3b8;">/${studentStats.length}</span></div>
+        </div>
+        <div style="flex:1;background:#f0fdf4;border-radius:10px;padding:10px 14px;text-align:center;min-width:80px;">
+          <div style="font-size:11px;color:#64748b;">Quizzes</div>
+          <div style="font-size:18px;font-weight:700;color:#16a34a;">${s.taken}</div>
+        </div>
+        <div style="flex:1;background:#fef3c7;border-radius:10px;padding:10px 14px;text-align:center;min-width:80px;">
+          <div style="font-size:11px;color:#64748b;">Average</div>
+          <div style="font-size:18px;font-weight:700;color:#1e40af;">${s.avg.toFixed(1)}</div>
+        </div>
+        <div style="flex:1;background:#fce7f3;border-radius:10px;padding:10px 14px;text-align:center;min-width:80px;">
+          <div style="font-size:11px;color:#64748b;">Total</div>
+          <div style="font-size:18px;font-weight:700;color:#be185d;">${s.total.toFixed(1)}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Teacher-added marks -->
+    <div style="padding:16px 28px 8px;">
+      <h3 style="color:#075e54;font-size:15px;margin:0 0 10px;">📝 Teacher-Added Quiz Marks</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="background:#f1f5f9;">
+            <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #e2e8f0;">Quiz</th>
+            <th style="padding:8px 12px;text-align:right;border-bottom:2px solid #e2e8f0;">Marks</th>
+          </tr>
+        </thead>
+        <tbody>${teacherMarksHtml}</tbody>
+      </table>
+      ${subjectSummary ? `<p style="font-size:12px;color:#64748b;margin:8px 0 0;"><strong>By Subject:</strong> ${subjectSummary}</p>` : ''}
+    </div>
+
+    ${systemQuizHtml}
+    ${weaknessHtml}
+    ${teacherMsgHtml}
+    ${inviteHtml}
+
+    <!-- CEO Quote -->
+    <div style="padding:20px 28px;margin-top:8px;">
+      <div style="background:linear-gradient(135deg,#f0f4ff 0%,#e0e7ff 100%);border-radius:12px;padding:16px 20px;border:1px solid #c7d2fe;">
+        <div style="font-size:24px;margin-bottom:4px;">💡</div>
+        <p style="font-size:14px;color:#1e293b;line-height:1.6;font-style:italic;margin:0;">
+          "Every child is a seed. With the right soil of love, the water of knowledge, and the sunshine of encouragement, they will grow into mighty trees that shelter generations."
+        </p>
+        <p style="font-size:12px;color:#6b21a8;font-weight:600;margin:8px 0 0;text-align:right;">— CEO, UClass by Umunsi</p>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="padding:16px 28px;background:#f8fafc;border-top:1px solid #e2e8f0;">
+      <p style="font-size:12px;color:#64748b;margin:0;text-align:center;">
+        This report was sent by your child's teacher via UClass.<br>
+        Reply to this email to reach the school. We respond quickly.
+      </p>
+    </div>
+  </div>
+</body></html>`;
 
       // Send in-app notification to linked parent users
       for (const p of parents) {
@@ -455,6 +675,7 @@ By Subject: ${subjectSummary}`;
             parentEmail: p.email,
             subject: title,
             text: body,
+            html,
             alsoEmail: true,
           });
           if (emailResult.sent) emailed++;
@@ -469,6 +690,7 @@ By Subject: ${subjectSummary}`;
             parentEmail: savedEmail,
             subject: title,
             text: body,
+            html,
             alsoEmail: true,
           });
           if (emailResult.sent) emailed++;
@@ -506,6 +728,26 @@ router.put('/:classId/students/:studentId/parent-email', authenticateToken, requ
     res.json({ ok: true });
   } catch (err) {
     console.error('[parent-email PUT]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// PUT save parent phone for a student in a class
+router.put('/:classId/students/:studentId/parent-phone', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = parseInt(req.params.classId, 10);
+  const studentId = parseInt(req.params.studentId, 10);
+  if (Number.isNaN(classId) || Number.isNaN(studentId)) return res.status(400).json({ error: 'Invalid ID.' });
+  const manage = await userCanManageClass(req.user, classId);
+  if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
+  const phone = (req.body.parent_phone || '').trim();
+  try {
+    await pool.query(
+      'UPDATE class_members SET parent_phone = $1 WHERE class_id = $2 AND student_id = $3',
+      [phone || null, classId, studentId]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[parent-phone PUT]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });

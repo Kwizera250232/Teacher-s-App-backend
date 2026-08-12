@@ -13,6 +13,7 @@ const { runParentDailyReminders } = require('../lib/parentReminders');
 const { periodClause } = require('../lib/periodFilters');
 const { maybeEmailParent } = require('../lib/parentNotifyEmail');
 const { schoolEmailCapabilities } = require('../lib/schoolEmailCapabilities');
+const { analyzeWeaknesses } = require('../lib/weaknessAnalysis');
 
 const router = express.Router();
 
@@ -290,6 +291,119 @@ router.get('/children/:studentId/summary', authenticateToken, requireRole('paren
     });
   } catch (err) {
     console.error('[parent summary]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── Weekly quiz reports for a child (parent view) ─────────────────────────────
+router.get('/children/:studentId/weekly-reports', authenticateToken, requireRole('parent'), async (req, res) => {
+  const studentId = parseInt(req.params.studentId, 10);
+  if (Number.isNaN(studentId)) return res.status(400).json({ error: 'Invalid student ID.' });
+  if (!(await parentOwnsStudent(req.user.id, studentId))) {
+    return res.status(403).json({ error: 'Forbidden.' });
+  }
+  try {
+    // Get all classes the student is in
+    const classes = await pool.query(
+      `SELECT c.id, c.name, c.subject FROM class_members cm
+       JOIN classes c ON c.id = cm.class_id
+       WHERE cm.student_id = $1`,
+      [studentId]
+    );
+
+    const studentInfo = await pool.query(
+      'SELECT id, name, avatar_path FROM users WHERE id = $1',
+      [studentId]
+    );
+
+    const reports = [];
+    for (const cls of classes.rows) {
+      const clsReports = await pool.query(
+        `SELECT * FROM weekly_quiz_reports WHERE class_id = $1 ORDER BY created_at DESC LIMIT 5`,
+        [cls.id]
+      );
+      for (const rpt of clsReports.rows) {
+        const columns = await pool.query(
+          'SELECT id, name, max_marks, subject FROM weekly_quiz_columns WHERE report_id = $1 ORDER BY order_num, id',
+          [rpt.id]
+        );
+        const marks = await pool.query(
+          `SELECT m.column_id, m.marks FROM weekly_quiz_marks m
+           JOIN weekly_quiz_columns c ON c.id = m.column_id
+           WHERE c.report_id = $1 AND m.student_id = $2`,
+          [rpt.id, studentId]
+        );
+        const comment = await pool.query(
+          'SELECT comment FROM weekly_student_comments WHERE report_id = $1 AND student_id = $2',
+          [rpt.id, studentId]
+        );
+
+        // Compute rank
+        const allStudents = await pool.query(
+          `SELECT u.id FROM class_members cm JOIN users u ON u.id = cm.student_id
+           WHERE cm.class_id = $1 AND u.role = 'student'`,
+          [cls.id]
+        );
+        const allMarks = await pool.query(
+          `SELECT m.student_id, SUM(m.marks) AS total FROM weekly_quiz_marks m
+           JOIN weekly_quiz_columns c ON c.id = m.column_id
+           WHERE c.report_id = $1 GROUP BY m.student_id ORDER BY total DESC`,
+          [rpt.id]
+        );
+        const rank = allMarks.rows.findIndex(r => r.student_id === studentId) + 1;
+
+        // Build quiz list
+        const quizList = columns.rows.map(c => {
+          const m = marks.rows.find(mk => mk.column_id === c.id);
+          return {
+            name: c.name,
+            subject: c.subject,
+            marks: m ? parseFloat(m.marks) : null,
+            max_marks: parseFloat(c.max_marks),
+          };
+        });
+        const taken = quizList.filter(q => q.marks !== null);
+        const total = taken.reduce((s, q) => s + q.marks, 0);
+        const totalMax = taken.reduce((s, q) => s + q.max_marks, 0);
+        const avg = taken.length ? total / taken.length : 0;
+        const pct = totalMax ? (total / totalMax) * 100 : 0;
+
+        // Compute weakness analysis
+        const weakness = analyzeWeaknesses({
+          quizzes: quizList,
+          average: parseFloat(avg.toFixed(2)),
+          percentage: parseFloat(pct.toFixed(1)),
+          rank: rank || null,
+          totalStudents: allStudents.rows.length,
+        });
+
+        reports.push({
+          report_id: rpt.id,
+          week_label: rpt.week_label,
+          created_at: rpt.created_at,
+          class_name: cls.name,
+          class_subject: cls.subject,
+          quizzes: quizList,
+          total,
+          total_max: totalMax,
+          average: parseFloat(avg.toFixed(2)),
+          percentage: parseFloat(pct.toFixed(1)),
+          rank: rank || null,
+          total_students: allStudents.rows.length,
+          teacher_message: comment.rows[0]?.comment || '',
+          weakness_analysis: weakness,
+        });
+      }
+    }
+
+    reports.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+    res.json({
+      student: studentInfo.rows[0],
+      reports,
+    });
+  } catch (err) {
+    console.error('[parent weekly-reports]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
