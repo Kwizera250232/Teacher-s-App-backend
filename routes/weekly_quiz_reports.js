@@ -392,6 +392,7 @@ router.post('/:classId/weekly-reports/:reportId/notify-parents', authenticateTok
     let notified = 0;
     let emailed = 0;
     let noParent = 0;
+    let emailFailReason = '';
 
     // Get saved parent emails from class_members
     const memberEmails = await pool.query(
@@ -690,6 +691,7 @@ By Subject: ${subjectSummary}`;
             alsoEmail: true,
           });
           if (emailResult.sent) emailed++;
+          else if (!emailFailReason) emailFailReason = emailResult.reason || 'unknown';
         }
       }
 
@@ -705,17 +707,28 @@ By Subject: ${subjectSummary}`;
             alsoEmail: true,
           });
           if (emailResult.sent) emailed++;
+          else if (!emailFailReason) emailFailReason = emailResult.reason || 'unknown';
         }
       }
 
       notified++;
     }
 
+    let message = `Notified ${notified} parent(s). ${emailed} emailed. ${noParent} student(s) have no linked parent.`;
+    if (also_email && emailed === 0 && notified > 0) {
+      if (emailFailReason === 'not_configured') {
+        message += ' Emails not sent: email service not configured on server. Ask admin to set RESEND_API_KEY or SMTP_* env vars.';
+      } else if (emailFailReason) {
+        message += ` Email failed: ${emailFailReason}`;
+      }
+    }
+
     res.json({
-      message: `Notified ${notified} parent(s). ${emailed} emailed. ${noParent} student(s) have no linked parent.`,
+      message,
       notified,
       emailed,
       no_parent: noParent,
+      email_fail_reason: emailFailReason || null,
     });
   } catch (err) {
     console.error('[weekly-report notify]', err);
