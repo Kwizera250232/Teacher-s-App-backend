@@ -37,6 +37,7 @@ async function ensureSchema() {
     );
     ALTER TABLE class_members ADD COLUMN IF NOT EXISTS parent_phone TEXT;
     ALTER TABLE weekly_quiz_columns ADD COLUMN IF NOT EXISTS subject TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_path TEXT;
     CREATE TABLE IF NOT EXISTS weekly_student_comments (
       id SERIAL PRIMARY KEY,
       report_id INTEGER NOT NULL REFERENCES weekly_quiz_reports(id) ON DELETE CASCADE,
