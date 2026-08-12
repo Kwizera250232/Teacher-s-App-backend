@@ -37,6 +37,13 @@ async function ensureSchema() {
     );
     ALTER TABLE class_members ADD COLUMN IF NOT EXISTS parent_phone TEXT;
     ALTER TABLE weekly_quiz_columns ADD COLUMN IF NOT EXISTS subject TEXT;
+    CREATE TABLE IF NOT EXISTS weekly_student_comments (
+      id SERIAL PRIMARY KEY,
+      report_id INTEGER NOT NULL REFERENCES weekly_quiz_reports(id) ON DELETE CASCADE,
+      student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      comment TEXT,
+      UNIQUE(report_id, student_id)
+    );
   `);
 }
 
@@ -96,12 +103,23 @@ router.get('/:classId/weekly-reports/:reportId', authenticateToken, requireRole(
       [reportId]
     );
 
+    // Get auto system quiz attempts for students in this class (last 7 days)
+    const systemQuizzes = await pool.query(
+      `SELECT qa.student_id, q.title, qa.score, qa.total, qa.attempted_at
+       FROM quiz_attempts qa
+       JOIN quizzes q ON q.id = qa.quiz_id
+       WHERE q.class_id = $1 AND qa.attempted_at >= NOW() - INTERVAL '7 days'
+       ORDER BY qa.attempted_at DESC`,
+      [classId]
+    );
+
     res.json({
       ...report.rows[0],
       columns: columns.rows,
       students: students.rows,
       marks: marks.rows,
       comments: comments.rows,
+      systemQuizzes: systemQuizzes.rows,
     });
   } catch (err) {
     console.error('[weekly-report GET one]', err);
