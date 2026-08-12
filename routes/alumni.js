@@ -299,9 +299,7 @@ router.post('/profile/avatar', authenticateToken, requireRole('alumni', 'admin',
 // ── Suggested alumni ─────────────────────────────────────────────────────────
 router.get('/suggested-alumni', authenticateToken, async (req, res) => {
   const offset = parseInt(req.query.offset) || 0;
-  const offset = parseInt(req.query.offset) || 0;
   try {
-    // Get alumni the user is NOT following yet, randomized, with offset for pagination
     // Get alumni the user is NOT following yet, randomized, with offset for pagination
     const result = await pool.query(
       `SELECT u.id, u.name, u.email, ap.bio, ap.current_occupation, ap.graduation_year,
