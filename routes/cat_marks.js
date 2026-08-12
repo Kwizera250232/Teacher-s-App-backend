@@ -13,17 +13,21 @@ pool.query(`
     marks_obtained INTEGER NOT NULL,
     total_marks INTEGER NOT NULL DEFAULT 100,
     test_date DATE DEFAULT CURRENT_DATE,
+    subject TEXT DEFAULT 'General',
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
-    UNIQUE(class_id, student_id, test_number)
+    UNIQUE(class_id, student_id, test_number, subject)
   );
   CREATE INDEX IF NOT EXISTS idx_cat_marks_class ON cat_marks(class_id);
   CREATE INDEX IF NOT EXISTS idx_cat_marks_student ON cat_marks(student_id);
   ALTER TABLE cat_marks ADD COLUMN IF NOT EXISTS test_date DATE DEFAULT CURRENT_DATE;
+  ALTER TABLE cat_marks ADD COLUMN IF NOT EXISTS subject TEXT DEFAULT 'General';
+  DROP CONSTRAINT IF EXISTS cat_marks_class_id_student_id_test_number_key;
 `).catch(e => console.error('[cat_marks] migration error:', e.message));
 
 router.get('/:classId/overview', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const classId = req.params.classId;
+  const subject = req.query.subject || '';
   try {
     const roster = await pool.query(
       `SELECT u.id AS student_id, u.name
@@ -34,9 +38,25 @@ router.get('/:classId/overview', authenticateToken, requireRole('teacher', 'head
       [classId]
     );
 
-    const marksRows = await pool.query(
-      `SELECT student_id, test_number, marks_obtained, total_marks
-       FROM cat_marks WHERE class_id = $1`,
+    // Get marks — optionally filtered by subject
+    let marksRows;
+    if (subject) {
+      marksRows = await pool.query(
+        `SELECT student_id, test_number, marks_obtained, total_marks, subject
+         FROM cat_marks WHERE class_id = $1 AND subject = $2`,
+        [classId, subject]
+      );
+    } else {
+      marksRows = await pool.query(
+        `SELECT student_id, test_number, marks_obtained, total_marks, subject
+         FROM cat_marks WHERE class_id = $1`,
+        [classId]
+      );
+    }
+
+    // Get list of subjects that have marks
+    const subjectsResult = await pool.query(
+      `SELECT DISTINCT subject FROM cat_marks WHERE class_id = $1 ORDER BY subject`,
       [classId]
     );
 
@@ -91,6 +111,7 @@ router.get('/:classId/overview', authenticateToken, requireRole('teacher', 'head
     res.json({
       students,
       class_average: classAvg.rows[0]?.avg || 0,
+      subjects: subjectsResult.rows.map(r => r.subject),
     });
   } catch (err) {
     console.error('[cat_marks] summary error:', err.message);
@@ -112,19 +133,20 @@ router.get('/:classId/student/:studentId', authenticateToken, async (req, res) =
 });
 
 router.post('/:classId/entry', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
-  const { student_id, test_number, marks_obtained, total_marks } = req.body;
+  const { student_id, test_number, marks_obtained, total_marks, subject } = req.body;
   const classId = req.params.classId;
   if (!student_id || !test_number || marks_obtained === undefined) {
     return res.status(400).json({ error: 'student_id, test_number, marks_obtained required.' });
   }
+  const subj = subject || 'General';
   try {
     const result = await pool.query(
-      `INSERT INTO cat_marks (class_id, student_id, test_number, marks_obtained, total_marks)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (class_id, student_id, test_number)
+      `INSERT INTO cat_marks (class_id, student_id, test_number, marks_obtained, total_marks, subject)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (class_id, student_id, test_number, subject)
        DO UPDATE SET marks_obtained = $4, total_marks = $5, updated_at = NOW()
        RETURNING *`,
-      [classId, student_id, test_number, marks_obtained, total_marks || 100]
+      [classId, student_id, test_number, marks_obtained, total_marks || 100, subj]
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -134,11 +156,12 @@ router.post('/:classId/entry', authenticateToken, requireRole('teacher', 'head_t
 });
 
 router.post('/:classId/fromquiz', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
-  const { quiz_id, test_number } = req.body;
+  const { quiz_id, test_number, subject } = req.body;
   const classId = req.params.classId;
   if (!quiz_id || !test_number) {
     return res.status(400).json({ error: 'quiz_id and test_number required.' });
   }
+  const subj = subject || 'General';
   try {
     const attempts = await pool.query(
       `SELECT DISTINCT ON (qa.student_id) qa.student_id, qa.score, qa.total
@@ -151,11 +174,11 @@ router.post('/:classId/fromquiz', authenticateToken, requireRole('teacher', 'hea
 
     for (const att of attempts.rows) {
       await pool.query(
-        `INSERT INTO cat_marks (class_id, student_id, test_number, marks_obtained, total_marks)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (class_id, student_id, test_number)
+        `INSERT INTO cat_marks (class_id, student_id, test_number, marks_obtained, total_marks, subject)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (class_id, student_id, test_number, subject)
          DO UPDATE SET marks_obtained = $4, total_marks = $5, updated_at = NOW()`,
-        [classId, att.student_id, test_number, att.score, att.total]
+        [classId, att.student_id, test_number, att.score, att.total, subj]
       );
     }
 
@@ -180,9 +203,10 @@ router.delete('/:classId/entry/:markId', authenticateToken, requireRole('teacher
 
 router.delete('/:classId/entry/:studentId/:testNumber', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   try {
+    const subject = req.query.subject || 'General';
     await pool.query(
-      `DELETE FROM cat_marks WHERE class_id = $1 AND student_id = $2 AND test_number = $3`,
-      [req.params.classId, req.params.studentId, req.params.testNumber]
+      `DELETE FROM cat_marks WHERE class_id = $1 AND student_id = $2 AND test_number = $3 AND subject = $4`,
+      [req.params.classId, req.params.studentId, req.params.testNumber, subject]
     );
     res.json({ success: true });
   } catch (err) {
