@@ -106,13 +106,30 @@ router.get('/:classId/weekly-reports/:reportId', authenticateToken, requireRole(
 
     // Get auto system quiz attempts for students in this class (last 7 days)
     const systemQuizzes = await pool.query(
-      `SELECT qa.student_id, q.title, qa.score, qa.total, qa.attempted_at
+      `SELECT qa.student_id, q.title, qa.score, qa.total, qa.attempted_at,
+              COALESCE(q.subject, 'General') as subject
        FROM quiz_attempts qa
        JOIN quizzes q ON q.id = qa.quiz_id
        WHERE q.class_id = $1 AND qa.attempted_at >= NOW() - INTERVAL '7 days'
        ORDER BY qa.attempted_at DESC`,
       [classId]
     );
+
+    // Get AI Revision quiz results for students in this class (last 7 days)
+    const studentIds = students.rows.map(s => s.id);
+    let aiRevisionResults = [];
+    if (studentIds.length > 0) {
+      const aiRes = await pool.query(
+        `SELECT student_id, subject, score, total, percentage, quiz_type, completed_at
+         FROM ai_revision_sessions
+         WHERE student_id = ANY($1)
+           AND completed_at IS NOT NULL
+           AND completed_at >= NOW() - INTERVAL '7 days'
+         ORDER BY completed_at DESC`,
+        [studentIds]
+      );
+      aiRevisionResults = aiRes.rows;
+    }
 
     res.json({
       ...report.rows[0],
@@ -121,6 +138,7 @@ router.get('/:classId/weekly-reports/:reportId', authenticateToken, requireRole(
       marks: marks.rows,
       comments: comments.rows,
       systemQuizzes: systemQuizzes.rows,
+      aiRevisionQuizzes: aiRevisionResults,
     });
   } catch (err) {
     console.error('[weekly-report GET one]', err);
@@ -475,13 +493,25 @@ router.post('/:classId/weekly-reports/:reportId/notify-parents', authenticateTok
 
       // Get system quiz attempts for this student in this class (last 7 days)
       const systemQuizzes = await pool.query(
-        `SELECT q.title, qa.score, qa.total, qa.attempted_at
+        `SELECT q.title, qa.score, qa.total, qa.attempted_at,
+                COALESCE(q.subject, 'General') as subject
          FROM quiz_attempts qa
          JOIN quizzes q ON q.id = qa.quiz_id
          WHERE q.class_id = $1 AND qa.student_id = $2
            AND qa.attempted_at >= NOW() - INTERVAL '7 days'
          ORDER BY qa.attempted_at DESC LIMIT 10`,
         [classId, s.id]
+      );
+
+      // Get AI Revision quiz marks for this student (last 7 days)
+      const aiRevisionQuizzes = await pool.query(
+        `SELECT subject, score, total, percentage, quiz_type, completed_at
+         FROM ai_revision_sessions
+         WHERE student_id = $1
+           AND completed_at IS NOT NULL
+           AND completed_at >= NOW() - INTERVAL '7 days'
+         ORDER BY completed_at DESC LIMIT 10`,
+        [s.id]
       );
 
       // Build parent invite link for this student
@@ -493,8 +523,8 @@ router.post('/:classId/weekly-reports/:reportId/notify-parents', authenticateTok
         console.error('[invite token for notify]', e.message);
       }
 
-      const title = `📊 Weekly Quiz Report - ${weekLabel.rows[0]?.week_label || ''}`;
-      let body = `UCLASS WEEKLY REPORT
+      const title = `Uko umwana wawe yitwaye muri iki cyumweru - ${s.name}`;
+      let body = `UKO UMWANA WAWE YITWAYE MURI IKI CYUMWERU
 School: ${schoolName}
 Student: ${s.name}
 Class: ${className.rows[0]?.name || ''}
@@ -506,7 +536,7 @@ Quizzes/CATs taken: ${s.taken}
 Total marks: ${s.total}
 Average: ${s.avg.toFixed(2)}
 
-Subject Breakdown:
+Subject Breakdown (Teacher CATs):
 ${Object.entries(subjectGroups).map(([subj, g]) => {
   const pct = g.max ? ((g.total / g.max) * 100).toFixed(0) : 0;
   return `  ${subj}: ${g.total}/${g.max} (${pct}%) — ${g.count} CAT(s)`;
@@ -516,11 +546,29 @@ Detailed Marks:
 ${studentMarks}`;
 
       if (systemQuizzes.rows.length) {
-        body += '\n\nSystem Quiz Results:\n';
+        body += '\n\nUCLASS System Quizzes (auto):\n';
         body += systemQuizzes.rows.map(sq =>
-          `${sq.title}: ${sq.score}${sq.total ? '/' + sq.total : '%'}`
+          `  ${sq.title}: ${sq.score}${sq.total ? '/' + sq.total : '%'}`
         ).join('\n');
       }
+
+      if (aiRevisionQuizzes.rows.length) {
+        body += '\n\nAI Revision Quizzes:\n';
+        body += aiRevisionQuizzes.rows.map(ar =>
+          `  ${ar.subject} (${ar.quiz_type || 'revision'}): ${ar.score}/${ar.total} (${ar.percentage}%)`
+        ).join('\n');
+      }
+
+      // Combined total: teacher marks + system quizzes + AI revision
+      const sysTotal = systemQuizzes.rows.reduce((sum, sq) => sum + parseFloat(sq.score || 0), 0);
+      const sysMaxTotal = systemQuizzes.rows.reduce((sum, sq) => sum + parseFloat(sq.total || 0), 0);
+      const aiTotal = aiRevisionQuizzes.rows.reduce((sum, ar) => sum + parseFloat(ar.score || 0), 0);
+      const aiMaxTotal = aiRevisionQuizzes.rows.reduce((sum, ar) => sum + parseFloat(ar.total || 0), 0);
+      const teacherMaxAll = columns.rows.reduce((sum, c) => sum + parseFloat(c.max_marks), 0);
+      const grandTotal = s.total + sysTotal + aiTotal;
+      const grandMax = teacherMaxAll + sysMaxTotal + aiMaxTotal;
+      const grandPct = grandMax ? ((grandTotal / grandMax) * 100).toFixed(0) : 0;
+      body += `\n\nGRAND TOTAL (Teacher CATs + System + AI Revision): ${grandTotal}/${grandMax} (${grandPct}%)`;
 
       if (teacherComment) body += `\n\nTeacher's Comment: ${teacherComment}`;
 
@@ -574,7 +622,7 @@ ${studentMarks}`;
 
       const systemQuizHtml = systemQuizzes.rows.length ? `
         <div style="margin-top:20px;">
-          <h3 style="color:#075e54;font-size:15px;margin:0 0 10px;">💻 System Quiz Results (this week)</h3>
+          <h3 style="color:#075e54;font-size:15px;margin:0 0 10px;">💻 UCLASS System Quizzes (auto)</h3>
           <table style="width:100%;border-collapse:collapse;font-size:13px;">
             <thead>
               <tr style="background:#f0fdf4;">
@@ -593,6 +641,41 @@ ${studentMarks}`;
               }).join('')}
             </tbody>
           </table>
+        </div>` : '';
+
+      const aiRevisionHtml = aiRevisionQuizzes.rows.length ? `
+        <div style="margin-top:20px;">
+          <h3 style="color:#075e54;font-size:15px;margin:0 0 10px;">🤖 AI Revision Quizzes</h3>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr style="background:#fff7ed;">
+                <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #fed7aa;">Subject</th>
+                <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #fed7aa;">Type</th>
+                <th style="padding:8px 12px;text-align:right;border-bottom:2px solid #fed7aa;">Score</th>
+                <th style="padding:8px 12px;text-align:right;border-bottom:2px solid #fed7aa;">%</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${aiRevisionQuizzes.rows.map(ar => {
+                const color = ar.percentage >= 50 ? '#16a34a' : '#e11d48';
+                return `<tr>
+                  <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">${ar.subject}</td>
+                  <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;color:#64748b;">${ar.quiz_type || 'revision'}</td>
+                  <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:600;">${ar.score}/${ar.total}</td>
+                  <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:700;color:${color};">${ar.percentage}%</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>` : '';
+
+      // Grand total summary — all marks combined
+      const grandTotalHtml = (systemQuizzes.rows.length > 0 || aiRevisionQuizzes.rows.length > 0 || columns.rows.length > 0) ? `
+        <div style="margin-top:20px;background:linear-gradient(135deg,#1e293b 0%,#334155 100%);border-radius:12px;padding:16px 20px;text-align:center;">
+          <div style="font-size:12px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Grand Total (All Marks Combined)</div>
+          <div style="font-size:28px;font-weight:800;color:#fff;">${grandTotal}<span style="font-size:16px;color:#94a3b8;">/${grandMax}</span></div>
+          <div style="font-size:16px;font-weight:700;color:${grandPct >= 70 ? '#4ade80' : grandPct >= 50 ? '#facc15' : '#f87171'};margin-top:4px;">${grandPct}%</div>
+          <div style="font-size:11px;color:#64748b;margin-top:6px;">Teacher CATs + UCLASS System Quizzes + AI Revision</div>
         </div>` : '';
 
       const weaknessHtml = (weakness.weakSubjects.length > 0 || weakness.strongSubjects.length > 0 || weakness.overallAdvice) ? `
@@ -642,7 +725,7 @@ ${studentMarks}`;
     <!-- Header -->
     <div style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:24px 28px;text-align:center;">
       <div style="font-size:32px;">🎓</div>
-      <h1 style="color:#fff;font-size:20px;margin:8px 0 4px;">UClass Weekly Report</h1>
+      <h1 style="color:#fff;font-size:20px;margin:8px 0 4px;">Uko umwana wawe yitwaye muri iki cyumweru</h1>
       ${schoolName ? `<p style="color:rgba(255,255,255,0.95);font-size:14px;margin:0 0 4px;font-weight:600;">🏫 ${schoolName}</p>` : ''}
       <p style="color:rgba(255,255,255,0.9);font-size:13px;margin:0;">${className.rows[0]?.name || ''} ${className.rows[0]?.class_code ? `· Code: ${className.rows[0].class_code}` : ''}</p>
       <p style="color:rgba(255,255,255,0.8);font-size:12px;margin:4px 0 0;">${weekLabel.rows[0]?.week_label || ''}</p>
@@ -665,7 +748,7 @@ ${studentMarks}`;
         </div>
         <div style="flex:1;background:#f0fdf4;border-radius:10px;padding:10px 14px;text-align:center;min-width:80px;">
           <div style="font-size:11px;color:#64748b;">Quizzes</div>
-          <div style="font-size:18px;font-weight:700;color:#16a34a;">${s.taken}</div>
+          <div style="font-size:18px;font-weight:700;color:#16a34a;">${s.taken + systemQuizzes.rows.length + aiRevisionQuizzes.rows.length}</div>
         </div>
         <div style="flex:1;background:#fef3c7;border-radius:10px;padding:10px 14px;text-align:center;min-width:80px;">
           <div style="font-size:11px;color:#64748b;">Average</div>
@@ -673,7 +756,7 @@ ${studentMarks}`;
         </div>
         <div style="flex:1;background:#fce7f3;border-radius:10px;padding:10px 14px;text-align:center;min-width:80px;">
           <div style="font-size:11px;color:#64748b;">Total</div>
-          <div style="font-size:18px;font-weight:700;color:#be185d;">${s.total.toFixed(1)}</div>
+          <div style="font-size:18px;font-weight:700;color:#be185d;">${grandTotal.toFixed(1)}</div>
         </div>
       </div>
     </div>
@@ -724,6 +807,8 @@ ${studentMarks}`;
     </div>` : ''}
 
     ${systemQuizHtml}
+    ${aiRevisionHtml}
+    ${grandTotalHtml}
     ${weaknessHtml}
     ${teacherMsgHtml}
     ${inviteHtml}
