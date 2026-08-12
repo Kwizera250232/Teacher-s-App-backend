@@ -240,6 +240,40 @@ router.post('/join', authenticateToken, requireRole('student'), async (req, res)
   }
 });
 
+// Teacher adds a student to their class directly (no class code needed)
+router.post('/:classId/join', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const { classId } = req.params;
+  const { student_id } = req.body;
+  if (!student_id) return res.status(400).json({ error: 'student_id is required.' });
+  try {
+    // Verify the teacher owns or co-teaches this class
+    const cls = await pool.query('SELECT * FROM classes WHERE id = $1', [classId]);
+    if (cls.rows.length === 0) return res.status(404).json({ error: 'Class not found.' });
+    const classRow = cls.rows[0];
+    const isOwner = classRow.teacher_id === req.user.id;
+    let isCoTeacher = false;
+    if (!isOwner) {
+      const cot = await pool.query('SELECT 1 FROM class_co_teachers WHERE class_id = $1 AND teacher_id = $2', [classId, req.user.id]);
+      isCoTeacher = cot.rows.length > 0;
+    }
+    if (!isOwner && !isCoTeacher && req.user.role !== 'head_teacher') {
+      return res.status(403).json({ error: 'You do not manage this class.' });
+    }
+    // Verify the student exists and has role student
+    const stu = await pool.query("SELECT id, name FROM users WHERE id = $1 AND role = 'student'", [student_id]);
+    if (stu.rows.length === 0) return res.status(404).json({ error: 'Student not found.' });
+    // Add to class
+    await pool.query(
+      'INSERT INTO class_members (class_id, student_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+      [classId, student_id]
+    );
+    res.json({ message: 'Student added to class successfully!', student: stu.rows[0] });
+  } catch (err) {
+    console.error('[classes join teacher]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // GET single class details — teacher must own it, student must be a member
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
