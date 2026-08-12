@@ -342,16 +342,27 @@ router.post('/:classId/weekly-reports/:reportId/notify-parents', authenticateTok
   const reportId = parseInt(req.params.reportId, 10);
   const manage = await userCanManageClass(req.user, classId);
   if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
-  const { also_email } = req.body;
+  const { also_email, student_ids } = req.body;
 
   try {
-    // Get all students in class
-    const students = await pool.query(
-      `SELECT u.id, u.name, u.avatar_path FROM class_members cm
+    // Get all students in class (optionally filtered to selected student_ids)
+    const selectedIds = Array.isArray(student_ids) && student_ids.length
+      ? student_ids.map(id => parseInt(id, 10)).filter(id => !Number.isNaN(id))
+      : null;
+
+    let studentsQuery, studentsParams;
+    if (selectedIds) {
+      studentsQuery = `SELECT u.id, u.name, u.avatar_path FROM class_members cm
        JOIN users u ON u.id = cm.student_id
-       WHERE cm.class_id = $1 AND u.role = 'student' ORDER BY u.name`,
-      [classId]
-    );
+       WHERE cm.class_id = $1 AND u.role = 'student' AND u.id = ANY($2) ORDER BY u.name`;
+      studentsParams = [classId, selectedIds];
+    } else {
+      studentsQuery = `SELECT u.id, u.name, u.avatar_path FROM class_members cm
+       JOIN users u ON u.id = cm.student_id
+       WHERE cm.class_id = $1 AND u.role = 'student' ORDER BY u.name`;
+      studentsParams = [classId];
+    }
+    const students = await pool.query(studentsQuery, studentsParams);
 
     const columns = await pool.query(
       'SELECT * FROM weekly_quiz_columns WHERE report_id = $1 ORDER BY order_num, id',
