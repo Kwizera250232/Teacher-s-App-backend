@@ -504,6 +504,31 @@ By Subject: ${subjectSummary}`;
       }
 
       if (teacherComment) body += `\n\nTeacher's Comment: ${teacherComment}`;
+
+      // Compute weakness analysis (needed for both text and HTML email)
+      const quizListForAnalysis = columns.rows.map(c => {
+        const m = allMarks.rows.find(mk => mk.column_id === c.id && mk.student_id === s.id);
+        return {
+          name: c.name,
+          subject: c.subject,
+          marks: m && m.marks !== null ? parseFloat(m.marks) : null,
+          max_marks: parseFloat(c.max_marks),
+        };
+      });
+      const totalMaxForPct = columns.rows.reduce((sum, c) => {
+        const m = allMarks.rows.find(mk => mk.column_id === c.id && mk.student_id === s.id);
+        return m && m.marks !== null ? sum + parseFloat(c.max_marks) : sum;
+      }, 0);
+      const pctForAnalysis = totalMaxForPct ? (s.total / totalMaxForPct) * 100 : 0;
+
+      const weakness = analyzeWeaknesses({
+        quizzes: quizListForAnalysis,
+        average: s.avg,
+        percentage: pctForAnalysis,
+        rank: s.rank,
+        totalStudents: studentStats.length,
+      });
+
       if (weakness.weaknessSummary) body += `\n\nPerformance Analysis: ${weakness.weaknessSummary}`;
       if (weakness.overallAdvice) body += `\n\nAdvice: ${weakness.overallAdvice}`;
       if (inviteLink) body += `\n\nSign up to see full details: ${inviteLink}`;
@@ -542,30 +567,6 @@ By Subject: ${subjectSummary}`;
             </tbody>
           </table>
         </div>` : '';
-
-      // Compute weakness analysis for email
-      const quizListForAnalysis = columns.rows.map(c => {
-        const m = allMarks.rows.find(mk => mk.column_id === c.id && mk.student_id === s.id);
-        return {
-          name: c.name,
-          subject: c.subject,
-          marks: m && m.marks !== null ? parseFloat(m.marks) : null,
-          max_marks: parseFloat(c.max_marks),
-        };
-      });
-      const totalMaxForPct = columns.rows.reduce((sum, c) => {
-        const m = allMarks.rows.find(mk => mk.column_id === c.id && mk.student_id === s.id);
-        return m && m.marks !== null ? sum + parseFloat(c.max_marks) : sum;
-      }, 0);
-      const pctForAnalysis = totalMaxForPct ? (s.total / totalMaxForPct) * 100 : 0;
-
-      const weakness = analyzeWeaknesses({
-        quizzes: quizListForAnalysis,
-        average: s.avg,
-        percentage: pctForAnalysis,
-        rank: s.rank,
-        totalStudents: studentStats.length,
-      });
 
       const weaknessHtml = (weakness.weakSubjects.length > 0 || weakness.strongSubjects.length > 0) ? `
         <div style="margin-top:20px;">
