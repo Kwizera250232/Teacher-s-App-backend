@@ -323,123 +323,34 @@ router.get('/suggested-alumni', authenticateToken, async (req, res) => {
   }
 });
 
-// Suggested schools to follow — randomized, excluding already followed
+// Suggested schools from Education Hub (secondary, TVET, universities) — randomized, excluding already followed
 router.get('/suggested-schools', authenticateToken, async (req, res) => {
   const offset = parseInt(req.query.offset) || 0;
   try {
     const result = await pool.query(
-      `SELECT s.id, s.name, s.email_domain,
-              (SELECT COUNT(*) FROM users u WHERE u.school_id = s.id AND u.role = 'alumni') AS alumni_count,
-              (SELECT COUNT(*) FROM users u WHERE u.school_id = s.id) AS member_count,
-              EXISTS(SELECT 1 FROM alumni_school_follows f WHERE f.follower_id = $1 AND f.school_id = s.id) AS is_following
-       FROM schools s
-       WHERE s.id != COALESCE((SELECT school_id FROM users WHERE id = $1), 0)
-         AND NOT EXISTS(SELECT 1 FROM alumni_school_follows f WHERE f.follower_id = $1 AND f.school_id = s.id)
-         AND EXISTS(SELECT 1 FROM users u WHERE u.school_id = s.id AND u.role = 'alumni')
-       ORDER BY alumni_count DESC NULLS LAST, RANDOM()
+      `SELECT i.id, i.name, i.type, i.province, i.district, i.logo_url, i.banner_url,
+              i.curriculum, i.rating, i.verified, i.is_featured,
+              (SELECT COUNT(*) FROM eduhub_follows f WHERE f.institution_id = i.id) AS follower_count,
+              (SELECT COUNT(*) FROM eduhub_programs p WHERE p.institution_id = i.id) AS program_count,
+              EXISTS(SELECT 1 FROM eduhub_follows f WHERE f.user_id = $1 AND f.institution_id = i.id) AS is_following
+       FROM eduhub_institutions i
+       WHERE NOT EXISTS(SELECT 1 FROM eduhub_follows f WHERE f.user_id = $1 AND f.institution_id = i.id)
+       ORDER BY is_featured DESC, follower_count DESC NULLS LAST, RANDOM()
        LIMIT 5 OFFSET $2`,
       [req.user.id, offset]
     );
     res.json({ suggested: result.rows, hasMore: result.rows.length === 5 });
   } catch (err) {
-    // If alumni_school_follows table doesn't exist, return without follow check
-    try {
-      const result2 = await pool.query(
-        `SELECT s.id, s.name, s.email_domain,
-                (SELECT COUNT(*) FROM users u WHERE u.school_id = s.id AND u.role = 'alumni') AS alumni_count,
-                (SELECT COUNT(*) FROM users u WHERE u.school_id = s.id) AS member_count,
-                false AS is_following
-         FROM schools s
-         WHERE s.id != COALESCE((SELECT school_id FROM users WHERE id = $1), 0)
-           AND EXISTS(SELECT 1 FROM users u WHERE u.school_id = s.id AND u.role = 'alumni')
-         ORDER BY alumni_count DESC NULLS LAST, RANDOM()
-         LIMIT 5 OFFSET $2`,
-        [req.user.id, offset]
-      );
-      res.json({ suggested: result2.rows, hasMore: result2.rows.length === 5 });
-    } catch (err2) {
-      console.error('[alumni/suggested-schools]', err2);
-      res.status(500).json({ error: 'Internal server error.' });
-    }
-  }
-});
-
-// Follow a school
-router.post('/follow-school/:schoolId', authenticateToken, async (req, res) => {
-  try {
-    // Ensure table exists
-    await pool.query(`CREATE TABLE IF NOT EXISTS alumni_school_follows (
-      id SERIAL PRIMARY KEY,
-      follower_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      school_id INTEGER NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
-      created_at TIMESTAMP DEFAULT NOW(),
-      UNIQUE(follower_id, school_id)
-    )`);
-    await pool.query(
-      'INSERT INTO alumni_school_follows (follower_id, school_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-      [req.user.id, req.params.schoolId]
-    );
-    res.json({ success: true });
-  } catch (err) {
-    console.error('[alumni/follow-school]', err);
+    console.error('[alumni/suggested-schools]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
-// Suggested schools to follow — randomized, excluding already followed
-router.get('/suggested-schools', authenticateToken, async (req, res) => {
-  const offset = parseInt(req.query.offset) || 0;
-  try {
-    const result = await pool.query(
-      `SELECT s.id, s.name, s.email_domain,
-              (SELECT COUNT(*) FROM users u WHERE u.school_id = s.id AND u.role = 'alumni') AS alumni_count,
-              (SELECT COUNT(*) FROM users u WHERE u.school_id = s.id) AS member_count,
-              EXISTS(SELECT 1 FROM alumni_school_follows f WHERE f.follower_id = $1 AND f.school_id = s.id) AS is_following
-       FROM schools s
-       WHERE s.id != COALESCE((SELECT school_id FROM users WHERE id = $1), 0)
-         AND NOT EXISTS(SELECT 1 FROM alumni_school_follows f WHERE f.follower_id = $1 AND f.school_id = s.id)
-         AND EXISTS(SELECT 1 FROM users u WHERE u.school_id = s.id AND u.role = 'alumni')
-       ORDER BY alumni_count DESC NULLS LAST, RANDOM()
-       LIMIT 5 OFFSET $2`,
-      [req.user.id, offset]
-    );
-    res.json({ suggested: result.rows, hasMore: result.rows.length === 5 });
-  } catch (err) {
-    // If alumni_school_follows table doesn't exist, return without follow check
-    try {
-      const result2 = await pool.query(
-        `SELECT s.id, s.name, s.email_domain,
-                (SELECT COUNT(*) FROM users u WHERE u.school_id = s.id AND u.role = 'alumni') AS alumni_count,
-                (SELECT COUNT(*) FROM users u WHERE u.school_id = s.id) AS member_count,
-                false AS is_following
-         FROM schools s
-         WHERE s.id != COALESCE((SELECT school_id FROM users WHERE id = $1), 0)
-           AND EXISTS(SELECT 1 FROM users u WHERE u.school_id = s.id AND u.role = 'alumni')
-         ORDER BY alumni_count DESC NULLS LAST, RANDOM()
-         LIMIT 5 OFFSET $2`,
-        [req.user.id, offset]
-      );
-      res.json({ suggested: result2.rows, hasMore: result2.rows.length === 5 });
-    } catch (err2) {
-      console.error('[alumni/suggested-schools]', err2);
-      res.status(500).json({ error: 'Internal server error.' });
-    }
-  }
-});
-
-// Follow a school
+// Follow an Education Hub institution
 router.post('/follow-school/:schoolId', authenticateToken, async (req, res) => {
   try {
-    // Ensure table exists
-    await pool.query(`CREATE TABLE IF NOT EXISTS alumni_school_follows (
-      id SERIAL PRIMARY KEY,
-      follower_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      school_id INTEGER NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
-      created_at TIMESTAMP DEFAULT NOW(),
-      UNIQUE(follower_id, school_id)
-    )`);
     await pool.query(
-      'INSERT INTO alumni_school_follows (follower_id, school_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      'INSERT INTO eduhub_follows (user_id, institution_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
       [req.user.id, req.params.schoolId]
     );
     res.json({ success: true });
