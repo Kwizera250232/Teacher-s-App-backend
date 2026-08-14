@@ -23,6 +23,16 @@ pool.query(`
   ALTER TABLE cat_marks ADD COLUMN IF NOT EXISTS test_date DATE DEFAULT CURRENT_DATE;
   ALTER TABLE cat_marks ADD COLUMN IF NOT EXISTS subject TEXT DEFAULT 'General';
   DROP CONSTRAINT IF EXISTS cat_marks_class_id_student_id_test_number_key;
+
+  CREATE TABLE IF NOT EXISTS cat_totals_config (
+    id SERIAL PRIMARY KEY,
+    class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    test_number INTEGER NOT NULL,
+    total_marks INTEGER NOT NULL DEFAULT 100,
+    subject TEXT DEFAULT 'General',
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(class_id, test_number, subject)
+  );
 `).catch(e => console.error('[cat_marks] migration error:', e.message));
 
 router.get('/:classId/overview', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
@@ -62,13 +72,23 @@ router.get('/:classId/overview', authenticateToken, requireRole('teacher', 'head
 
     const marksByStudent = new Map();
     const catTotals = {}; // { test_number: total_marks } — the "out of" for each CAT
+
+    // First, load configured totals from cat_totals_config (teacher-set totals)
+    const configRows = await pool.query(
+      `SELECT test_number, total_marks FROM cat_totals_config WHERE class_id = $1 AND subject = $2`,
+      [classId, subject || 'General']
+    );
+    for (const row of configRows.rows) {
+      catTotals[row.test_number] = Number(row.total_marks) || 100;
+    }
+
     for (const row of marksRows.rows) {
       if (!marksByStudent.has(row.student_id)) marksByStudent.set(row.student_id, {});
       marksByStudent.get(row.student_id)[row.test_number] = {
         marks: Number(row.marks_obtained),
-        total: Number(row.total_marks) || 100,
+        total: Number(row.total_marks) || catTotals[row.test_number] || 100,
       };
-      // Track the total_marks for each CAT number (use the most common one)
+      // Fall back to marks if no config entry
       if (!catTotals[row.test_number]) catTotals[row.test_number] = Number(row.total_marks) || 100;
     }
 
@@ -144,13 +164,22 @@ router.post('/:classId/entry', authenticateToken, requireRole('teacher', 'head_t
   }
   const subj = subject || 'General';
   try {
+    // If no total_marks provided, look up from config or default to 100
+    let finalTotal = total_marks;
+    if (!finalTotal) {
+      const configRes = await pool.query(
+        `SELECT total_marks FROM cat_totals_config WHERE class_id = $1 AND test_number = $2 AND subject = $3`,
+        [classId, test_number, subj]
+      );
+      finalTotal = configRes.rows[0]?.total_marks || 100;
+    }
     const result = await pool.query(
       `INSERT INTO cat_marks (class_id, student_id, test_number, marks_obtained, total_marks, subject)
        VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (class_id, student_id, test_number, subject)
        DO UPDATE SET marks_obtained = $4, total_marks = $5, updated_at = NOW()
        RETURNING *`,
-      [classId, student_id, test_number, marks_obtained, total_marks || 100, subj]
+      [classId, student_id, test_number, marks_obtained, finalTotal, subj]
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -168,6 +197,15 @@ router.put('/:classId/cat-total', authenticateToken, requireRole('teacher', 'hea
   }
   const subj = subject || 'General';
   try {
+    // Save to config table (persists even if no marks exist yet)
+    await pool.query(
+      `INSERT INTO cat_totals_config (class_id, test_number, total_marks, subject)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (class_id, test_number, subject)
+       DO UPDATE SET total_marks = $3, updated_at = NOW()`,
+      [classId, test_number, total_marks, subj]
+    );
+    // Also update all existing marks for this CAT
     const result = await pool.query(
       `UPDATE cat_marks SET total_marks = $4, updated_at = NOW()
        WHERE class_id = $1 AND test_number = $2 AND subject = $3`,
