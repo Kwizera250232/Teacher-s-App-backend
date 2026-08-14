@@ -61,12 +61,15 @@ router.get('/:classId/overview', authenticateToken, requireRole('teacher', 'head
     );
 
     const marksByStudent = new Map();
+    const catTotals = {}; // { test_number: total_marks } — the "out of" for each CAT
     for (const row of marksRows.rows) {
       if (!marksByStudent.has(row.student_id)) marksByStudent.set(row.student_id, {});
       marksByStudent.get(row.student_id)[row.test_number] = {
         marks: Number(row.marks_obtained),
         total: Number(row.total_marks) || 100,
       };
+      // Track the total_marks for each CAT number (use the most common one)
+      if (!catTotals[row.test_number]) catTotals[row.test_number] = Number(row.total_marks) || 100;
     }
 
     const students = roster.rows.map((s) => {
@@ -112,6 +115,7 @@ router.get('/:classId/overview', authenticateToken, requireRole('teacher', 'head
       students,
       class_average: classAvg.rows[0]?.avg || 0,
       subjects: subjectsResult.rows.map(r => r.subject),
+      cat_totals: catTotals,
     });
   } catch (err) {
     console.error('[cat_marks] summary error:', err.message);
