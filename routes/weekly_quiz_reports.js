@@ -402,12 +402,12 @@ router.post('/:classId/weekly-reports/:reportId/notify-parents', authenticateTok
 
     let studentsQuery, studentsParams;
     if (selectedIds) {
-      studentsQuery = `SELECT u.id, u.name, u.avatar_path, u.email, u.plaintext_password FROM class_members cm
+      studentsQuery = `SELECT u.id, u.name, u.avatar_path FROM class_members cm
        JOIN users u ON u.id = cm.student_id
        WHERE cm.class_id = $1 AND u.role = 'student' AND u.id = ANY($2) ORDER BY u.name`;
       studentsParams = [classId, selectedIds];
     } else {
-      studentsQuery = `SELECT u.id, u.name, u.avatar_path, u.email, u.plaintext_password FROM class_members cm
+      studentsQuery = `SELECT u.id, u.name, u.avatar_path FROM class_members cm
        JOIN users u ON u.id = cm.student_id
        WHERE cm.class_id = $1 AND u.role = 'student' ORDER BY u.name`;
       studentsParams = [classId];
@@ -651,16 +651,6 @@ ${studentMarks}`;
       }
 
       if (inviteLink) body += `\n\nSign up to see full details: ${inviteLink}`;
-
-      // Add child login credentials to text email
-      body += `\n\n========================================`;
-      body += `\nIMEYILI N'IJAMBO RY'IBANGA RY'UMWANA`;
-      body += `\n========================================`;
-      body += `\nReba imeyili n'ijambo ry'ibanga ry'umwana wawe. Ubu wamufasha kwinjira kuri student.umunsi.com, akajya abasha gukora Quiz, Imikoro, gusoma Notes n'ibindi byinshi mu ishuri rye.`;
-      body += `\n\nImeyili y'umwana: ${s.email || 'N/A'}`;
-      body += `\nIjambo ry'ibanga: ${s.plaintext_password || 'Nta bumenyi (wahinduye)'}`;
-      body += `\n\nFata uyu murongo: https://student.umunsi.com/login`;
-      body += `\n========================================`;
 
       // Build HTML email
       const teacherMarksHtml = columns.rows.map(c => {
@@ -910,35 +900,6 @@ ${studentMarks}`;
     ${weaknessHtml}
     ${teacherMsgHtml}
     ${inviteHtml}
-
-    <!-- Child Login Credentials — help parent login the child -->
-    <div style="margin-top:24px;background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border-radius:12px;padding:16px 20px;border:1.5px solid #6ee7b7;">
-      <div style="font-size:16px;margin-bottom:8px;">🔐</div>
-      <h3 style="color:#065f46;font-size:15px;margin:0 0 10px;">Imeli y'umwana n'iJambo ry'ibanga ry'ishuri</h3>
-      <p style="font-size:13px;color:#1e293b;line-height:1.6;margin:0 0 12px;">
-        Reba imeyili n'ijambo ry'ibanga ry'umwana wawe hano hepfite. Ubu wamufasha kwinjira kuri
-        <a href="https://student.umunsi.com" style="color:#059669;font-weight:600;">student.umunsi.com</a>,
-        akajya abasha gukora Quiz, Imikoro, gusoma Notes n'ibindi byinshi mu ishuri rye.
-      </p>
-      <div style="background:#fff;border-radius:8px;padding:12px 16px;border:1px solid #d1d5db;">
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f3f4f6;">
-          <span style="font-size:12px;color:#6b7280;font-weight:600;">Imeyili y'umwana:</span>
-          <span style="font-size:14px;color:#1e293b;font-weight:700;font-family:monospace;">${s.email || 'N/A'}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;">
-          <span style="font-size:12px;color:#6b7280;font-weight:600;">Ijambo ry'ibanga:</span>
-          <span style="font-size:14px;color:#1e293b;font-weight:700;font-family:monospace;">${s.plaintext_password || 'Nta bumenyi (wahinduye)'}</span>
-        </div>
-      </div>
-      <div style="text-align:center;margin-top:14px;">
-        <a href="https://student.umunsi.com/login" style="display:inline-block;background:linear-gradient(135deg,#059669,#047857);color:#fff;text-decoration:none;padding:12px 28px;border-radius:10px;font-size:14px;font-weight:700;">
-          👉 Fata hano ngo umwana ainjire
-        </a>
-      </div>
-      <p style="font-size:11px;color:#6b7280;margin:10px 0 0;text-align:center;line-height:1.5;">
-        Waba ufite ikibazo? Himbaza umwarimu w'umwana cyangwa umuyobozi w'ishuri.
-      </p>
-    </div>
 
     <!-- CEO Quote -->
     <div style="padding:20px 28px;margin-top:8px;">
