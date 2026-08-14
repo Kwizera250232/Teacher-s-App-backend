@@ -542,6 +542,7 @@ router.get('/students', ...adminOnly, async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT u.id, u.name, u.email, u.phone, u.is_suspended, u.created_at,
+             u.plaintext_password,
              s.name AS school_name,
              COUNT(DISTINCT cm.class_id) AS class_count
       FROM users u
@@ -574,7 +575,7 @@ router.put('/students/:id/reset-password', ...adminOnly, async (req, res) => {
   if (!new_password || new_password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
   try {
     const hashed = await bcrypt.hash(new_password, 12);
-    await pool.query('UPDATE users SET password=$1 WHERE id=$2 AND role=\'student\'', [hashed, req.params.id]);
+    await pool.query('UPDATE users SET password=$1, plaintext_password=$2 WHERE id=$3 AND role=\'student\'', [hashed, new_password, req.params.id]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
@@ -836,6 +837,9 @@ router.get('/user-announcements', authenticateToken, async (req, res) => {
 });
 
 // ─── USER CREATION (Admin, Head Teacher, Teacher) ───────────────────────────
+// Store plaintext password for school-created accounts so teachers/parents can help students login
+pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS plaintext_password TEXT`).catch(e => console.error('[admin] plaintext_password migration:', e.message));
+
 async function resolveSchoolForAccount(req, school_id) {
   if (req.user.role === 'teacher' || req.user.role === 'head_teacher') {
     let userSchoolId = req.user.school_id;
@@ -922,10 +926,10 @@ async function createSchoolAccount(req, { name, email, role, school_id, password
     : role !== 'teacher';
 
   const result = await pool.query(
-    `INSERT INTO users (name, email, password, role, school_id, is_approved)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO users (name, email, password, plaintext_password, role, school_id, is_approved)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING id, name, email, role, school_id`,
-    [name, userEmail, hashed, role, targetSchoolId, approved]
+    [name, userEmail, hashed, finalPassword, role, targetSchoolId, approved]
   );
 
   return {

@@ -125,6 +125,7 @@ function audit(event, details) {
 }
 
 // Ensure password_reset_tokens table exists
+pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS plaintext_password TEXT`).catch(e => console.error('[auth] plaintext_password migration:', e.message));
 pool.query(`
   CREATE TABLE IF NOT EXISTS password_reset_tokens (
     id SERIAL PRIMARY KEY,
@@ -755,11 +756,11 @@ router.post('/register', authLimiter, async (req, res) => {
     // Email confirmation disabled — users can use the app immediately after registration
     const needsEmailConfirm = false;
     const result = await pool.query(
-      `INSERT INTO users (name, email, password, role, school_id, is_approved, phone, email_confirmed,
+      `INSERT INTO users (name, email, password, plaintext_password, role, school_id, is_approved, phone, email_confirmed,
         district, sector, parent_gmail, parent_phone, school_name_text, is_external)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        RETURNING id, name, email, role, school_id, is_approved, email_confirmed`,
-      [name, email, hashed, role, resolvedSchoolId, isApproved, phone || null, !needsEmailConfirm,
+      [name, email, hashed, password, role, resolvedSchoolId, isApproved, phone || null, !needsEmailConfirm,
        district || null, sector || null, parentGmail || null, parentPhone || null, schoolNameText || null, isExternal]
     );
     const user = result.rows[0];
@@ -1054,7 +1055,7 @@ async function resetPasswordByEmail(req, res) {
     }
     const userId = userResult.rows[0].id;
     const hashed = await bcrypt.hash(newPassword, 12);
-    await pool.query('UPDATE users SET password=$1 WHERE id=$2', [hashed, userId]);
+    await pool.query('UPDATE users SET password=$1, plaintext_password=$2 WHERE id=$3', [hashed, newPassword, userId]);
     await pool.query('DELETE FROM password_reset_tokens WHERE user_id=$1', [userId]);
     audit('password_reset_done', { email });
     res.json({ message: 'Password reset successfully.' });
