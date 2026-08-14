@@ -159,6 +159,27 @@ router.post('/:classId/entry', authenticateToken, requireRole('teacher', 'head_t
   }
 });
 
+// Set/change the "out of" (total_marks) for a specific CAT number across all students in a class+subject
+router.put('/:classId/cat-total', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const { test_number, total_marks, subject } = req.body;
+  const classId = req.params.classId;
+  if (!test_number || !total_marks || total_marks < 1) {
+    return res.status(400).json({ error: 'test_number and total_marks (>=1) required.' });
+  }
+  const subj = subject || 'General';
+  try {
+    const result = await pool.query(
+      `UPDATE cat_marks SET total_marks = $4, updated_at = NOW()
+       WHERE class_id = $1 AND test_number = $2 AND subject = $3`,
+      [classId, test_number, subj, total_marks]
+    );
+    res.json({ updated: result.rowCount, test_number, total_marks, subject: subj });
+  } catch (err) {
+    console.error('[cat_marks] set-cat-total error:', err.message);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 router.post('/:classId/fromquiz', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const { quiz_id, test_number, subject } = req.body;
   const classId = req.params.classId;
