@@ -6,6 +6,28 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
+// Ensure alumni_past_papers table exists on this VPS
+(async function ensureAlumniTables() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS alumni_past_papers (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        subject VARCHAR(100),
+        year VARCHAR(20),
+        file_url TEXT,
+        description TEXT,
+        created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_past_papers_subject ON alumni_past_papers(subject);
+      CREATE INDEX IF NOT EXISTS idx_past_papers_year ON alumni_past_papers(year);
+    `);
+  } catch (err) {
+    console.error('[alumni/ensureTables] error:', err);
+  }
+})();
+
 // Generic file upload
 const uploadDir = process.env.VERCEL ? path.join('/tmp', 'uploads', 'files') : path.join(__dirname, '../uploads/files');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
@@ -731,10 +753,10 @@ router.get('/admin/alumni/past-papers', authenticateToken, requireRole('admin', 
 });
 
 router.post('/admin/alumni/past-papers', authenticateToken, requireRole('admin', 'head_teacher', 'teacher'), fileUpload.single('file'), async (req, res) => {
-  const { title, subject, year, description } = req.body;
+  const { title, subject, year, description, download_url } = req.body;
   if (!title) return res.status(400).json({ error: 'Title required.' });
   try {
-    const file_url = req.file ? `/uploads/${req.file.filename}` : null;
+    const file_url = req.file ? `/uploads/files/${req.file.filename}` : download_url || null;
     const result = await pool.query(
       'INSERT INTO alumni_past_papers (title, subject, year, description, file_url, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
       [title, subject || null, year || null, description || null, file_url, req.user.id]
