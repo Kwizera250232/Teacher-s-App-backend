@@ -448,8 +448,8 @@ router.post('/:classId/transfer', authenticateToken, requireRole('admin', 'head_
 
     if (targetId === sourceId) return res.status(400).json({ error: 'Cannot transfer to the same class.' });
 
-    const targetManage = await userCanManageClass(req.user, targetId);
-    if (!targetManage.ok) return res.status(403).json({ error: 'You do not manage the target class.' });
+    // Any authenticated teacher/HT/admin who manages the source can transfer to any valid class code.
+    // The class code itself is the permission for the target.
 
     const members = await pool.query(
       'SELECT student_id FROM class_members WHERE class_id = $1 AND student_id = ANY($2::int[])',
