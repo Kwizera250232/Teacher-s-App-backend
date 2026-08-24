@@ -7,6 +7,11 @@ const { insertUserNotification } = require('../lib/classMomentNotify');
 const { SKILLS, skillMeta, formatPointEvent } = require('../lib/classPointSkills');
 const router = express.Router();
 
+// Ensure users table has a gender column
+pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS gender TEXT').catch((err) =>
+  console.error('[users gender column]', err.message)
+);
+
 async function classStudentIds(classId) {
   const res = await pool.query(
     'SELECT student_id FROM class_members WHERE class_id = $1',
@@ -55,7 +60,7 @@ router.get('/:classId/classroom', authenticateToken, requireRole('teacher', 'hea
 
     const [studentsRes, groupsRes, totals, events] = await Promise.all([
       pool.query(
-        `SELECT u.id, u.name, cm.joined_at, p.avatar_path
+        `SELECT u.id, u.name, u.email, u.gender, cm.joined_at, p.avatar_path
          FROM class_members cm
          JOIN users u ON u.id = cm.student_id
          LEFT JOIN user_profiles p ON p.user_id = u.id

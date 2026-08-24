@@ -720,7 +720,7 @@ router.delete('/admin/alumni/opportunities/:id', authenticateToken, requireRole(
   }
 });
 
-router.get('/admin/alumni/past-papers', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+router.get('/admin/alumni/past-papers', authenticateToken, requireRole('admin', 'head_teacher', 'teacher'), async (req, res) => {
   try {
     const papers = await pool.query('SELECT * FROM alumni_past_papers ORDER BY created_at DESC');
     res.json({ papers: papers.rows });
@@ -730,11 +730,11 @@ router.get('/admin/alumni/past-papers', authenticateToken, requireRole('admin', 
   }
 });
 
-router.post('/admin/alumni/past-papers', authenticateToken, requireRole('admin', 'head_teacher'), fileUpload.single('file'), async (req, res) => {
-  const { title, subject, year, description, download_url } = req.body;
+router.post('/admin/alumni/past-papers', authenticateToken, requireRole('admin', 'head_teacher', 'teacher'), fileUpload.single('file'), async (req, res) => {
+  const { title, subject, year, description } = req.body;
   if (!title) return res.status(400).json({ error: 'Title required.' });
   try {
-    const file_url = req.file ? `/uploads/files/${req.file.filename}` : download_url || null;
+    const file_url = req.file ? `/uploads/${req.file.filename}` : null;
     const result = await pool.query(
       'INSERT INTO alumni_past_papers (title, subject, year, description, file_url, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
       [title, subject || null, year || null, description || null, file_url, req.user.id]
@@ -746,7 +746,7 @@ router.post('/admin/alumni/past-papers', authenticateToken, requireRole('admin',
   }
 });
 
-router.delete('/admin/alumni/past-papers/:id', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+router.delete('/admin/alumni/past-papers/:id', authenticateToken, requireRole('admin', 'head_teacher', 'teacher'), async (req, res) => {
   try {
     await pool.query('DELETE FROM alumni_past_papers WHERE id=$1', [req.params.id]);
     res.json({ success: true });

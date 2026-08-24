@@ -420,5 +420,133 @@ router.post('/school/teacher-invite-link', authenticateToken, requireRole('teach
   }
 });
 
+// POST transfer selected students to another class by its class code
+router.post('/:classId/transfer', authenticateToken, requireRole('admin', 'head_teacher', 'teacher'), async (req, res) => {
+  const { classId } = req.params;
+  const sourceId = parseInt(classId, 10);
+  const { class_code, student_ids } = req.body;
+
+  if (!class_code || typeof class_code !== 'string') {
+    return res.status(400).json({ error: 'class_code is required.' });
+  }
+  if (!Array.isArray(student_ids) || !student_ids.length) {
+    return res.status(400).json({ error: 'student_ids array is required.' });
+  }
+  const ids = student_ids.map((id) => parseInt(id, 10)).filter((id) => !isNaN(id) && id > 0);
+  if (!ids.length) {
+    return res.status(400).json({ error: 'No valid student IDs provided.' });
+  }
+
+  try {
+    const sourceManage = await userCanManageClass(req.user, sourceId);
+    if (!sourceManage.ok) return res.status(403).json({ error: 'You do not manage this class.' });
+
+    const targetResult = await pool.query('SELECT * FROM classes WHERE class_code = $1', [class_code.toUpperCase()]);
+    if (targetResult.rows.length === 0) return res.status(404).json({ error: 'Target class not found. Check the class code.' });
+    const targetClass = targetResult.rows[0];
+    const targetId = targetClass.id;
+
+    if (targetId === sourceId) return res.status(400).json({ error: 'Cannot transfer to the same class.' });
+
+    const targetManage = await userCanManageClass(req.user, targetId);
+    if (!targetManage.ok) return res.status(403).json({ error: 'You do not manage the target class.' });
+
+    const members = await pool.query(
+      'SELECT student_id FROM class_members WHERE class_id = $1 AND student_id = ANY($2::int[])',
+      [sourceId, ids]
+    );
+    const foundIds = members.rows.map((r) => r.student_id);
+    if (foundIds.length !== ids.length) {
+      return res.status(400).json({ error: 'Some students are not in this class.' });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      await client.query(
+        'DELETE FROM class_members WHERE class_id = $1 AND student_id = ANY($2::int[])',
+        [sourceId, ids]
+      );
+
+      for (const sid of ids) {
+        await client.query(
+          'INSERT INTO class_members (class_id, student_id) VALUES ($1, $2) ON CONFLICT (class_id, student_id) DO NOTHING',
+          [targetId, sid]
+        );
+      }
+
+      await client.query(
+        `DELETE FROM class_group_members
+         WHERE student_id = ANY($1::int[])
+           AND group_id IN (SELECT id FROM class_groups WHERE class_id = $2)`,
+        [ids, sourceId]
+      );
+
+      await client.query(
+        `UPDATE cat_marks cm
+         SET class_id = $1
+         WHERE cm.class_id = $2 AND cm.student_id = ANY($3::int[])
+           AND NOT EXISTS (
+             SELECT 1 FROM cat_marks cm2
+             WHERE cm2.class_id = $1
+               AND cm2.student_id = cm.student_id
+               AND cm2.test_number = cm.test_number
+           )`,
+        [targetId, sourceId, ids]
+      );
+
+      await client.query(
+        `UPDATE class_point_events
+         SET class_id = $1
+         WHERE class_id = $2 AND student_id = ANY($3::int[])`,
+        [targetId, sourceId, ids]
+      );
+
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    res.json({ message: `Transferred ${ids.length} student(s) to ${targetClass.name}.`, target_class: targetClass });
+  } catch (err) {
+    console.error('[classes transfer]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// PUT student gender (teacher/HT/admin)
+router.put('/:classId/students/:studentId/gender', authenticateToken, requireRole('admin', 'head_teacher', 'teacher'), async (req, res) => {
+  const { classId, studentId } = req.params;
+  const { gender } = req.body;
+  const classIdNum = parseInt(classId, 10);
+  const studentIdNum = parseInt(studentId, 10);
+
+  if (gender && !['Male', 'Female', 'male', 'female', 'M', 'F'].includes(gender)) {
+    return res.status(400).json({ error: 'Gender must be Male or Female.' });
+  }
+
+  try {
+    const manage = await userCanManageClass(req.user, classIdNum);
+    if (!manage.ok) return res.status(403).json({ error: 'You do not manage this class.' });
+
+    const member = await pool.query(
+      'SELECT 1 FROM class_members WHERE class_id = $1 AND student_id = $2',
+      [classIdNum, studentIdNum]
+    );
+    if (member.rows.length === 0) return res.status(404).json({ error: 'Student not found in this class.' });
+
+    const normalized = gender ? gender.charAt(0).toUpperCase() + gender.slice(1).toLowerCase() : null;
+    await pool.query('UPDATE users SET gender = $1 WHERE id = $2 AND role = $3', [normalized, studentIdNum, 'student']);
+    res.json({ message: 'Gender updated.', gender: normalized });
+  } catch (err) {
+    console.error('[classes gender]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 module.exports = router;
 
