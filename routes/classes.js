@@ -329,14 +329,18 @@ router.get('/:id/students/credentials', authenticateToken, requireRole('teacher'
 
     const classRes = await pool.query(
       `SELECT c.id, c.name, c.class_code, c.teacher_id,
-              s.name AS school_name,
-              u.name AS teacher_name
+              u.name AS teacher_name,
+              u.school_id AS teacher_school_id
        FROM classes c
-       LEFT JOIN schools s ON c.school_id = s.id
        LEFT JOIN users u ON c.teacher_id = u.id
        WHERE c.id = $1`,
       [classId]
     );
+    let schoolName = null;
+    if (cls && cls.teacher_school_id) {
+      const sch = await pool.query('SELECT name FROM schools WHERE id = $1', [cls.teacher_school_id]);
+      if (sch.rows.length) schoolName = sch.rows[0].name;
+    }
     if (classRes.rows.length === 0) return res.status(404).json({ error: 'Class not found.' });
     const cls = classRes.rows[0];
 
@@ -350,7 +354,7 @@ router.get('/:id/students/credentials', authenticateToken, requireRole('teacher'
 
     res.json({
       class: { name: cls.name, class_code: cls.class_code },
-      school: { name: cls.school_name },
+      school: { name: schoolName },
       teacher: { name: cls.teacher_name },
       students: studs.rows,
     });
