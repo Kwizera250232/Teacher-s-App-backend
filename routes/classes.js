@@ -306,7 +306,7 @@ router.get('/:id/students', authenticateToken, requireRole('teacher', 'head_teac
     if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
 
     const result = await pool.query(
-      `SELECT u.id, u.name, u.email, cm.joined_at, s.name AS school_name
+      `SELECT u.id, u.name, u.email, u.plaintext_password, u.phone, cm.joined_at, s.name AS school_name
        FROM class_members cm JOIN users u ON cm.student_id = u.id
        LEFT JOIN schools s ON u.school_id = s.id
        WHERE cm.class_id = $1 AND u.role='student' AND (u.is_alumni=FALSE OR u.is_alumni IS NULL)
@@ -316,6 +316,46 @@ router.get('/:id/students', authenticateToken, requireRole('teacher', 'head_teac
     console.log('[classes] Students found:', result.rows.length);
     res.json(result.rows);
   } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// GET /:id/students/credentials — full class roster with passwords + class/school/teacher info for download
+router.get('/:id/students/credentials', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  try {
+    const classId = parseInt(req.params.id, 10);
+    const manage = await userCanManageClass(req.user, classId);
+    if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
+
+    const classRes = await pool.query(
+      `SELECT c.id, c.name, c.class_code, c.teacher_id, c.subject,
+              s.name AS school_name, s.code AS school_code,
+              u.name AS teacher_name
+       FROM classes c
+       LEFT JOIN schools s ON c.school_id = s.id
+       LEFT JOIN users u ON c.teacher_id = u.id
+       WHERE c.id = $1`,
+      [classId]
+    );
+    if (classRes.rows.length === 0) return res.status(404).json({ error: 'Class not found.' });
+    const cls = classRes.rows[0];
+
+    const studs = await pool.query(
+      `SELECT u.id, u.name, u.email, u.plaintext_password, u.phone
+       FROM class_members cm JOIN users u ON cm.student_id = u.id
+       WHERE cm.class_id = $1 AND u.role='student' AND (u.is_alumni=FALSE OR u.is_alumni IS NULL)
+       ORDER BY u.name`,
+      [classId]
+    );
+
+    res.json({
+      class: { name: cls.name, class_code: cls.class_code, subject: cls.subject },
+      school: { name: cls.school_name, code: cls.school_code },
+      teacher: { name: cls.teacher_name },
+      students: studs.rows,
+    });
+  } catch (err) {
+    console.error('[classes] credentials', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
