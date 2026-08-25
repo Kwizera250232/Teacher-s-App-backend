@@ -328,8 +328,8 @@ router.get('/:id/students/credentials', authenticateToken, requireRole('teacher'
     if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
 
     const classRes = await pool.query(
-      `SELECT c.id, c.name, c.class_code, c.teacher_id, c.subject,
-              s.name AS school_name, s.code AS school_code,
+      `SELECT c.id, c.name, c.class_code, c.teacher_id,
+              s.name AS school_name,
               u.name AS teacher_name
        FROM classes c
        LEFT JOIN schools s ON c.school_id = s.id
@@ -349,8 +349,8 @@ router.get('/:id/students/credentials', authenticateToken, requireRole('teacher'
     );
 
     res.json({
-      class: { name: cls.name, class_code: cls.class_code, subject: cls.subject },
-      school: { name: cls.school_name, code: cls.school_code },
+      class: { name: cls.name, class_code: cls.class_code },
+      school: { name: cls.school_name },
       teacher: { name: cls.teacher_name },
       students: studs.rows,
     });
