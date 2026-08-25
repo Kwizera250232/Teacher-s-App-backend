@@ -917,21 +917,13 @@ async function createSchoolAccount(req, { name, email, role, school_id, password
     }
   }
 
-  let finalPassword = null;
-  let hashed = null;
-  if (customPassword && customPassword.trim().length >= 4) {
-    finalPassword = customPassword.trim();
-    hashed = await bcrypt.hash(finalPassword, 12);
-  }
-
-  let approved = typeof is_approved === 'boolean'
+  const finalPassword = customPassword && customPassword.trim().length >= 4
+    ? customPassword.trim()
+    : Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
+  const hashed = await bcrypt.hash(finalPassword, 12);
+  const approved = typeof is_approved === 'boolean'
     ? is_approved
     : role !== 'teacher';
-
-  // Students without a custom password must sign up to set their own password.
-  if (role === 'student' && !hashed) {
-    approved = false;
-  }
 
   const result = await pool.query(
     `INSERT INTO users (name, email, password, plaintext_password, role, school_id, is_approved)
@@ -949,12 +941,9 @@ async function createSchoolAccount(req, { name, email, role, school_id, password
 router.post('/add-pupil', ...teacherOrAbove, async (req, res) => {
   try {
     const created = await createSchoolAccount(req, req.body);
-    const msg = created.user.is_approved
-      ? 'User created successfully. Share the temporary password with them.'
-      : 'Student added. They must use the signup page with this school email to create a password.';
     res.status(201).json({
       ...created,
-      message: msg,
+      message: 'User created successfully. Share the temporary password with them.',
     });
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
@@ -987,14 +976,10 @@ router.post('/add-pupils', ...teacherOrAbove, async (req, res) => {
     }
   }
 
-  const activatedCount = created.filter((c) => c.user.is_approved).length;
-  const pendingCount = created.length - activatedCount;
-  let msg = `Created ${created.length} account(s).`;
-  if (pendingCount > 0) msg += ` ${pendingCount} must complete signup on the signup page to set a password.`;
   res.status(201).json({
     created,
     failed,
-    message: msg,
+    message: `Created ${created.length} account(s).`,
   });
 });
 
