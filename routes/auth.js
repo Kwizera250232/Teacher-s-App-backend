@@ -126,6 +126,7 @@ function audit(event, details) {
 
 // Ensure password_reset_tokens table exists
 pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS plaintext_password TEXT`).catch(e => console.error('[auth] plaintext_password migration:', e.message));
+pool.query(`ALTER TABLE users ALTER COLUMN password DROP NOT NULL`).catch(e => console.error('[auth] password nullable migration:', e.message));
 pool.query(`
   CREATE TABLE IF NOT EXISTS password_reset_tokens (
     id SERIAL PRIMARY KEY,
@@ -672,40 +673,83 @@ router.post('/register', authLimiter, async (req, res) => {
         return res.status(400).json({ error: 'Invalid school email username.' });
       }
     } else if (role === 'student') {
-      if (isExternal) {
-        // Externals use personal email, no school email required
-        if (!email) {
-          return res.status(400).json({ error: 'Email is required.' });
+      // Use provided full email (Gmail/personal or school email pre-registered by teacher)
+      const providedEmail = (req.body.email || '').trim().toLowerCase();
+      const studentLocal = normalizeLocalPart(req.body.school_email_local || req.body.school_email);
+
+      if (providedEmail && isValidEmail(providedEmail)) {
+        email = providedEmail;
+      } else if (studentLocal && resolvedSchoolId) {
+        let domain = schoolDomainForEmail;
+        if (!domain && schoolRowForMail) {
+          domain = loginEmailDomainForSchool(schoolRowForMail);
         }
-        if (!isValidEmail(email)) {
-          return res.status(400).json({ error: 'Invalid email address.' });
-        }
-      } else {
-        const studentLocal = normalizeLocalPart(req.body.school_email_local || req.body.school_email);
-        if (studentLocal && resolvedSchoolId) {
-          let domain = schoolDomainForEmail;
-          if (!domain && schoolRowForMail) {
-            domain = loginEmailDomainForSchool(schoolRowForMail);
-          }
-          email = buildSchoolEmail(studentLocal, domain);
-        }
-        if (!email) {
+        email = buildSchoolEmail(studentLocal, domain);
+      }
+
+      if (!email) {
+        return res.status(400).json({
+          error: 'Enter your email (Gmail or the school email your teacher gave you).',
+        });
+      }
+      if (!isValidEmail(email)) {
+        return res.status(400).json({ error: 'Invalid email address.' });
+      }
+
+      const isSchoolEmail = schoolDomainForEmail && isSchoolDomainEmail(email, schoolDomainForEmail);
+
+      if (isSchoolEmail) {
+        // Pre-registered by teacher: account must already exist and not yet activated
+        const pre = await pool.query(
+          "SELECT id, name, password, role, school_id, is_approved FROM users WHERE email = $1 AND role = 'student'",
+          [email]
+        );
+        if (pre.rows.length === 0) {
           return res.status(400).json({
-            error: 'Choose your school and create your login as name@schoolname.edu.',
+            error: 'This school email is not registered by a teacher. Ask your teacher to add you first.',
           });
         }
-        if (!isValidEmail(email)) {
-          return res.status(400).json({ error: 'Invalid school email.' });
+        const preUser = pre.rows[0];
+        if (preUser.password && preUser.password.length > 0) {
+          return res.status(409).json({
+            error: 'This school email is already registered. Use the login page with the password from your teacher.',
+          });
         }
-        const emailCheck = await validateEmailForSignup(email, {
-          schoolDomain: schoolDomainForEmail,
-          strict: STRICT_EMAIL,
-          role: 'student',
-          skipMailbox: true,
+        // Activate the pre-registered account with this password
+        const hashed = await bcrypt.hash(password, 12);
+        const up = await pool.query(
+          `UPDATE users
+           SET name = COALESCE(NULLIF($1, ''), name),
+               password = $2,
+               plaintext_password = $3,
+               phone = COALESCE($4, phone),
+               is_approved = TRUE,
+               email_confirmed = TRUE
+           WHERE id = $5
+           RETURNING id, name, email, role, school_id, is_approved, email_confirmed`,
+          [name, hashed, password, phone || null, preUser.id]
+        );
+        const user = up.rows[0];
+        const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET);
+        audit('register', { email, role });
+        return res.status(201).json({
+          token,
+          user: userPayload(user),
+          login_email: user.email,
+          capabilities: schoolEmailCapabilities('school'),
+          email_confirmed: user.email_confirmed !== false,
         });
-        if (!emailCheck.valid) {
-          return res.status(400).json({ error: emailCheck.reason });
-        }
+      }
+
+      // Personal email (Gmail, etc.) — create a new student account
+      const emailCheck = await validateEmailForSignup(email, {
+        schoolDomain: schoolDomainForEmail,
+        strict: STRICT_EMAIL,
+        role: 'student',
+        skipMailbox: true,
+      });
+      if (!emailCheck.valid) {
+        return res.status(400).json({ error: emailCheck.reason });
       }
     } else if (role === 'guest') {
       const { GUEST_EMAIL_DOMAIN } = require('../lib/quizShares');
