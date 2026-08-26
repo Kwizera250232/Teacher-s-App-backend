@@ -332,6 +332,20 @@ router.get('/:classId/coaching-sessions/:sessionId/state', authenticateToken, as
       session.pen_holder_name = penHolder.rows[0]?.name;
     }
 
+    // Get ALL student answers for current question (so everyone sees marks/feedback on board)
+    if (currentQuestion) {
+      const allAnswers = await pool.query(
+        `SELECT csa.student_id, u.name, csa.answer, csa.is_correct, csa.awarded_marks, csa.requires_review
+         FROM coaching_session_answers csa
+         JOIN users u ON u.id = csa.student_id
+         WHERE csa.session_id = $1 AND csa.question_id = $2`,
+        [sessionId, currentQuestion.id]
+      );
+      session.answers = allAnswers.rows;
+    } else {
+      session.answers = [];
+    }
+
     session.participants = participants.rows;
     session.current_question = currentQuestion;
 
