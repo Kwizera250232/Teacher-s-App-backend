@@ -274,7 +274,10 @@ router.get('/:classId/coaching-sessions/:sessionId/state', authenticateToken, as
     if (!access.ok) return res.status(403).json({ error: 'Forbidden.' });
 
     const state = await pool.query(
-      `SELECT status, current_question_index, show_answer, is_paused, question_group_size, pen_holder_id, whiteboard_data, started_at
+      `SELECT status, current_question_index, show_answer, is_paused, question_group_size,
+              pen_holder_id, whiteboard_data, started_at,
+              hand_raised, speak_permission_id, answer_timer_seconds, answer_timer_started_at,
+              show_exercises
        FROM coaching_sessions WHERE id = $1 AND class_id = $2`,
       [sessionId, classId]
     );
@@ -343,7 +346,8 @@ router.get('/:classId/coaching-sessions/:sessionId/state', authenticateToken, as
 router.put('/:classId/coaching-sessions/:sessionId/state', authenticateToken, requireRole('teacher', 'head_teacher', 'admin'), async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   const sessionId = parseInt(req.params.sessionId, 10);
-  const { current_question_index, show_answer, is_paused, question_group_size, pen_holder_id, whiteboard_data } = req.body;
+  const { current_question_index, show_answer, is_paused, question_group_size, pen_holder_id, whiteboard_data,
+          hand_raised, speak_permission_id, answer_timer_seconds, answer_timer_started_at, show_exercises } = req.body;
   try {
     const manage = await userCanManageClass(req.user, classId);
     if (!manage.ok) return res.status(403).json({ error: 'You do not manage this class.' });
@@ -358,6 +362,11 @@ router.put('/:classId/coaching-sessions/:sessionId/state', authenticateToken, re
     if (question_group_size !== undefined) { updates.push(`question_group_size = $${idx++}`); values.push(question_group_size); }
     if (pen_holder_id !== undefined) { updates.push(`pen_holder_id = $${idx++}`); values.push(pen_holder_id); }
     if (whiteboard_data !== undefined) { updates.push(`whiteboard_data = $${idx++}`); values.push(whiteboard_data); }
+    if (hand_raised !== undefined) { updates.push(`hand_raised = $${idx++}`); values.push(hand_raised ? JSON.stringify(hand_raised) : null); }
+    if (speak_permission_id !== undefined) { updates.push(`speak_permission_id = $${idx++}`); values.push(speak_permission_id); }
+    if (answer_timer_seconds !== undefined) { updates.push(`answer_timer_seconds = $${idx++}`); values.push(answer_timer_seconds); }
+    if (answer_timer_started_at !== undefined) { updates.push(`answer_timer_started_at = $${idx++}`); values.push(answer_timer_started_at); }
+    if (show_exercises !== undefined) { updates.push(`show_exercises = $${idx++}`); values.push(show_exercises); }
 
     if (updates.length === 0) return res.json({ updated: false });
 
@@ -600,6 +609,56 @@ router.get('/coaching-sessions/student/:studentId', authenticateToken, async (re
     res.json(sessions.rows);
   } catch (err) {
     console.error('[coaching] student sessions error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── WebRTC signaling for audio ──────────────────────────────────────────────
+// POST /coaching-sessions/:sessionId/signal — send a WebRTC signal (offer/answer/ice)
+router.post('/:classId/coaching-sessions/:sessionId/signal', authenticateToken, async (req, res) => {
+  const classId = parseInt(req.params.classId, 10);
+  const sessionId = parseInt(req.params.sessionId, 10);
+  const { to_user_id, signal_type, signal_data } = req.body;
+  try {
+    const access = await userCanAccessClass(req.user, classId);
+    if (!access.ok) return res.status(403).json({ error: 'Forbidden.' });
+    await pool.query(
+      `INSERT INTO coaching_webrtc_signals (session_id, from_user_id, to_user_id, signal_type, signal_data)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [sessionId, req.user.id, to_user_id || null, signal_type, signal_data]
+    );
+    res.json({ sent: true });
+  } catch (err) {
+    console.error('[coaching] signal send error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// GET /coaching-sessions/:sessionId/signal — poll for signals addressed to me (or broadcast)
+router.get('/:classId/coaching-sessions/:sessionId/signal', authenticateToken, async (req, res) => {
+  const classId = parseInt(req.params.classId, 10);
+  const sessionId = parseInt(req.params.sessionId, 10);
+  const sinceId = parseInt(req.query.since || '0', 10);
+  try {
+    const access = await userCanAccessClass(req.user, classId);
+    if (!access.ok) return res.status(403).json({ error: 'Forbidden.' });
+    // Get signals addressed to me OR broadcast (to_user_id IS NULL), from others, since last poll
+    const result = await pool.query(
+      `SELECT id, from_user_id, signal_type, signal_data, created_at
+       FROM coaching_webrtc_signals
+       WHERE session_id = $1 AND id > $2 AND from_user_id <> $3
+         AND (to_user_id IS NULL OR to_user_id = $3)
+       ORDER BY id ASC LIMIT 50`,
+      [sessionId, sinceId, req.user.id]
+    );
+    // Clean up old signals (> 30 seconds)
+    await pool.query(
+      `DELETE FROM coaching_webrtc_signals WHERE session_id = $1 AND created_at < NOW() - INTERVAL '30 seconds'`,
+      [sessionId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[coaching] signal poll error:', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
