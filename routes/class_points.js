@@ -60,7 +60,7 @@ router.get('/:classId/classroom', authenticateToken, requireRole('teacher', 'hea
 
     const [studentsRes, groupsRes, totals, events] = await Promise.all([
       pool.query(
-        `SELECT u.id, u.name, u.email, u.gender, cm.joined_at, p.avatar_path
+        `SELECT u.id, u.name, u.email, u.gender, u.plaintext_password, u.phone, cm.joined_at, p.avatar_path
          FROM class_members cm
          JOIN users u ON u.id = cm.student_id
          LEFT JOIN user_profiles p ON p.user_id = u.id
