@@ -592,5 +592,39 @@ router.put('/:classId/students/:studentId/gender', authenticateToken, requireRol
   }
 });
 
+// PUT student password — teacher/HT who manages the class can set a student's password
+router.put('/:classId/students/:studentId/password', authenticateToken, requireRole('admin', 'head_teacher', 'teacher'), async (req, res) => {
+  const { classId, studentId } = req.params;
+  const { new_password } = req.body;
+  const classIdNum = parseInt(classId, 10);
+  const studentIdNum = parseInt(studentId, 10);
+
+  if (!new_password || new_password.length < 4) {
+    return res.status(400).json({ error: 'Password must be at least 4 characters.' });
+  }
+
+  try {
+    const manage = await userCanManageClass(req.user, classIdNum);
+    if (!manage.ok) return res.status(403).json({ error: 'You do not manage this class.' });
+
+    const member = await pool.query(
+      'SELECT 1 FROM class_members WHERE class_id = $1 AND student_id = $2',
+      [classIdNum, studentIdNum]
+    );
+    if (member.rows.length === 0) return res.status(404).json({ error: 'Student not found in this class.' });
+
+    const bcrypt = require('bcryptjs');
+    const hashed = await bcrypt.hash(new_password, 12);
+    await pool.query(
+      'UPDATE users SET password = $1, plaintext_password = $2 WHERE id = $3 AND role = $4',
+      [hashed, new_password, studentIdNum, 'student']
+    );
+    res.json({ success: true, message: 'Password updated.' });
+  } catch (err) {
+    console.error('[classes password]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 module.exports = router;
 
