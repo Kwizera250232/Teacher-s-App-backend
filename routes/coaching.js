@@ -274,7 +274,7 @@ router.get('/:classId/coaching-sessions/:sessionId/state', authenticateToken, as
     if (!access.ok) return res.status(403).json({ error: 'Forbidden.' });
 
     const state = await pool.query(
-      `SELECT status, current_question_index, show_answer, pen_holder_id, whiteboard_data, started_at
+      `SELECT status, current_question_index, show_answer, is_paused, question_group_size, pen_holder_id, whiteboard_data, started_at
        FROM coaching_sessions WHERE id = $1 AND class_id = $2`,
       [sessionId, classId]
     );
@@ -343,7 +343,7 @@ router.get('/:classId/coaching-sessions/:sessionId/state', authenticateToken, as
 router.put('/:classId/coaching-sessions/:sessionId/state', authenticateToken, requireRole('teacher', 'head_teacher', 'admin'), async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   const sessionId = parseInt(req.params.sessionId, 10);
-  const { current_question_index, show_answer, pen_holder_id, whiteboard_data } = req.body;
+  const { current_question_index, show_answer, is_paused, question_group_size, pen_holder_id, whiteboard_data } = req.body;
   try {
     const manage = await userCanManageClass(req.user, classId);
     if (!manage.ok) return res.status(403).json({ error: 'You do not manage this class.' });
@@ -354,6 +354,8 @@ router.put('/:classId/coaching-sessions/:sessionId/state', authenticateToken, re
 
     if (current_question_index !== undefined) { updates.push(`current_question_index = $${idx++}`); values.push(current_question_index); }
     if (show_answer !== undefined) { updates.push(`show_answer = $${idx++}`); values.push(show_answer); }
+    if (is_paused !== undefined) { updates.push(`is_paused = $${idx++}`); values.push(is_paused); }
+    if (question_group_size !== undefined) { updates.push(`question_group_size = $${idx++}`); values.push(question_group_size); }
     if (pen_holder_id !== undefined) { updates.push(`pen_holder_id = $${idx++}`); values.push(pen_holder_id); }
     if (whiteboard_data !== undefined) { updates.push(`whiteboard_data = $${idx++}`); values.push(whiteboard_data); }
 
@@ -483,7 +485,9 @@ router.get('/:classId/coaching-sessions/:sessionId/results', authenticateToken, 
   }
 });
 
-// POST /coaching-sessions/:sessionId/save-results — save to quiz_attempts (learning history)
+// POST /coaching-sessions/:sessionId/save-results — save results
+// Only saves to quiz_attempts if count_toward_official is true (with attempt_source='coaching')
+// Otherwise results stay in coaching_session_answers only (practice, not official grades)
 router.post('/:classId/coaching-sessions/:sessionId/save-results', authenticateToken, requireRole('teacher', 'head_teacher', 'admin'), async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   const sessionId = parseInt(req.params.sessionId, 10);
@@ -494,7 +498,6 @@ router.post('/:classId/coaching-sessions/:sessionId/save-results', authenticateT
     const session = await pool.query('SELECT * FROM coaching_sessions WHERE id = $1 AND class_id = $2', [sessionId, classId]);
     if (session.rows.length === 0) return res.status(404).json({ error: 'Session not found.' });
     const sess = session.rows[0];
-    if (!sess.quiz_id) return res.status(400).json({ error: 'No quiz linked to this session.' });
 
     // Get all answers for this session
     const answers = await pool.query(
@@ -509,46 +512,94 @@ router.post('/:classId/coaching-sessions/:sessionId/save-results', authenticateT
       byStudent[a.student_id][a.question_id] = a.answer;
     }
 
-    // Get total questions
-    const qCount = await pool.query('SELECT COUNT(*) FROM quiz_questions WHERE quiz_id = $1', [sess.quiz_id]);
-    const total = parseInt(qCount.rows[0].count, 10);
-
     let saved = 0;
-    for (const [studentId, studentAnswers] of Object.entries(byStudent)) {
-      // Calculate score
-      const questions = await pool.query('SELECT id, correct_answer, question_type FROM quiz_questions WHERE quiz_id = $1', [sess.quiz_id]);
-      let score = 0;
-      for (const q of questions.rows) {
-        const given = String(studentAnswers[q.id] ?? '');
-        if (q.question_type === 'fill_blank') {
-          if (given.trim().toLowerCase() === (q.correct_answer || '').trim().toLowerCase()) score++;
-        } else {
-          if (given.toLowerCase() === (q.correct_answer || '').toLowerCase()) score++;
+    let savedOfficial = 0;
+
+    // Only save to quiz_attempts if teacher chose "count toward official assessment"
+    if (sess.count_toward_official && sess.quiz_id) {
+      const qCount = await pool.query('SELECT COUNT(*) FROM quiz_questions WHERE quiz_id = $1', [sess.quiz_id]);
+      const total = parseInt(qCount.rows[0].count, 10);
+
+      for (const [studentId, studentAnswers] of Object.entries(byStudent)) {
+        // Calculate score
+        const questions = await pool.query('SELECT id, correct_answer, question_type FROM quiz_questions WHERE quiz_id = $1', [sess.quiz_id]);
+        let score = 0;
+        for (const q of questions.rows) {
+          const given = String(studentAnswers[q.id] ?? '');
+          if (q.question_type === 'fill_blank') {
+            if (given.trim().toLowerCase() === (q.correct_answer || '').trim().toLowerCase()) score++;
+          } else {
+            if (given.toLowerCase() === (q.correct_answer || '').toLowerCase()) score++;
+          }
         }
-      }
 
-      // Check if attempt already exists
-      const existing = await pool.query(
-        'SELECT id FROM quiz_attempts WHERE quiz_id = $1 AND student_id = $2 AND COALESCE(group_assignment_id, 0) = 0',
-        [sess.quiz_id, studentId]
-      );
-
-      if (existing.rows.length === 0) {
-        await pool.query(
-          `INSERT INTO quiz_attempts (quiz_id, student_id, score, total, answers, attempted_at)
-           VALUES ($1, $2, $3, $4, $5, NOW())`,
-          [sess.quiz_id, studentId, score, total, JSON.stringify(studentAnswers)]
+        // Check if attempt already exists (avoid duplicates)
+        const existing = await pool.query(
+          'SELECT id FROM quiz_attempts WHERE quiz_id = $1 AND student_id = $2 AND COALESCE(group_assignment_id, 0) = 0',
+          [sess.quiz_id, studentId]
         );
-        saved++;
+
+        if (existing.rows.length === 0) {
+          await pool.query(
+            `INSERT INTO quiz_attempts (quiz_id, student_id, score, total, answers, attempted_at, attempt_source)
+             VALUES ($1, $2, $3, $4, $5, NOW(), 'coaching')`,
+            [sess.quiz_id, studentId, score, total, JSON.stringify(studentAnswers)]
+          );
+          savedOfficial++;
+        }
       }
     }
 
-    // Mark session as saved
+    saved = Object.keys(byStudent).length;
+
+    // Mark session as completed
     await pool.query('UPDATE coaching_sessions SET status = $1 WHERE id = $2', ['completed', sessionId]);
 
-    res.json({ saved, total_students: Object.keys(byStudent).length });
+    res.json({
+      saved,
+      saved_official: savedOfficial,
+      total_students: Object.keys(byStudent).length,
+      count_toward_official: sess.count_toward_official,
+    });
   } catch (err) {
     console.error('[coaching] save-results error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// GET /coaching-sessions/student/:studentId — get coaching sessions for a student (for parent portal)
+router.get('/coaching-sessions/student/:studentId', authenticateToken, async (req, res) => {
+  const studentId = parseInt(req.params.studentId, 10);
+  try {
+    // Parents can view their children's coaching sessions
+    if (req.user.role === 'parent') {
+      const child = await pool.query(
+        `SELECT 1 FROM parent_children WHERE parent_id = $1 AND student_id = $2`,
+        [req.user.id, studentId]
+      );
+      if (child.rows.length === 0) return res.status(403).json({ error: 'Not your child.' });
+    } else if (req.user.role !== 'admin' && req.user.id !== studentId) {
+      return res.status(403).json({ error: 'Forbidden.' });
+    }
+
+    const sessions = await pool.query(
+      `SELECT cs.id, cs.title, cs.topic, cs.status, cs.scheduled_at, cs.started_at, cs.ended_at,
+              cs.count_toward_official, c.name AS class_name, u.name AS teacher_name,
+              (SELECT COUNT(*) FROM coaching_session_answers csa WHERE csa.session_id = cs.id AND csa.student_id = $1) AS answered_count,
+              (SELECT SUM(csa.awarded_marks) FROM coaching_session_answers csa WHERE csa.session_id = cs.id AND csa.student_id = $1) AS total_marks,
+              (SELECT COUNT(*) FROM quiz_questions qq WHERE qq.quiz_id = cs.quiz_id) AS total_questions
+       FROM coaching_session_participants csp
+       JOIN coaching_sessions cs ON cs.id = csp.session_id
+       JOIN classes c ON c.id = cs.class_id
+       JOIN users u ON u.id = cs.teacher_id
+       WHERE csp.student_id = $1
+       ORDER BY cs.created_at DESC`,
+      [studentId]
+    );
+
+    res.json(sessions.rows);
+  } catch (err) {
+    console.error('[coaching] student sessions error:', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });

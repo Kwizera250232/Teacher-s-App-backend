@@ -232,7 +232,8 @@ router.get('/children/:studentId/summary', authenticateToken, requireRole('paren
     const quizPeriod = periodClause(period, 'qa.attempted_at');
     const quizzes = await pool.query(
       `SELECT q.id AS quiz_id, q.title, q.created_at, qa.id AS attempt_id, qa.score, qa.total,
-              qa.attempted_at, c.name AS class_name, c.id AS class_id
+              qa.attempted_at, c.name AS class_name, c.id AS class_id,
+              COALESCE(qa.attempt_source, 'quiz') AS attempt_source
        FROM quiz_attempts qa
        JOIN quizzes q ON q.id = qa.quiz_id
        JOIN classes c ON c.id = q.class_id
@@ -278,6 +279,22 @@ router.get('/children/:studentId/summary', authenticateToken, requireRole('paren
       [studentId]
     ).catch(() => ({ rows: [] }));
 
+    // Coaching sessions the child participated in
+    const coachingSessions = await pool.query(
+      `SELECT cs.id, cs.title, cs.topic, cs.status, cs.started_at, cs.ended_at,
+              c.name AS class_name, u.name AS teacher_name,
+              (SELECT COUNT(*) FROM coaching_session_answers csa WHERE csa.session_id = cs.id AND csa.student_id = $1) AS answered_count,
+              (SELECT SUM(csa.awarded_marks) FROM coaching_session_answers csa WHERE csa.session_id = cs.id AND csa.student_id = $1) AS total_marks,
+              (SELECT COUNT(*) FROM quiz_questions qq WHERE qq.quiz_id = cs.quiz_id) AS total_questions
+       FROM coaching_session_participants csp
+       JOIN coaching_sessions cs ON cs.id = csp.session_id
+       JOIN classes c ON c.id = cs.class_id
+       JOIN users u ON u.id = cs.teacher_id
+       WHERE csp.student_id = $1
+       ORDER BY cs.created_at DESC LIMIT 20`,
+      [studentId]
+    ).catch(() => ({ rows: [] }));
+
     res.json({
       period,
       student: student.rows[0],
@@ -288,6 +305,7 @@ router.get('/children/:studentId/summary', authenticateToken, requireRole('paren
       marks: marks.rows,
       weekly_digests: digests.rows,
       compositions: shares.rows,
+      coaching_sessions: coachingSessions.rows,
     });
   } catch (err) {
     console.error('[parent summary]', err);
