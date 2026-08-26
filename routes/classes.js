@@ -336,13 +336,13 @@ router.get('/:id/students/credentials', authenticateToken, requireRole('teacher'
        WHERE c.id = $1`,
       [classId]
     );
+    if (classRes.rows.length === 0) return res.status(404).json({ error: 'Class not found.' });
+    const cls = classRes.rows[0];
     let schoolName = null;
-    if (cls && cls.teacher_school_id) {
+    if (cls.teacher_school_id) {
       const sch = await pool.query('SELECT name FROM schools WHERE id = $1', [cls.teacher_school_id]);
       if (sch.rows.length) schoolName = sch.rows[0].name;
     }
-    if (classRes.rows.length === 0) return res.status(404).json({ error: 'Class not found.' });
-    const cls = classRes.rows[0];
 
     const studs = await pool.query(
       `SELECT u.id, u.name, u.email, u.plaintext_password, u.phone
