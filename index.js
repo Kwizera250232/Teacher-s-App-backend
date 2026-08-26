@@ -87,6 +87,7 @@ app.use('/download', downloadRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/classes', classRoutes);
 app.use('/api/classes', require('./routes/class_points'));
+app.use('/api/classes', require('./routes/coaching'));
 app.use('/api/classes', require('./routes/class_group_quizzes'));
 app.use('/api/classes', require('./routes/achievements'));
 app.use('/api/classes', require('./routes/quiz_reflections'));
