@@ -382,6 +382,44 @@ router.put('/:classId/coaching-sessions/:sessionId/state', authenticateToken, re
   }
 });
 
+// POST /coaching-sessions/:sessionId/next-question — student advances to next question
+router.post('/:classId/coaching-sessions/:sessionId/next-question', authenticateToken, requireRole('student', 'teacher', 'head_teacher', 'admin'), async (req, res) => {
+  const classId = parseInt(req.params.classId, 10);
+  const sessionId = parseInt(req.params.sessionId, 10);
+  try {
+    const access = await userCanAccessClass(req.user, classId);
+    if (!access.ok) return res.status(403).json({ error: 'Forbidden.' });
+
+    // Get current state
+    const sess = await pool.query(
+      'SELECT current_question_index, quiz_id FROM coaching_sessions WHERE id = $1 AND class_id = $2',
+      [sessionId, classId]
+    );
+    if (sess.rows.length === 0) return res.status(404).json({ error: 'Session not found.' });
+
+    const currentIdx = sess.rows[0].current_question_index || 0;
+    const nextIdx = currentIdx + 1;
+
+    // Check if there are more questions
+    const quizId = sess.rows[0].quiz_id;
+    if (quizId) {
+      const qCount = await pool.query('SELECT COUNT(*) FROM quiz_questions WHERE quiz_id = $1', [quizId]);
+      const total = parseInt(qCount.rows[0].count, 10);
+      if (nextIdx >= total) return res.json({ advanced: false, message: 'No more questions.' });
+    }
+
+    // Advance and reset answer visibility
+    await pool.query(
+      'UPDATE coaching_sessions SET current_question_index = $1, show_answer = false WHERE id = $2 AND class_id = $3',
+      [nextIdx, sessionId, classId]
+    );
+    res.json({ advanced: true, current_question_index: nextIdx });
+  } catch (err) {
+    console.error('[coaching] next-question error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // POST /coaching-sessions/:sessionId/answer — student submits answer for current question
 router.post('/:classId/coaching-sessions/:sessionId/answer', authenticateToken, requireRole('student'), async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
