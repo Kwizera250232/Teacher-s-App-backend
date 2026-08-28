@@ -38,6 +38,24 @@ router.get('/:classId/coaching-sessions', authenticateToken, async (req, res) =>
       );
       const invitedSet = new Set(invited.rows.map(r => r.session_id));
       sessions.rows.forEach(s => { s.is_invited = invitedSet.has(s.id); });
+
+      // Also include sessions from OTHER classes where this student is invited
+      const crossClassSessions = await pool.query(
+        `SELECT cs.*, u.name AS teacher_name, c.name AS class_name,
+                q.title AS quiz_title,
+                (SELECT COUNT(*) FROM coaching_session_participants WHERE session_id = cs.id AND joined_at IS NOT NULL) AS participant_count
+         FROM coaching_sessions cs
+         JOIN users u ON u.id = cs.teacher_id
+         JOIN classes c ON c.id = cs.class_id
+         LEFT JOIN quizzes q ON q.id = cs.quiz_id
+         JOIN coaching_session_participants csp ON csp.session_id = cs.id
+         WHERE csp.student_id = $1 AND cs.class_id <> $2
+           AND cs.id NOT IN (SELECT unnest($3::int[]))
+         ORDER BY cs.created_at DESC`,
+        [req.user.id, classId, sessions.rows.map(s => s.id)]
+      );
+      crossClassSessions.rows.forEach(s => { s.is_invited = true; });
+      sessions.rows = sessions.rows.concat(crossClassSessions.rows);
     }
 
     res.json(sessions.rows);
@@ -50,11 +68,20 @@ router.get('/:classId/coaching-sessions', authenticateToken, async (req, res) =>
 // POST /coaching-sessions — create a new session
 router.post('/:classId/coaching-sessions', authenticateToken, requireRole('teacher', 'head_teacher', 'admin'), async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
-  const { title, topic, description, scheduled_at, quiz_id, invited_student_ids, count_toward_official } = req.body;
+  const { title, topic, description, scheduled_at, quiz_id, invited_student_ids, count_toward_official, additional_class_ids } = req.body;
   if (!title || !title.trim()) return res.status(400).json({ error: 'Title is required.' });
   try {
     const manage = await userCanManageClass(req.user, classId);
     if (!manage.ok) return res.status(403).json({ error: 'You do not manage this class.' });
+
+    // Verify additional classes belong to this teacher
+    let extraClassIds = [];
+    if (Array.isArray(additional_class_ids) && additional_class_ids.length > 0) {
+      for (const cid of additional_class_ids) {
+        const m = await userCanManageClass(req.user, cid);
+        if (m.ok) extraClassIds.push(cid);
+      }
+    }
 
     const result = await pool.query(
       `INSERT INTO coaching_sessions (class_id, teacher_id, title, topic, description, scheduled_at, quiz_id, count_toward_official, status)
@@ -72,6 +99,17 @@ router.post('/:classId/coaching-sessions', authenticateToken, requireRole('teach
         [classId]
       );
       studentIds = allStudents.rows.map(r => r.id);
+    }
+
+    // Add students from additional classes
+    for (const cid of extraClassIds) {
+      const extraStudents = await pool.query(
+        `SELECT u.id FROM class_members cm JOIN users u ON u.id = cm.student_id WHERE cm.class_id = $1 AND u.role = 'student'`,
+        [cid]
+      );
+      extraStudents.rows.forEach(r => {
+        if (!studentIds.includes(r.id)) studentIds.push(r.id);
+      });
     }
 
     for (const sid of studentIds) {
@@ -104,8 +142,8 @@ router.get('/:classId/coaching-sessions/:sessionId', authenticateToken, async (r
   const classId = parseInt(req.params.classId, 10);
   const sessionId = parseInt(req.params.sessionId, 10);
   try {
-    const access = await userCanAccessClass(req.user, classId);
-    if (!access.ok) return res.status(403).json({ error: 'Forbidden.' });
+    const ok = await userCanAccessSession(req.user, classId, sessionId);
+    if (!ok) return res.status(403).json({ error: 'Forbidden.' });
 
     const sessionRes = await pool.query(
       `SELECT cs.*, u.name AS teacher_name, q.title AS quiz_title
@@ -217,16 +255,15 @@ router.post('/:classId/coaching-sessions/:sessionId/join', authenticateToken, re
   const classId = parseInt(req.params.classId, 10);
   const sessionId = parseInt(req.params.sessionId, 10);
   try {
-    const access = await userCanAccessClass(req.user, classId);
-    if (!access.ok) return res.status(403).json({ error: 'Forbidden.' });
-
-    // Check if invited or class member
+    // Check if invited first (allows cross-class invited students to join)
     const invited = await pool.query(
       `SELECT 1 FROM coaching_session_participants WHERE session_id = $1 AND student_id = $2`,
       [sessionId, req.user.id]
     );
     if (invited.rows.length === 0) {
-      // Auto-add if class member
+      // Not explicitly invited — check if class member of the primary class
+      const access = await userCanAccessClass(req.user, classId);
+      if (!access.ok) return res.status(403).json({ error: 'Not invited to this session.' });
       const isMember = await pool.query(
         `SELECT 1 FROM class_members WHERE class_id = $1 AND student_id = $2`,
         [classId, req.user.id]
@@ -265,13 +302,26 @@ router.post('/:classId/coaching-sessions/:sessionId/leave', authenticateToken, r
   }
 });
 
+// Helper: check if user can access a coaching session (class member OR invited)
+async function userCanAccessSession(user, classId, sessionId) {
+  // Class member/teacher?
+  const access = await userCanAccessClass(user, classId);
+  if (access.ok) return true;
+  // Invited participant?
+  const invited = await pool.query(
+    `SELECT 1 FROM coaching_session_participants WHERE session_id = $1 AND student_id = $2`,
+    [sessionId, user.id]
+  );
+  return invited.rows.length > 0;
+}
+
 // GET /coaching-sessions/:sessionId/state — get live state (polled by students)
 router.get('/:classId/coaching-sessions/:sessionId/state', authenticateToken, async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   const sessionId = parseInt(req.params.sessionId, 10);
   try {
-    const access = await userCanAccessClass(req.user, classId);
-    if (!access.ok) return res.status(403).json({ error: 'Forbidden.' });
+    const ok = await userCanAccessSession(req.user, classId, sessionId);
+    if (!ok) return res.status(403).json({ error: 'Forbidden.' });
 
     const state = await pool.query(
       `SELECT status, current_question_index, show_answer, is_paused, question_group_size,
@@ -401,8 +451,8 @@ router.post('/:classId/coaching-sessions/:sessionId/next-question', authenticate
   const classId = parseInt(req.params.classId, 10);
   const sessionId = parseInt(req.params.sessionId, 10);
   try {
-    const access = await userCanAccessClass(req.user, classId);
-    if (!access.ok) return res.status(403).json({ error: 'Forbidden.' });
+    const ok = await userCanAccessSession(req.user, classId, sessionId);
+    if (!ok) return res.status(403).json({ error: 'Forbidden.' });
 
     // Get current state
     const sess = await pool.query(
@@ -441,8 +491,8 @@ router.post('/:classId/coaching-sessions/:sessionId/answer', authenticateToken, 
   const { question_id, answer } = req.body;
   if (!question_id || answer === undefined) return res.status(400).json({ error: 'Question ID and answer required.' });
   try {
-    const access = await userCanAccessClass(req.user, classId);
-    if (!access.ok) return res.status(403).json({ error: 'Forbidden.' });
+    const ok = await userCanAccessSession(req.user, classId, sessionId);
+    if (!ok) return res.status(403).json({ error: 'Forbidden.' });
 
     // Get question to check answer
     const qRes = await pool.query('SELECT * FROM quiz_questions WHERE id = $1', [question_id]);
@@ -493,8 +543,8 @@ router.get('/:classId/coaching-sessions/:sessionId/results', authenticateToken, 
   const classId = parseInt(req.params.classId, 10);
   const sessionId = parseInt(req.params.sessionId, 10);
   try {
-    const access = await userCanAccessClass(req.user, classId);
-    if (!access.ok) return res.status(403).json({ error: 'Forbidden.' });
+    const ok = await userCanAccessSession(req.user, classId, sessionId);
+    if (!ok) return res.status(403).json({ error: 'Forbidden.' });
 
     const session = await pool.query('SELECT * FROM coaching_sessions WHERE id = $1 AND class_id = $2', [sessionId, classId]);
     if (session.rows.length === 0) return res.status(404).json({ error: 'Session not found.' });
@@ -672,8 +722,8 @@ router.post('/:classId/coaching-sessions/:sessionId/signal', authenticateToken, 
   const sessionId = parseInt(req.params.sessionId, 10);
   const { to_user_id, signal_type, signal_data } = req.body;
   try {
-    const access = await userCanAccessClass(req.user, classId);
-    if (!access.ok) return res.status(403).json({ error: 'Forbidden.' });
+    const ok = await userCanAccessSession(req.user, classId, sessionId);
+    if (!ok) return res.status(403).json({ error: 'Forbidden.' });
     await pool.query(
       `INSERT INTO coaching_webrtc_signals (session_id, from_user_id, to_user_id, signal_type, signal_data)
        VALUES ($1, $2, $3, $4, $5)`,
@@ -692,8 +742,8 @@ router.get('/:classId/coaching-sessions/:sessionId/signal', authenticateToken, a
   const sessionId = parseInt(req.params.sessionId, 10);
   const sinceId = parseInt(req.query.since || '0', 10);
   try {
-    const access = await userCanAccessClass(req.user, classId);
-    if (!access.ok) return res.status(403).json({ error: 'Forbidden.' });
+    const ok = await userCanAccessSession(req.user, classId, sessionId);
+    if (!ok) return res.status(403).json({ error: 'Forbidden.' });
     // Get signals addressed to me OR broadcast (to_user_id IS NULL), from others, since last poll
     const result = await pool.query(
       `SELECT id, from_user_id, signal_type, signal_data, created_at
