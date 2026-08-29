@@ -144,5 +144,45 @@ router.post('/discussions/:discussionId/comments', authenticateToken, async (req
   }
 });
 
+// DELETE a single discussion message (owner or teacher)
+router.delete('/discussions/:discussionId', authenticateToken, async (req, res) => {
+  const did = parseInt(req.params.discussionId);
+  try {
+    // Check if user is the owner or a teacher/head_teacher/admin
+    const msg = await pool.query('SELECT user_id, class_id FROM discussions WHERE id=$1', [did]);
+    if (msg.rows.length === 0) return res.status(404).json({ error: 'Not found.' });
+    const isOwner = msg.rows[0].user_id === req.user.id;
+    const isStaff = ['teacher', 'head_teacher', 'admin'].includes(req.user.role);
+    if (!isOwner && !isStaff) return res.status(403).json({ error: 'Not authorized.' });
+    // Delete likes, comments, then the message
+    await pool.query('DELETE FROM discussion_likes WHERE discussion_id=$1', [did]);
+    await pool.query('DELETE FROM discussion_comments WHERE discussion_id=$1', [did]);
+    await pool.query('DELETE FROM discussions WHERE id=$1', [did]);
+    res.json({ message: 'Deleted.' });
+  } catch {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// DELETE all discussions in a class (teacher/head_teacher/admin only)
+router.delete('/:classId/discussions', authenticateToken, requireRole('teacher', 'head_teacher', 'admin'), async (req, res) => {
+  try {
+    const classId = parseInt(req.params.classId);
+    // Delete likes and comments for all discussions in this class
+    await pool.query(
+      `DELETE FROM discussion_likes WHERE discussion_id IN (SELECT id FROM discussions WHERE class_id=$1)`,
+      [classId]
+    );
+    await pool.query(
+      `DELETE FROM discussion_comments WHERE discussion_id IN (SELECT id FROM discussions WHERE class_id=$1)`,
+      [classId]
+    );
+    await pool.query('DELETE FROM discussions WHERE class_id=$1', [classId]);
+    res.json({ message: 'All discussions cleared.' });
+  } catch {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 module.exports = router;
 
