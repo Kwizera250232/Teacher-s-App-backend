@@ -178,15 +178,27 @@ router.get('/:classId/guest-marks', authenticateToken, requireRole('teacher', 'h
 });
 
 // GET classes joined by student
-router.get('/my', authenticateToken, requireRole('student'), async (req, res) => {
+router.get('/my', authenticateToken, async (req, res) => {
   try {
+    if (req.user.role === 'student') {
+      const result = await pool.query(
+        `SELECT c.*, u.name AS teacher_name
+         FROM classes c
+         JOIN class_members cm ON c.id = cm.class_id
+         JOIN users u ON c.teacher_id = u.id
+         WHERE cm.student_id = $1
+         ORDER BY cm.joined_at DESC`,
+        [req.user.id]
+      );
+      return res.json(result.rows);
+    }
+    // Teacher / head_teacher / admin — return classes they teach
     const result = await pool.query(
       `SELECT c.*, u.name AS teacher_name
        FROM classes c
-       JOIN class_members cm ON c.id = cm.class_id
        JOIN users u ON c.teacher_id = u.id
-       WHERE cm.student_id = $1
-       ORDER BY cm.joined_at DESC`,
+       WHERE c.teacher_id = $1
+       ORDER BY c.created_at DESC`,
       [req.user.id]
     );
     res.json(result.rows);
