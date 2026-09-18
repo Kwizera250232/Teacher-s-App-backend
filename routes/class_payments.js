@@ -17,6 +17,26 @@ const CLASS_BENEFITS = [
 
 const MIN_CLASS_PRICE = 100;
 
+// Friendly messages for MTN error codes (Kinyarwanda + English)
+const MTN_ERRORS = {
+  NOT_ENOUGH_FUNDS: 'Nta mafaranga ahagije ufite muri telefone wahyizemo — wongereho cyangwa ushyiremo numero ifite amafaranga. (Not enough money on that phone)',
+  PAYER_NOT_FOUND: 'Iyi numero ntiyanditse kuri MTN MoMo — shyiramo numero yawe ya MTN iyobeweho. (Number not registered on MTN MoMo)',
+  PAYER_LIMIT_REACHED: 'Warengeje umupaka w\'ibyishyurwa kuri iyi numero — gerageza numero indi cyangwa muri saa mbere. (Payer limit reached)',
+  PAYMENT_NOT_APPROVED: 'Ubwishyu ntibwemejwe kuri telefone. (Payment was not approved)',
+  PARTY_NOT_FOUND: 'Iyi numero ntiyanditse kuri MTN MoMo. (Number not registered)',
+  INVALID_CALLBACK_URL_HOST: 'Payment configuration error — contact UClass support.',
+  SERVICE_UNAVAILABLE: 'Serivisi ya MTN ntiboneka ubu — gerageza nyuma gato. (MTN service unavailable, try again)',
+  INTERNAL_PROCESSING_ERROR: 'Habaye ikosa kuri MTN — gerageza ukundi. (MTN internal error, try again)',
+};
+
+function mtnErrorMessage(err) {
+  if (err.mtnCode && MTN_ERRORS[err.mtnCode]) return MTN_ERRORS[err.mtnCode];
+  if (err.mtnStatus === 400) {
+    return 'Ubwishyu ntibwakiriwe na MTN — reba ko numero ari iyo kuri MTN MoMo kandi ifite amafaranga ahagije. (Payment rejected — check the number is a MoMo account with enough balance)';
+  }
+  return err.message || 'Payment request failed.';
+}
+
 async function teacherManagesClass(userId, classId, role) {
   if (role === 'admin' || role === 'head_teacher') return true;
   const r = await pool.query('SELECT 1 FROM classes WHERE id=$1 AND teacher_id=$2', [classId, userId]);
@@ -161,7 +181,7 @@ router.post('/:classId/pay', authenticateToken, requireRole('student'), async (r
     });
   } catch (err) {
     console.error('[class pay]', err.message);
-    res.status(502).json({ error: err.message || 'Payment request failed.' });
+    res.status(502).json({ error: mtnErrorMessage(err), mtn_code: err.mtnCode || null });
   }
 });
 
@@ -202,7 +222,14 @@ router.get('/:classId/pay-status/:referenceId', authenticateToken, async (req, r
       }
     }
     const updated = (await pool.query('SELECT expires_at FROM class_payments WHERE id=$1', [row.id])).rows[0];
-    res.json({ status, reference_id: row.reference_id, expires_at: updated?.expires_at });
+    const reasonCode = typeof mtn.reason === 'string' ? mtn.reason : (mtn.reason?.code || '');
+    res.json({
+      status,
+      reference_id: row.reference_id,
+      expires_at: updated?.expires_at,
+      reason: reasonCode,
+      reason_message: reasonCode && MTN_ERRORS[reasonCode] ? MTN_ERRORS[reasonCode] : undefined,
+    });
   } catch (err) {
     console.error('[pay status]', err.message);
     res.status(502).json({ error: err.message || 'Status check failed.' });
