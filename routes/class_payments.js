@@ -32,7 +32,7 @@ const MTN_ERRORS = {
 function mtnErrorMessage(err) {
   if (err.mtnCode && MTN_ERRORS[err.mtnCode]) return MTN_ERRORS[err.mtnCode];
   if (err.mtnStatus === 400) {
-    return 'Ubwishyu ntibwakiriwe na MTN — reba ko numero ari iyo kuri MTN MoMo kandi ifite amafaranga ahagije. (Payment rejected — check the number is a MoMo account with enough balance)';
+    return 'Nta mafaranga ahagije ufite yongere wongere — wongereho amafaranga kuri MoMo cyangwa ushyiremo numero ifite amafaranga. (Not enough money — top up MoMo or use a number that has money)';
   }
   return err.message || 'Payment request failed.';
 }
