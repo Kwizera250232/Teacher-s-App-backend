@@ -19,7 +19,7 @@ const MIN_CLASS_PRICE = 100;
 
 // Friendly messages for MTN error codes (Kinyarwanda + English)
 const MTN_ERRORS = {
-  NOT_ENOUGH_FUNDS: 'Nta mafaranga ahagije ufite muri telefone wahyizemo — wongereho cyangwa ushyiremo numero ifite amafaranga. (Not enough money on that phone)',
+  NOT_ENOUGH_FUNDS: 'Nta mafaranga ahagije ufitemo. Yongere wongere.',
   PAYER_NOT_FOUND: 'Iyi numero ntiyanditse kuri MTN MoMo — shyiramo numero yawe ya MTN iyobeweho. (Number not registered on MTN MoMo)',
   PAYER_LIMIT_REACHED: 'Warengeje umupaka w\'ibyishyurwa kuri iyi numero — gerageza numero indi cyangwa muri saa mbere. (Payer limit reached)',
   PAYMENT_NOT_APPROVED: 'Ubwishyu ntibwemejwe kuri telefone. (Payment was not approved)',
@@ -32,7 +32,7 @@ const MTN_ERRORS = {
 function mtnErrorMessage(err) {
   if (err.mtnCode && MTN_ERRORS[err.mtnCode]) return MTN_ERRORS[err.mtnCode];
   if (err.mtnStatus === 400) {
-    return 'Nta mafaranga ahagije ufite yongere wongere — wongereho amafaranga kuri MoMo cyangwa ushyiremo numero ifite amafaranga. (Not enough money — top up MoMo or use a number that has money)';
+    return 'Nta mafaranga ahagije ufitemo. Yongere wongere.';
   }
   return err.message || 'Payment request failed.';
 }
