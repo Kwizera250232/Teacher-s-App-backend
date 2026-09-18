@@ -85,6 +85,8 @@ app.use('/uploads/msg_images', express.static(path.join(uploadsRoot, 'msg_images
 app.use('/download', downloadRoutes);
 
 app.use('/api/auth', authRoutes);
+app.use('/api/classes', require('./lib/classPaymentGate'));
+app.use('/api/classes', require('./routes/class_payments'));
 app.use('/api/classes', classRoutes);
 app.use('/api/classes', require('./routes/class_points'));
 app.use('/api/classes', require('./routes/coaching'));
@@ -121,6 +123,7 @@ app.use('/api/parent', parentPortalRoutes);
 app.use('/api/parent', parentHubRoutes);
 app.use('/api/staff', require('./routes/staff_notifications'));
 app.use('/api/donate', donateRoutes);
+app.use('/api/teacher', require('./routes/teacher_earnings'));
 app.use('/api/hooks', require('./routes/hooks'));
 app.use('/api/mail', require('./routes/mail'));
 app.use('/api/alumni', require('./routes/alumni'));
@@ -245,6 +248,7 @@ app.listen(PORT, () => {
   require('./lib/quizSoloRelease').ensureQuizSoloReleaseSchema().catch((e) => console.error('[startup] quiz solo release schema:', e.message));
   require('./lib/achievementsSchema').ensureAchievementsSchema().catch((e) => console.error('[startup] achievements schema:', e.message));
   require('./lib/alumniSchema').ensureAlumniSchema(require('./db')).catch((e) => console.error('[startup] alumni schema:', e.message));
+  require('./lib/classPaymentsSchema').ensureClassPaymentsSchema().catch((e) => console.error('[startup] class payments schema:', e.message));
   const pool = require('./db');
   const { migrateSchoolLoginDomains } = require('./lib/schoolDomain');
   migrateSchoolLoginDomains(pool).catch((e) => console.error('[startup] school login domains:', e.message));
