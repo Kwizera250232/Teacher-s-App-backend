@@ -21,19 +21,23 @@ const MIN_CLASS_PRICE = 100;
 const MTN_ERRORS = {
   NOT_ENOUGH_FUNDS: 'Nta mafaranga ahagije ufitemo. Yongere wongere.',
   PAYER_NOT_FOUND: 'Iyi numero ntiyanditse kuri MTN MoMo — shyiramo numero yawe ya MTN iyobeweho. (Number not registered on MTN MoMo)',
+  PAYEE_NOT_FOUND: 'Iyi numero ntiyanditse kuri MTN MoMo. (Number not registered on MTN MoMo)',
   PAYER_LIMIT_REACHED: 'Warengeje umupaka w\'ibyishyurwa kuri iyi numero — gerageza numero indi cyangwa muri saa mbere. (Payer limit reached)',
   PAYMENT_NOT_APPROVED: 'Ubwishyu ntibwemejwe kuri telefone. (Payment was not approved)',
+  APPROVAL_REJECTED: 'Wabyanze ubwishyu kuri telefone yawe. (Payment rejected on phone)',
+  EXPIRED: 'Ubusabe bwahisewe — igihe cyarangiye. Ongera ugerageze. (Payment request expired — try again)',
   PARTY_NOT_FOUND: 'Iyi numero ntiyanditse kuri MTN MoMo. (Number not registered)',
   INVALID_CALLBACK_URL_HOST: 'Payment configuration error — contact UClass support.',
+  INVALID_CURRENCY: 'Payment configuration error — contact UClass support.',
+  NOT_ALLOWED: 'Ubwishyu ntibwemewe kuri iyi numero. (Payment not allowed for this number)',
+  NOT_ALLOWED_TARGET_ENVIRONMENT: 'Payment configuration error — contact UClass support.',
+  RESOURCE_NOT_FOUND: 'Ubusabe ntibuboneka — ongera ugerageze. (Request not found — try again)',
   SERVICE_UNAVAILABLE: 'Serivisi ya MTN ntiboneka ubu — gerageza nyuma gato. (MTN service unavailable, try again)',
   INTERNAL_PROCESSING_ERROR: 'Habaye ikosa kuri MTN — gerageza ukundi. (MTN internal error, try again)',
 };
 
 function mtnErrorMessage(err) {
   if (err.mtnCode && MTN_ERRORS[err.mtnCode]) return MTN_ERRORS[err.mtnCode];
-  if (err.mtnStatus === 400) {
-    return 'Nta mafaranga ahagije ufitemo. Yongere wongere.';
-  }
   return err.message || 'Payment request failed.';
 }
 
