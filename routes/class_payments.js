@@ -165,13 +165,21 @@ router.post('/:classId/pay', authenticateToken, requireRole('student'), async (r
       mode = 'demo';
     }
 
-    await pool.query(
-      `INSERT INTO class_payments (class_id, student_id, phone, amount, reference_id, status, mode,
-         paid_at, expires_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7, CASE WHEN $6='SUCCESSFUL' THEN NOW() ELSE NULL END,
-         CASE WHEN $6='SUCCESSFUL' THEN NOW() + ($8 || ' days')::interval ELSE NULL END)`,
-      [classId, req.user.id, phone, s.amount_rwf, referenceId, status, mode, s.duration_days || 30]
-    );
+    const durDays = s.duration_days || 30;
+    const paidAt = status === 'SUCCESSFUL' ? new Date() : null;
+    const expiresAt = status === 'SUCCESSFUL' ? new Date(Date.now() + durDays * 86400000) : null;
+    try {
+      await pool.query(
+        `INSERT INTO class_payments (class_id, student_id, phone, amount, reference_id, status, mode,
+           paid_at, expires_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [classId, req.user.id, phone, s.amount_rwf, referenceId, status, mode, paidAt, expiresAt]
+      );
+    } catch (dbErr) {
+      // MTN already accepted the request — the payer may approve and get charged.
+      // Still return the reference so the status poller can reconcile it later.
+      console.error('[class pay] insert failed after MTN accept', referenceId, dbErr.message);
+    }
 
     res.status(202).json({
       reference_id: referenceId,
@@ -193,11 +201,38 @@ router.post('/:classId/pay', authenticateToken, requireRole('student'), async (r
 router.get('/:classId/pay-status/:referenceId', authenticateToken, async (req, res) => {
   try {
     await ensureClassPaymentsSchema();
-    const row = (await pool.query(
+    const classId = parseInt(req.params.classId, 10);
+    let row = (await pool.query(
       'SELECT * FROM class_payments WHERE reference_id=$1 AND student_id=$2 AND class_id=$3',
-      [req.params.referenceId, req.user.id, req.params.classId]
+      [req.params.referenceId, req.user.id, classId]
     )).rows[0];
-    if (!row) return res.status(404).json({ error: 'Payment not found.' });
+
+    if (!row) {
+      // Local record may be missing (insert failed after MTN accepted) while the
+      // payer already approved — reconcile with MTN so a charged student gets access.
+      const cfg0 = getConfig();
+      if (!cfg0.configured) return res.status(404).json({ error: 'Payment not found.' });
+      try {
+        const mtn0 = await getPaymentStatus(req.params.referenceId);
+        if (mtn0.status === 'SUCCESSFUL') {
+          const dur0 = (await pool.query(
+            'SELECT duration_days, amount_rwf FROM class_payment_settings WHERE class_id=$1', [classId]
+          )).rows[0];
+          const expires = new Date(Date.now() + (dur0?.duration_days || 30) * 86400000);
+          await pool.query(
+            `INSERT INTO class_payments (class_id, student_id, phone, amount, reference_id, status, mode, paid_at, expires_at)
+             VALUES ($1,$2,$3,$4,$5,'SUCCESSFUL',$6,NOW(),$7)
+             ON CONFLICT (reference_id) DO NOTHING`,
+            [classId, req.user.id, mtn0.payer?.partyId || '', Math.round(Number(mtn0.amount)) || dur0?.amount_rwf || 0,
+             req.params.referenceId, cfg0.live ? 'live' : 'sandbox', expires]
+          );
+          return res.json({ status: 'SUCCESSFUL', reference_id: req.params.referenceId, expires_at: expires });
+        }
+        return res.json({ status: mtn0.status || 'PENDING', reference_id: req.params.referenceId });
+      } catch {
+        return res.status(404).json({ error: 'Payment not found.' });
+      }
+    }
 
     if (row.mode === 'demo' || row.status === 'SUCCESSFUL' || row.status === 'FAILED') {
       return res.json({ status: row.status, reference_id: row.reference_id, expires_at: row.expires_at });
@@ -217,7 +252,7 @@ router.get('/:classId/pay-status/:referenceId', authenticateToken, async (req, r
              expires_at = GREATEST(COALESCE(
                (SELECT MAX(expires_at) FROM class_payments
                 WHERE class_id=$2 AND student_id=$3 AND status='SUCCESSFUL' AND expires_at > NOW()),
-               NOW()), NOW()) + ($4 || ' days')::interval
+               NOW()), NOW()) + make_interval(days => $4)
            WHERE id=$5`,
           [status, row.class_id, row.student_id, dur, row.id]
         );
