@@ -31,7 +31,7 @@ import { usePushNotifications } from '../hooks/usePushNotifications';
 import '../pages/Dashboard.css';
 import '../pages/MobileDashboard.css';
 
-const TABS = ['Students', 'Feed', 'Announcements', 'Notes', 'Homework', 'Quizzes', 'Quiz reports', 'Leaderboard', 'Discussion', 'C. Status'];
+const TABS = ['Students', 'Feed', 'Announcements', 'Notes', 'Homework', 'Lessons', 'Quizzes', 'Quiz reports', 'Leaderboard', 'Discussion', 'C. Status'];
 
 const SUBJECTS = [
   'English', 'Mathematics', 'Kinyarwanda', 'French', 'Science and Elementary Technology (SET)',
@@ -81,6 +81,9 @@ export default function TeacherClassPage() {
   const [noteForm, setNoteForm] = useState({ title: '', file: null });
   const [hwForm, setHwForm] = useState({ title: '', description: '', due_date: '', subject: '', customSubject: '', file: null });
   const [classHw, setClassHw] = useState([]); // all homework for the "Today's Homework" strip
+  const [lessonForm, setLessonForm] = useState({ title: '', subject: '', customSubject: '', description: '', quiz_id: '', audio: null, file: null });
+  const [quizOptions, setQuizOptions] = useState([]);
+  const [lessonQuizModal, setLessonQuizModal] = useState(false);
   const [discussionText, setDiscussionText] = useState('');
   // Submissions viewer: { [hwId]: { open, submissions, gradeForm: { [subId]: { grade, feedback } } } }
   const [submissionsState, setSubmissionsState] = useState({});
@@ -143,6 +146,11 @@ export default function TeacherClassPage() {
       const list = Array.isArray(res) ? res : [];
       setData(list);
       if (tab === 'Homework') setClassHw(list);
+      if (tab === 'Lessons') {
+        api.get(`/classes/${id}/quizzes`, token)
+          .then(qs => setQuizOptions(Array.isArray(qs) ? qs : []))
+          .catch(() => {});
+      }
       try { localStorage.setItem(tCacheKey(tab), JSON.stringify(list)); } catch {}
     } catch (e) {
       const cached = JSON.parse(localStorage.getItem(tCacheKey(tab)) || '[]');
@@ -205,6 +213,25 @@ export default function TeacherClassPage() {
       setHwForm({ title: '', description: '', due_date: '', subject: '', customSubject: '', file: null });
       loadTab();
       showSuccess('Homework created!');
+    } catch (e) { setError(e.message); }
+  };
+
+  const postLesson = async (e) => {
+    e.preventDefault();
+    const subject = lessonForm.subject === 'Other' ? lessonForm.customSubject.trim() : lessonForm.subject;
+    if (!subject) { setError('Please choose a subject for this lesson.'); return; }
+    try {
+      const fd = new FormData();
+      fd.append('title', lessonForm.title);
+      fd.append('subject', subject);
+      if (lessonForm.description) fd.append('description', lessonForm.description);
+      if (lessonForm.quiz_id) fd.append('quiz_id', lessonForm.quiz_id);
+      if (lessonForm.audio) fd.append('audio', lessonForm.audio);
+      if (lessonForm.file) fd.append('file', lessonForm.file);
+      await uploadFile(`/classes/${id}/lessons`, fd, token);
+      setLessonForm({ title: '', subject: '', customSubject: '', description: '', quiz_id: '', audio: null, file: null });
+      loadTab();
+      showSuccess('Lesson saved!');
     } catch (e) { setError(e.message); }
   };
 
@@ -689,6 +716,119 @@ export default function TeacherClassPage() {
           </>
         )}
 
+        {/* Lessons — recorded lesson of the day */}
+        {tab === 'Lessons' && (
+          <>
+            <form onSubmit={postLesson} style={{ background: 'white', padding: 20, borderRadius: 10, marginBottom: 24, boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}>
+              <h3 style={{ margin: '0 0 12px', fontSize: 16, color: '#1e293b' }}>🎙 Upload Lesson of the Day</h3>
+              <div className="form-group">
+                <label>Subject *</label>
+                <select value={lessonForm.subject} onChange={e => setLessonForm({ ...lessonForm, subject: e.target.value })} required>
+                  <option value="" disabled>Choose a subject...</option>
+                  {subjectOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              {lessonForm.subject === 'Other' && (
+                <div className="form-group">
+                  <label>Subject name *</label>
+                  <input type="text" value={lessonForm.customSubject} onChange={e => setLessonForm({ ...lessonForm, customSubject: e.target.value })} placeholder="Type the subject name" required />
+                </div>
+              )}
+              <div className="form-group">
+                <label>Lesson Title *</label>
+                <input type="text" value={lessonForm.title} onChange={e => setLessonForm({ ...lessonForm, title: e.target.value })} placeholder="e.g. Fractions — introduction" required />
+              </div>
+              <div className="form-group">
+                <label>🎙 Voice summary (audio)</label>
+                <input type="file" accept="audio/*" onChange={e => setLessonForm({ ...lessonForm, audio: e.target.files[0] })} />
+              </div>
+              <div className="form-group">
+                <label>Written exercises / summary notes</label>
+                <textarea value={lessonForm.description} onChange={e => setLessonForm({ ...lessonForm, description: e.target.value })} placeholder="Write the exercise or instructions students do after listening..." />
+              </div>
+              <div className="form-group">
+                <label>Exercise file (PDF, DOC, etc.)</label>
+                <input type="file" onChange={e => setLessonForm({ ...lessonForm, file: e.target.files[0] })} accept=".pdf,.doc,.docx,.ppt,.pptx,.txt" />
+              </div>
+              <div className="form-group">
+                <label>Quiz after listening (optional)</label>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <select value={lessonForm.quiz_id} onChange={e => setLessonForm({ ...lessonForm, quiz_id: e.target.value })} style={{ flex: 1, minWidth: 200 }}>
+                    <option value="">No quiz</option>
+                    {quizOptions.map(q => <option key={q.id} value={q.id}>{q.title}</option>)}
+                  </select>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => setLessonQuizModal(true)}>+ Create quiz</button>
+                </div>
+              </div>
+              <button type="submit" className="btn btn-primary">Upload Lesson</button>
+            </form>
+            {(() => {
+              const rows = Array.isArray(data) ? data : [];
+              const todayRows = rows.filter(l => l.created_at && isSameDay(l.created_at, new Date()));
+              const olderGroups = new Map();
+              rows.filter(l => !(l.created_at && isSameDay(l.created_at, new Date()))).forEach(l => {
+                const s = (l.subject && String(l.subject).trim()) || 'General';
+                if (!olderGroups.has(s)) olderGroups.set(s, []);
+                olderGroups.get(s).push(l);
+              });
+              const renderLesson = (l) => (
+                <div key={l.id} className="item-card" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+                    <div className="item-card-body" style={{ flex: 1 }}>
+                      <h3>🎙 {l.title}</h3>
+                      {l.subject && (
+                        <span style={{ display: 'inline-block', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 20, padding: '1px 10px', fontSize: 12, fontWeight: 600, color: '#4338ca', marginBottom: 6 }}>{l.subject}</span>
+                      )}
+                      {l.audio_path && (
+                        <audio controls preload="none" src={`${UPLOADS_BASE}/uploads/${l.audio_path}`} style={{ width: '100%', marginTop: 6 }} />
+                      )}
+                      {l.description && <p style={{ marginTop: 8 }}>{l.description}</p>}
+                      {l.file_name && (
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 6, padding: '3px 10px', fontSize: 12, color: '#c2410c', fontWeight: 600 }}>
+                            📎 {l.file_name.replace(/^\d+-\d+\./, '')}
+                          </span>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => setPreviewDoc({ fileUrl: `${UPLOADS_BASE}/download/lessons/${l.file_path}?inline=1`, fileName: l.file_name })}
+                          >👁 Preview</button>
+                          <a href={`${UPLOADS_BASE}/download/lessons/${l.file_path}`} download={l.file_name} className="btn btn-primary btn-sm">⬇ Download</a>
+                        </div>
+                      )}
+                      {l.quiz_title && (
+                        <div className="meta" style={{ marginTop: 8, color: '#7c3aed', fontWeight: 600 }}>❓ Quiz: {l.quiz_title}</div>
+                      )}
+                      <div className="meta" style={{ marginTop: 6 }}>{new Date(l.created_at).toLocaleString()}</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                      <button className="btn btn-danger btn-sm" onClick={() => deleteItem(`/classes/${id}/lessons/${l.id}`)}>Delete</button>
+                    </div>
+                  </div>
+                </div>
+              );
+              return (
+                <>
+                  {todayRows.length > 0 && (
+                    <div style={{ marginBottom: 20, padding: '12px 16px', borderRadius: 10, background: '#ecfdf5', border: '1px solid #a7f3d0' }}>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: '#065f46', marginBottom: 10 }}>🎙 Today's Recorded Lesson</div>
+                      {todayRows.map(renderLesson)}
+                    </div>
+                  )}
+                  {[...olderGroups.entries()].map(([subj, items]) => (
+                    <details key={subj} style={{ marginBottom: 10, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 14px' }}>
+                      <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#1e293b', fontSize: 15 }}>
+                        📁 {subj} <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 600 }}>({items.length})</span>
+                      </summary>
+                      <div style={{ marginTop: 10 }}>{items.map(renderLesson)}</div>
+                    </details>
+                  ))}
+                  {rows.length === 0 && <p style={{ color: '#888', textAlign: 'center', padding: 40 }}>No lessons yet.</p>}
+                </>
+              );
+            })()}
+          </>
+        )}
+
         {/* Quizzes */}
         {tab === 'Quizzes' && (
           <>
@@ -940,6 +1080,21 @@ export default function TeacherClassPage() {
         })()}
       </main>
 
+      {lessonQuizModal && (
+        <CreateQuizModal
+          token={token}
+          classId={id}
+          onClose={() => setLessonQuizModal(false)}
+          onCreated={(quiz) => {
+            setLessonQuizModal(false);
+            if (quiz?.id) setLessonForm(f => ({ ...f, quiz_id: String(quiz.id) }));
+            api.get(`/classes/${id}/quizzes`, token)
+              .then(qs => setQuizOptions(Array.isArray(qs) ? qs : []))
+              .catch(() => {});
+            showSuccess('Quiz created and linked to the lesson!');
+          }}
+        />
+      )}
       {showQuizModal && (
         <CreateQuizModal
           token={token}
