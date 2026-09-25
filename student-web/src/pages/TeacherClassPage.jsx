@@ -33,11 +33,12 @@ import '../pages/MobileDashboard.css';
 
 const TABS = ['Students', 'Feed', 'Announcements', 'Notes', 'Homework', 'Quizzes', 'Quiz reports', 'Leaderboard', 'Discussion', 'C. Status'];
 
-const HOMEWORK_SUBJECTS = [
-  'Mathematics', 'English', 'Kinyarwanda', 'French', 'Kiswahili',
-  'Science', 'Social Studies', 'Geography', 'History', 'Physics',
-  'Chemistry', 'Biology', 'ICT', 'Entrepreneurship', 'Literature',
-  'Economics', 'Religious Education', 'Physical Education', 'Other',
+const SUBJECTS = [
+  'English', 'Mathematics', 'Kinyarwanda', 'French', 'Science and Elementary Technology (SET)',
+  'Social and Religious Studies (SST)', 'Creative Arts', 'Physical Education and Sports (PES)',
+  'ICT', 'Entrepreneurship', 'Biology', 'Chemistry', 'Physics', 'Geography', 'History',
+  'Economics', 'Accounting', 'Literature in English', 'Kinyarwanda Literature', 'Religious Education',
+  'General Studies', 'Other',
 ];
 
 const isSameDay = (a, b) => {
@@ -155,6 +156,13 @@ export default function TeacherClassPage() {
 
   const studentRows = Array.isArray(data) ? data : [];
   const todayHwData = splitTodayHomework(classHw);
+  // Subjects registered on this class first, then the standard UClass list
+  const subjectOptions = (() => {
+    const fromClass = (cls?.subject || '').split(',').map(s => s.trim()).filter(Boolean);
+    const merged = [...fromClass];
+    SUBJECTS.forEach(s => { if (!merged.includes(s)) merged.push(s); });
+    return merged;
+  })();
 
   const showSuccess = (msg) => { setSuccess(msg); setTimeout(() => setSuccess(''), 3000); };
 
@@ -495,7 +503,7 @@ export default function TeacherClassPage() {
                 <label>Subject *</label>
                 <select value={hwForm.subject} onChange={e => setHwForm({ ...hwForm, subject: e.target.value })} required>
                   <option value="" disabled>Choose a subject...</option>
-                  {HOMEWORK_SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
+                  {subjectOptions.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
               {hwForm.subject === 'Other' && (
