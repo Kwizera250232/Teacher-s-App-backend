@@ -23,6 +23,23 @@ const CLASSMATE_DEFAULT_AVATAR =
 
 const TABS = ['Feed', 'Groups', 'Announcements', 'Notes', 'Homework', 'Quizzes', 'Leaderboard', 'Discussion', 'Classmates'];
 
+const isSameDay = (a, b) => {
+  const da = new Date(a);
+  const db = new Date(b);
+  return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
+};
+
+// Today's homework, or the most recent previous day if none today
+const splitTodayHomework = (list) => {
+  const rows = (Array.isArray(list) ? list : []).filter(hw => hw && hw.created_at);
+  const today = rows.filter(hw => isSameDay(hw.created_at, new Date()));
+  if (today.length) return { mode: 'today', items: today };
+  const sorted = [...rows].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  if (!sorted.length) return { mode: 'none', items: [] };
+  const latestDate = sorted[0].created_at;
+  return { mode: 'previous', items: sorted.filter(hw => isSameDay(hw.created_at, latestDate)) };
+};
+
 export default function StudentClassPage() {
   const { id } = useParams();
   const { token, user } = useAuth();
@@ -45,7 +62,9 @@ export default function StudentClassPage() {
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [groupsError, setGroupsError] = useState('');
   const [quizzesLoading, setQuizzesLoading] = useState(false);
+  const [classHw, setClassHw] = useState([]); // all homework for the "Today's Homework" strip
   const showSuccess = (msg) => { setSuccess(msg); setTimeout(() => setSuccess(''), 3000); };
+  const todayHwData = splitTodayHomework(classHw);
 
   useEffect(() => {
     const urlTab = searchParams.get('tab');
@@ -54,6 +73,9 @@ export default function StudentClassPage() {
 
   useEffect(() => {
     setPageLoading(true);
+    api.get(`/classes/${id}/homework`, token)
+      .then(list => setClassHw(Array.isArray(list) ? list : []))
+      .catch(() => {});
     api.get(`/classes/${id}`, token).then(data => {
       setCls(data);
       setPageLoading(false);
@@ -138,6 +160,7 @@ export default function StudentClassPage() {
       };
       const res = await api.get(map[tab], token);
       setData(res);
+      if (tab === 'Homework') setClassHw(Array.isArray(res) ? res : []);
       try { localStorage.setItem(cacheKey(tab), JSON.stringify(res)); } catch {}
       if (tab === 'Homework') {
         const subs = {};
@@ -251,6 +274,35 @@ export default function StudentClassPage() {
           ))}
         </div>
 
+        {todayHwData.items.length > 0 && (
+          <div style={{
+            margin: '0 0 14px', padding: '12px 16px', borderRadius: 10,
+            background: todayHwData.mode === 'today' ? '#ecfdf5' : '#eff6ff',
+            border: `1px solid ${todayHwData.mode === 'today' ? '#a7f3d0' : '#bfdbfe'}`,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: todayHwData.mode === 'today' ? '#065f46' : '#1e40af' }}>
+                {todayHwData.mode === 'today' ? "📚 Today's Homework" : '📚 Latest Homework'}
+              </div>
+              {todayHwData.mode === 'previous' && (
+                <span style={{ fontSize: 12, color: '#64748b' }}>No homework uploaded today — showing previous homework</span>
+              )}
+            </div>
+            {todayHwData.items.map(hw => (
+              <div key={hw.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 600, color: '#1e293b', fontSize: 14 }}>📝 {hw.title}</span>
+                {hw.subject && (
+                  <span style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 20, padding: '1px 10px', fontSize: 12, fontWeight: 600, color: '#475569' }}>{hw.subject}</span>
+                )}
+                <span style={{ fontSize: 12, color: '#94a3b8' }}>{new Date(hw.created_at).toLocaleDateString()}</span>
+              </div>
+            ))}
+            {tab !== 'Homework' && (
+              <button type="button" className="btn btn-secondary btn-sm" style={{ marginTop: 8 }} onClick={() => setTab('Homework')}>Open Homework →</button>
+            )}
+          </div>
+        )}
+
         {error && <div className="alert alert-error">{error}</div>}
         {success && <div className="alert alert-success">{success}</div>}
 
@@ -330,7 +382,21 @@ export default function StudentClassPage() {
         {tab === 'Homework' && (
           data.length === 0
             ? <p style={{ color: '#888', textAlign: 'center', padding: 40 }}>No homework yet.</p>
-            : data.map(hw => {
+            : (() => {
+              const hwGroups = new Map();
+              (Array.isArray(data) ? data : []).forEach(item => {
+                const s = (item.subject && String(item.subject).trim()) || 'General';
+                if (!hwGroups.has(s)) hwGroups.set(s, []);
+                hwGroups.get(s).push(item);
+              });
+              return [...hwGroups.entries()].map(([subj, items]) => (
+                <div key={subj}>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b', margin: '18px 0 8px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span>📖</span>
+                    <span>{subj}</span>
+                    <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 600 }}>({items.length})</span>
+                  </div>
+                  {items.map(hw => {
               const st = subState[hw.id] || { submitting: false, form: { text: '', file: null }, mySubmission: null };
               const dueStatus = getDueStatus(hw.due_date);
               const sub = st.mySubmission;
@@ -461,7 +527,10 @@ export default function StudentClassPage() {
                   </form>
                 </div>
               );
-            })
+                  })}
+                </div>
+              ));
+            })()
         )}
 
         {tab === 'Groups' && (

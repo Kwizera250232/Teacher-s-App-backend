@@ -31,7 +31,7 @@ router.post('/:classId/homework', authenticateToken, requireRole('teacher', 'hea
     next();
   });
 }, async (req, res) => {
-  const { title, description, due_date } = req.body;
+  const { title, description, due_date, subject } = req.body;
   if (!title || !String(title).trim()) return res.status(400).json({ error: 'Title is required.' });
 
   const classId = parseInt(req.params.classId, 10);
@@ -46,8 +46,8 @@ router.post('/:classId/homework', authenticateToken, requireRole('teacher', 'hea
       return res.status(403).json({ error: 'You do not own this class.' });
     }
     const result = await pool.query(
-      'INSERT INTO homework (class_id, title, description, due_date, file_path, file_name) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-      [classId, String(title).trim(), description || null, due_date || null, filePath, fileName]
+      'INSERT INTO homework (class_id, title, description, due_date, subject, file_path, file_name) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
+      [classId, String(title).trim(), description || null, due_date || null, (subject && String(subject).trim()) || 'General', filePath, fileName]
     );
     notifyClassAudiencePush({
       classId,

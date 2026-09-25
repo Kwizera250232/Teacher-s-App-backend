@@ -33,6 +33,30 @@ import '../pages/MobileDashboard.css';
 
 const TABS = ['Students', 'Feed', 'Announcements', 'Notes', 'Homework', 'Quizzes', 'Quiz reports', 'Leaderboard', 'Discussion', 'C. Status'];
 
+const HOMEWORK_SUBJECTS = [
+  'Mathematics', 'English', 'Kinyarwanda', 'French', 'Kiswahili',
+  'Science', 'Social Studies', 'Geography', 'History', 'Physics',
+  'Chemistry', 'Biology', 'ICT', 'Entrepreneurship', 'Literature',
+  'Economics', 'Religious Education', 'Physical Education', 'Other',
+];
+
+const isSameDay = (a, b) => {
+  const da = new Date(a);
+  const db = new Date(b);
+  return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
+};
+
+// Today's homework, or the most recent previous day if none today
+const splitTodayHomework = (list) => {
+  const rows = (Array.isArray(list) ? list : []).filter(hw => hw && hw.created_at);
+  const today = rows.filter(hw => isSameDay(hw.created_at, new Date()));
+  if (today.length) return { mode: 'today', items: today };
+  const sorted = [...rows].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  if (!sorted.length) return { mode: 'none', items: [] };
+  const latestDate = sorted[0].created_at;
+  return { mode: 'previous', items: sorted.filter(hw => isSameDay(hw.created_at, latestDate)) };
+};
+
 export default function TeacherClassPage() {
   const { id } = useParams();
   const { token, user } = useAuth();
@@ -54,7 +78,8 @@ export default function TeacherClassPage() {
   // Forms
   const [announcementText, setAnnouncementText] = useState('');
   const [noteForm, setNoteForm] = useState({ title: '', file: null });
-  const [hwForm, setHwForm] = useState({ title: '', description: '', due_date: '', file: null });
+  const [hwForm, setHwForm] = useState({ title: '', description: '', due_date: '', subject: '', customSubject: '', file: null });
+  const [classHw, setClassHw] = useState([]); // all homework for the "Today's Homework" strip
   const [discussionText, setDiscussionText] = useState('');
   // Submissions viewer: { [hwId]: { open, submissions, gradeForm: { [subId]: { grade, feedback } } } }
   const [submissionsState, setSubmissionsState] = useState({});
@@ -77,6 +102,9 @@ export default function TeacherClassPage() {
 
   useEffect(() => {
     setPageLoading(true);
+    api.get(`/classes/${id}/homework`, token)
+      .then(list => setClassHw(Array.isArray(list) ? list : []))
+      .catch(() => {});
     api.get(`/classes/${id}`, token).then(data => {
       setCls(data);
       setPageLoading(false);
@@ -113,6 +141,7 @@ export default function TeacherClassPage() {
       const res = await api.get(endpointMap[tab], token);
       const list = Array.isArray(res) ? res : [];
       setData(list);
+      if (tab === 'Homework') setClassHw(list);
       try { localStorage.setItem(tCacheKey(tab), JSON.stringify(list)); } catch {}
     } catch (e) {
       const cached = JSON.parse(localStorage.getItem(tCacheKey(tab)) || '[]');
@@ -125,6 +154,7 @@ export default function TeacherClassPage() {
   };
 
   const studentRows = Array.isArray(data) ? data : [];
+  const todayHwData = splitTodayHomework(classHw);
 
   const showSuccess = (msg) => { setSuccess(msg); setTimeout(() => setSuccess(''), 3000); };
 
@@ -154,14 +184,17 @@ export default function TeacherClassPage() {
 
   const postHomework = async (e) => {
     e.preventDefault();
+    const subject = hwForm.subject === 'Other' ? hwForm.customSubject.trim() : hwForm.subject;
+    if (!subject) { setError('Please choose a subject for this homework.'); return; }
     try {
       const fd = new FormData();
       fd.append('title', hwForm.title);
+      fd.append('subject', subject);
       if (hwForm.description) fd.append('description', hwForm.description);
       if (hwForm.due_date) fd.append('due_date', hwForm.due_date);
       if (hwForm.file) fd.append('file', hwForm.file);
       await uploadFile(`/classes/${id}/homework`, fd, token);
-      setHwForm({ title: '', description: '', due_date: '', file: null });
+      setHwForm({ title: '', description: '', due_date: '', subject: '', customSubject: '', file: null });
       loadTab();
       showSuccess('Homework created!');
     } catch (e) { setError(e.message); }
@@ -284,6 +317,35 @@ export default function TeacherClassPage() {
             </button>
           ))}
         </div>
+
+        {todayHwData.items.length > 0 && (
+          <div style={{
+            margin: '0 0 14px', padding: '12px 16px', borderRadius: 10,
+            background: todayHwData.mode === 'today' ? '#ecfdf5' : '#eff6ff',
+            border: `1px solid ${todayHwData.mode === 'today' ? '#a7f3d0' : '#bfdbfe'}`,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: todayHwData.mode === 'today' ? '#065f46' : '#1e40af' }}>
+                {todayHwData.mode === 'today' ? "📚 Today's Homework" : '📚 Latest Homework'}
+              </div>
+              {todayHwData.mode === 'previous' && (
+                <span style={{ fontSize: 12, color: '#64748b' }}>No homework uploaded today — showing previous homework</span>
+              )}
+            </div>
+            {todayHwData.items.map(hw => (
+              <div key={hw.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 600, color: '#1e293b', fontSize: 14 }}>📝 {hw.title}</span>
+                {hw.subject && (
+                  <span style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 20, padding: '1px 10px', fontSize: 12, fontWeight: 600, color: '#475569' }}>{hw.subject}</span>
+                )}
+                <span style={{ fontSize: 12, color: '#94a3b8' }}>{new Date(hw.created_at).toLocaleDateString()}</span>
+              </div>
+            ))}
+            {tab !== 'Homework' && (
+              <button type="button" className="btn btn-secondary btn-sm" style={{ marginTop: 8 }} onClick={() => setTab('Homework')}>Open Homework →</button>
+            )}
+          </div>
+        )}
 
         {error && <div className="alert alert-error">{error}</div>}
         {success && <div className="alert alert-success">{success}</div>}
@@ -430,6 +492,19 @@ export default function TeacherClassPage() {
           <>
             <form onSubmit={postHomework} style={{ background: 'white', padding: 20, borderRadius: 10, marginBottom: 24, boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}>
               <div className="form-group">
+                <label>Subject *</label>
+                <select value={hwForm.subject} onChange={e => setHwForm({ ...hwForm, subject: e.target.value })} required>
+                  <option value="" disabled>Choose a subject...</option>
+                  {HOMEWORK_SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              {hwForm.subject === 'Other' && (
+                <div className="form-group">
+                  <label>Subject name *</label>
+                  <input type="text" value={hwForm.customSubject} onChange={e => setHwForm({ ...hwForm, customSubject: e.target.value })} placeholder="Type the subject name" required />
+                </div>
+              )}
+              <div className="form-group">
                 <label>Title *</label>
                 <input type="text" value={hwForm.title} onChange={e => setHwForm({ ...hwForm, title: e.target.value })} placeholder="e.g. Exercise 3" required />
               </div>
@@ -447,7 +522,21 @@ export default function TeacherClassPage() {
               </div>
               <button type="submit" className="btn btn-primary">Create Homework</button>
             </form>
-            {data.map(hw => {
+            {(() => {
+              const hwGroups = new Map();
+              (Array.isArray(data) ? data : []).forEach(item => {
+                const s = (item.subject && String(item.subject).trim()) || 'General';
+                if (!hwGroups.has(s)) hwGroups.set(s, []);
+                hwGroups.get(s).push(item);
+              });
+              return [...hwGroups.entries()].map(([subj, items]) => (
+                <div key={subj}>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b', margin: '18px 0 8px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span>📖</span>
+                    <span>{subj}</span>
+                    <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 600 }}>({items.length})</span>
+                  </div>
+                  {items.map(hw => {
               const dueStatus = getDueStatus(hw.due_date);
               const ss = submissionsState[hw.id];
               return (
@@ -585,7 +674,10 @@ export default function TeacherClassPage() {
                   )}
                 </div>
               );
-            })}
+                  })}
+                </div>
+              ));
+            })()}
           </>
         )}
 
