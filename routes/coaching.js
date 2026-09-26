@@ -169,11 +169,10 @@ router.get('/:classId/coaching-sessions/:sessionId', authenticateToken, async (r
     );
     session.participants = participants.rows;
 
-    // Get questions if quiz is linked (correct answers only for the teacher)
+    // Get questions if quiz is linked — never include correct answers
     if (session.quiz_id) {
-      const manage = await userCanManageClass(req.user, classId);
       const questions = await pool.query(
-        `SELECT id, question, option_a, option_b, option_c, option_d, question_type, passage, order_num${manage.ok ? ', correct_answer' : ''}
+        `SELECT id, question, option_a, option_b, option_c, option_d, question_type, passage, order_num
          FROM quiz_questions WHERE quiz_id = $1 ORDER BY order_num, id`,
         [session.quiz_id]
       );
