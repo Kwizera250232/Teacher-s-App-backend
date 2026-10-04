@@ -22,6 +22,8 @@
 
 .phub-header-actions { display: flex; gap: 8px; align-items: center; }
 
+.phub-mobile-logout { display: none; }
+
 .phub-nav {
   display: flex;
   gap: 4px;
@@ -375,6 +377,23 @@
   .phub-header-actions .btn {
     font-size: 12px;
     padding: 6px 10px;
+  }
+
+  .phub-header-logout { display: none; }
+
+  .phub-mobile-logout {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    border: 1px solid #fecaca;
+    background: #fff1f2;
+    color: #b91c1c;
+    border-radius: 999px;
+    padding: 7px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
   }
 
   .phub-nav {

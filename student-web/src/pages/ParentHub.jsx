@@ -298,12 +298,13 @@ export default function ParentHub() {
           <span className="phub-logo">UClass</span>
           <span className="phub-sub">Parent</span>
         </div>
+        <button type="button" className="phub-mobile-logout" onClick={logout}>🚪 Logout</button>
         <div className="phub-header-actions">
           <AppNotificationsBell className="student-notif-bell--header" />
           <Link to="/messages" className="btn btn-secondary btn-sm">💬 All messages</Link>
           <Link to="/parent/legacy" className="btn btn-outline btn-sm">Classic feed</Link>
           <DonateButton />
-          <button type="button" className="btn btn-outline btn-sm" onClick={logout}>Logout</button>
+          <button type="button" className="btn btn-outline btn-sm phub-header-logout" onClick={logout}>Logout</button>
         </div>
       </header>
 
