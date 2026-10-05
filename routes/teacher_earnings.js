@@ -9,7 +9,33 @@ const router = express.Router();
 const TEACHER_SHARE_PCT = parseInt(process.env.TEACHER_SHARE_PCT || '70', 10);
 const WITHDRAW_MIN = parseInt(process.env.WITHDRAW_MIN || '7000', 10);
 
+// Re-check PENDING withdrawals with MTN so stale rows don't block balances.
+// Demo rows (no MTN keys) are marked FAILED so they never lock money.
+async function reconcilePendingWithdrawals(teacherId) {
+  const pending = (await pool.query(
+    `SELECT id, reference_id FROM teacher_withdrawals WHERE teacher_id=$1 AND status='PENDING'`,
+    [teacherId]
+  )).rows;
+  if (!pending.length) return;
+  const cfg = getDisbursementConfig();
+  for (const row of pending) {
+    try {
+      if (!cfg.configured || String(row.reference_id || '').startsWith('demo-')) {
+        await pool.query(`UPDATE teacher_withdrawals SET status='FAILED' WHERE id=$1`, [row.id]);
+        continue;
+      }
+      const mtn = await getTransferStatus(row.reference_id);
+      if (mtn.status && mtn.status !== 'PENDING') {
+        await pool.query('UPDATE teacher_withdrawals SET status=$1 WHERE id=$2', [mtn.status, row.id]);
+      }
+    } catch (e) {
+      console.error('[withdraw reconcile]', row.reference_id, e.message);
+    }
+  }
+}
+
 async function earningsSummary(teacherId) {
+  await reconcilePendingWithdrawals(teacherId);
   const collected = (await pool.query(
     `SELECT COALESCE(SUM(p.amount),0)::int AS total
      FROM class_payments p JOIN classes c ON c.id = p.class_id
@@ -79,14 +105,23 @@ router.post('/withdraw', authenticateToken, requireRole('teacher', 'head_teacher
         error: `Minimum withdrawal is ${WITHDRAW_MIN.toLocaleString()} RWF. Your available balance: ${summary.available.toLocaleString()} RWF.`,
       });
     }
-    // Pending withdrawal in flight?
-    const pending = (await pool.query(
-      `SELECT id FROM teacher_withdrawals WHERE teacher_id=$1 AND status='PENDING'`,
-      [req.user.id]
-    )).rows[0];
-    if (pending) return res.status(400).json({ error: 'You already have a pending withdrawal.' });
 
-    const amount = summary.available;
+    // Teacher may withdraw everything (default) or a chosen amount >= minimum.
+    // Any number of withdrawals is allowed as long as the balance covers them.
+    const requested = req.body.amount != null && req.body.amount !== ''
+      ? Math.floor(Number(req.body.amount))
+      : summary.available;
+    if (!Number.isFinite(requested) || requested < WITHDRAW_MIN) {
+      return res.status(400).json({
+        error: `Amount must be at least ${WITHDRAW_MIN.toLocaleString()} RWF.`,
+      });
+    }
+    if (requested > summary.available) {
+      return res.status(400).json({
+        error: `You can withdraw up to ${summary.available.toLocaleString()} RWF.`,
+      });
+    }
+    const amount = requested;
     const cfg = getDisbursementConfig();
     let referenceId, status;
 
