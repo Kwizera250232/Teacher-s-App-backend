@@ -8,6 +8,9 @@ import MessageContextBanner from '../components/MessageContextBanner';
 import '../pages/Messages.css';
 import { downloadWord, downloadCatSheetWord } from '../utils/downloadResult';
 import ClassMomentsDashboardBlock from '../components/classMoments/ClassMomentsDashboardBlock';
+import ClassMomentsFeed from '../components/classMoments/ClassMomentsFeed';
+import LearnFromOtherClasses from '../components/classMoments/LearnFromOtherClasses';
+import { inyandikoFileUrl } from '../components/inyandiko/InyandikoDocViewer';
 import { useClassMomentAlerts } from '../hooks/useClassMomentAlerts';
 import { classMomentDetailPath } from '../utils/classMomentPaths';
 import '../components/classMoments/ClassMoments.css';
@@ -58,6 +61,7 @@ export default function ParentHub() {
   const [marksPeriod, setMarksPeriod] = useState('all');
   const [downloadingMarks, setDownloadingMarks] = useState(false);
   const [downloadingQuiz, setDownloadingQuiz] = useState(null);
+  const [moments, setMoments] = useState(null);
   const bottomRef = useRef();
   const threadRef = useRef();
 
@@ -76,6 +80,10 @@ export default function ParentHub() {
   useEffect(() => {
     api.get('/class-moments/preview', token).then(setMomentPreview).catch(() => {});
   }, [token]);
+  useEffect(() => {
+    if (tab !== 'feed' || moments !== null) return;
+    api.get('/class-moments/feed', token).then((rows) => setMoments(rows || [])).catch(() => setMoments([]));
+  }, [tab, token, moments]);
   useEffect(() => {
     const momentId = searchParams.get('moment');
     if (momentId) {
@@ -452,6 +460,26 @@ export default function ParentHub() {
 
         {tab === 'feed' && (
           <div className="phub-panel">
+            <section className="phub-section" style={{ marginTop: 0 }}>
+              <h2 style={{ marginBottom: 4 }}>📸 Today&apos;s classroom — photos from your child&apos;s teachers</h2>
+              <p className="phub-muted" style={{ marginBottom: 12 }}>
+                Everything the teachers posted in your child&apos;s classes (Class Now photos &amp; notes).
+                <Link to="/parent/class-moments" style={{ marginLeft: 8 }}>Open full feed →</Link>
+              </p>
+              <ClassMomentsFeed
+                moments={moments || []}
+                loading={moments === null}
+                token={token}
+                onReactionsChange={(momentId, reactions) =>
+                  setMoments((prev) => (prev || []).map((m) => (m.id === momentId ? { ...m, reactions } : m)))
+                }
+                emptyContent={
+                  <p>No class photos yet. When your child&apos;s teacher posts from <strong>Class Now</strong>, they appear here.</p>
+                }
+              />
+            </section>
+
+            <h2 style={{ marginTop: 24, marginBottom: 4 }}>✍️ Your child&apos;s posts</h2>
             <p className="phub-muted" style={{ marginBottom: 12 }}>
               Posts your child shared in class — not other students&apos; work.
             </p>
@@ -484,6 +512,9 @@ export default function ParentHub() {
               </section>
             )}
             <h2>School announcements</h2>
+            <p className="phub-muted" style={{ marginBottom: 8 }}>
+              Information posted by the head teacher and teachers of {child?.school_name || 'the school'}.
+            </p>
             {hub?.announcements?.length ? hub.announcements.map((a) => (
               <article key={a.id} className={`phub-card ${a.is_pinned ? 'phub-pinned' : ''}`}>
                 {a.is_pinned && <span style={{ fontSize: 11, color: '#b45309', fontWeight: 700 }}>📌 PINNED</span>}
@@ -509,6 +540,14 @@ export default function ParentHub() {
                 <small>{new Date(n.created_at).toLocaleString()}</small>
               </article>
             )) : <p className="phub-muted">No notifications yet.</p>}
+
+            <div style={{ marginTop: 24 }}>
+              <LearnFromOtherClasses
+                token={token}
+                userRole="parent"
+                title="📸 Classroom now — photos posted by other teachers at the school"
+              />
+            </div>
           </div>
         )}
 
@@ -575,10 +614,20 @@ export default function ParentHub() {
                       ))}
                     </div>
                     <section className="phub-section">
-                      <h3>Quizzes</h3>
+                      <h3>🎯 UClass quiz marks</h3>
+                      <p className="phub-muted" style={{ marginBottom: 8 }}>
+                        Quizzes {child.name} has done on UClass and the marks obtained.
+                      </p>
                       {summary.quizzes?.length ? summary.quizzes.map((q, i) => (
                         <div key={q.quiz_id || i} className="phub-row phub-row--quiz">
-                          <span>{q.class_name} — {q.title}: <strong>{q.score}{q.total ? `/${q.total}` : '%'}</strong></span>
+                          <span>
+                            {q.class_name} — {q.title}: <strong>{q.score}{q.total ? `/${q.total}` : '%'}</strong>
+                            {q.attempted_at && (
+                              <small className="phub-muted" style={{ marginLeft: 6 }}>
+                                {new Date(q.attempted_at).toLocaleDateString()}
+                              </small>
+                            )}
+                          </span>
                           {q.quiz_id && (
                             <button
                               type="button"
@@ -599,10 +648,70 @@ export default function ParentHub() {
                       )) : <p className="phub-muted">No homework yet.</p>}
                     </section>
                     <section className="phub-section">
-                      <h3>Marks (CAT)</h3>
-                      {summary.marks?.length ? summary.marks.map((m, i) => (
-                        <div key={i} className="phub-row">{m.class_name} test {m.test_number}: {m.marks_obtained}/{m.total_marks}</div>
-                      )) : <p className="phub-muted">No marks recorded.</p>}
+                      <h3>📝 Marks added by teachers (all subjects)</h3>
+                      <p className="phub-muted" style={{ marginBottom: 8 }}>
+                        CAT / test marks exactly as teachers recorded them for {child.name} — only your child&apos;s marks are shown.
+                      </p>
+                      {summary.marks?.length ? (
+                        Object.entries(
+                          summary.marks.reduce((acc, m) => {
+                            const key = `${m.subject || 'General'} · ${m.class_name}`;
+                            (acc[key] = acc[key] || []).push(m);
+                            return acc;
+                          }, {})
+                        ).map(([group, rows]) => {
+                          const got = rows.reduce((s, r) => s + Number(r.marks_obtained || 0), 0);
+                          const outOf = rows.reduce((s, r) => s + Number(r.total_marks || 0), 0);
+                          const pct = outOf ? Math.round((got / outOf) * 100) : null;
+                          return (
+                            <div key={group} className="phub-card phub-marks-group">
+                              <div className="phub-marks-group-head">
+                                <strong>{group}</strong>
+                                <span className="phub-marks-group-total">
+                                  {got}/{outOf}{pct != null ? ` (${pct}%)` : ''}
+                                </span>
+                              </div>
+                              <small className="phub-muted">Teacher: {rows[0].teacher_name}</small>
+                              <table className="phub-marks-table">
+                                <thead>
+                                  <tr><th>Test</th><th>Marks</th><th>Date</th></tr>
+                                </thead>
+                                <tbody>
+                                  {[...rows].sort((a, b) => a.test_number - b.test_number).map((m, i) => (
+                                    <tr key={i}>
+                                      <td>CAT {m.test_number}</td>
+                                      <td><strong>{m.marks_obtained}</strong>/{m.total_marks}</td>
+                                      <td>{m.test_date ? new Date(m.test_date).toLocaleDateString() : '—'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          );
+                        })
+                      ) : <p className="phub-muted">No marks recorded by teachers yet.</p>}
+                    </section>
+                    <section className="phub-section">
+                      <h3>📄 Inyandiko — letters &amp; reports uploaded by {child.name}</h3>
+                      {summary.documents?.length ? summary.documents.map((d) => (
+                        <div key={d.id} className="phub-row phub-row--quiz">
+                          <span>
+                            {d.doc_type === 'commitment' ? '✍️ Commitment letter' : '🏫 School report'}
+                            {' — '}{d.class_name}{d.title ? `: ${d.title}` : ''}
+                            <small className="phub-muted" style={{ marginLeft: 6 }}>
+                              {new Date(d.uploaded_at).toLocaleDateString()}
+                            </small>
+                          </span>
+                          <a
+                            className="btn btn-outline btn-sm"
+                            href={inyandikoFileUrl(d.file_path)}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Open
+                          </a>
+                        </div>
+                      )) : <p className="phub-muted">No letters or reports uploaded yet.</p>}
                     </section>
                     <section className="phub-section">
                       <h3>Weekly teacher updates</h3>

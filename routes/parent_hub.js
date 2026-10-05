@@ -258,14 +258,28 @@ router.get('/children/:studentId/summary', authenticateToken, requireRole('paren
     const marksDateCol = 'COALESCE(cm.test_date, cm.created_at::date)';
     const marksPeriod = periodClause(period, marksDateCol);
     const marks = await pool.query(
-      `SELECT cm.test_number, cm.marks_obtained, cm.total_marks, cm.test_date, c.name AS class_name
+      `SELECT cm.test_number, cm.marks_obtained, cm.total_marks, cm.test_date,
+              COALESCE(NULLIF(cm.subject, ''), c.subject, 'General') AS subject,
+              c.name AS class_name, c.id AS class_id, t.name AS teacher_name
        FROM cat_marks cm
        JOIN classes c ON c.id = cm.class_id
+       JOIN users t ON t.id = c.teacher_id
        JOIN class_members mem ON mem.class_id = c.id AND mem.student_id = $1
        WHERE cm.student_id = $1 ${marksPeriod.sql}
-       ORDER BY ${marksDateCol} DESC NULLS LAST LIMIT 40`,
+       ORDER BY ${marksDateCol} DESC NULLS LAST LIMIT 200`,
       [studentId]
     );
+
+    // Inyandiko: commitment letters & school reports the child uploaded
+    const documents = await pool.query(
+      `SELECT d.id, d.doc_type, d.title, d.file_path, d.file_name, d.uploaded_at,
+              d.class_id, c.name AS class_name, c.subject AS class_subject
+       FROM student_class_documents d
+       JOIN classes c ON c.id = d.class_id
+       WHERE d.student_id = $1
+       ORDER BY d.uploaded_at DESC LIMIT 50`,
+      [studentId]
+    ).catch(() => ({ rows: [] }));
 
     const digests = await pool.query(
       `SELECT digest_json, created_at FROM parent_weekly_digests
@@ -303,6 +317,7 @@ router.get('/children/:studentId/summary', authenticateToken, requireRole('paren
       quizzes: quizzes.rows,
       homework: homework.rows,
       marks: marks.rows,
+      documents: documents.rows,
       weekly_digests: digests.rows,
       compositions: shares.rows,
       coaching_sessions: coachingSessions.rows,
