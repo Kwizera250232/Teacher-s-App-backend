@@ -61,6 +61,7 @@ function AppShell() {
   const { token } = useAuth();
   usePushNotifications(token);
   const hideFooter = /\/messages(\/|$)|\/parent\/dashboard|\/guest\//.test(location.pathname);
+  const chatFullscreen = /\/messages(\/|$)|\/guest\//.test(location.pathname);
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return undefined;
@@ -74,7 +75,7 @@ function AppShell() {
   }, [navigate]);
 
   return (
-    <div className={`app-wa-shell${hideFooter ? ' app-wa-shell--chat-fullscreen' : ''}`} style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+    <div className={`app-wa-shell${chatFullscreen ? ' app-wa-shell--chat-fullscreen' : ''}`} style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       <OfflineBanner />
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         <Routes>

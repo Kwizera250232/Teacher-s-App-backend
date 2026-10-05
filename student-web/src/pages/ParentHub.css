@@ -374,12 +374,41 @@
     justify-content: flex-start;
   }
 
-  .phub-header-actions .btn {
+  .phub-header .phub-header-actions .btn {
+    display: inline-flex;
+    width: auto;
+    flex: 0 0 auto;
     font-size: 12px;
     padding: 6px 10px;
   }
 
-  .phub-header-logout { display: none; }
+  .phub-header .phub-header-actions .phub-header-logout { display: none !important; }
+
+  /* Phones: let the whole hub scroll instead of locking it to 100dvh.
+     Otherwise the flex children (nav, chat) get squashed to 0 height
+     and the fixed chat overlay hides the header/logout. */
+  .phub-page,
+  .phub-page--chats {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .phub-page > * {
+    flex-shrink: 0;
+  }
+
+  .phub-body,
+  .phub-page--chats .phub-body {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+
+  .phub-page--chats .phub-chat-wrap.wa-chat-shell,
+  .phub-page .msg-page--hub-embed {
+    height: calc(100dvh - 140px) !important;
+    min-height: 360px;
+  }
 
   .phub-mobile-logout {
     display: inline-flex;
