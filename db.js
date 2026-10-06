@@ -32,9 +32,11 @@ pool
   .then(() => console.log('[db] PostgreSQL connection ready'))
   .catch((err) => console.error('[db] Initial PostgreSQL connection failed:', err.message));
 
+// A terminated idle client must NOT crash the process — the pool drops it
+// and opens a fresh connection on the next query. Exiting here crash-loops
+// the API under pm2 whenever Postgres or the network reaps idle sockets.
 pool.on('error', (err) => {
-  console.error('Unexpected error on idle PostgreSQL client', err);
-  process.exit(-1);
+  console.error('Unexpected error on idle PostgreSQL client (removed from pool):', err.message);
 });
 
 module.exports = pool;
