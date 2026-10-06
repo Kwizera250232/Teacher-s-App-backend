@@ -963,6 +963,9 @@ ${teacherComment ? `<p><b>Teacher's comment:</b> ${escDoc(teacherComment)}</p>` 
     ${grandTotalHtml}
     ${weaknessHtml}
     ${teacherMsgHtml}
+    <div style="padding:0 28px;">
+      <p style="font-size:13px;color:#475569;margin:0;">📎 The full marks document (<b>${escDoc(reportDocName)}</b>) is attached to this email — download and open it in Word.</p>
+    </div>
     ${inviteHtml}
 
     <!-- CEO Quote -->
