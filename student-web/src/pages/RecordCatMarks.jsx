@@ -20,6 +20,9 @@ export default function RecordCatMarks() {
   const [migrateQuiz, setMigrateQuiz] = useState({ quiz_id: '', test_number: '' });
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [alsoEmail, setAlsoEmail] = useState(false);
+  const [sendingMarks, setSendingMarks] = useState(false);
+  const [sendResult, setSendResult] = useState('');
   const location = useLocation();
   const basePath = location.pathname.startsWith('/head-teacher') ? '/head-teacher' : '/teacher';
 
@@ -153,6 +156,38 @@ export default function RecordCatMarks() {
             <label>Marks<input type="number" min="0" max="100" value={recordForm.marks_obtained} onChange={(e) => setRecordForm({ ...recordForm, marks_obtained: e.target.value })} /></label>
             <button type="submit" className="btn btn-primary" disabled={saving}>Record</button>
           </form>
+        </section>
+
+        <section className="cat-panel" style={{ borderLeft: '4px solid #7c3aed' }}>
+          <h2 style={{ margin: '0 0 6px' }}>📧 Send Marks Sheet to parents</h2>
+          <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 10px' }}>
+            Each parent receives <b>only their own child's</b> marks — the full CAT table + UClass quiz marks as a downloadable
+            Word document (<b>REBA AMANOTA AMAZE KUGIRA MU MYITOZO YO MU ISHURI</b>), delivered in-app{alsoEmail ? ' and by email' : ''}.
+          </p>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>
+            <input type="checkbox" checked={alsoEmail} onChange={(e) => setAlsoEmail(e.target.checked)} />
+            Also send via Email (Word document attached)
+          </label>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={sendingMarks || roster.length === 0}
+            onClick={async () => {
+              setSendingMarks(true);
+              setSendResult('');
+              try {
+                const res = await api.post(`/catmarks/${classId}/notify-parents`, { also_email: alsoEmail, subject: '' }, token);
+                setSendResult(res.message || 'Sent.');
+              } catch (err) {
+                setSendResult(err.message || 'Failed to send.');
+              } finally {
+                setSendingMarks(false);
+              }
+            }}
+          >
+            {sendingMarks ? 'Sending…' : '📤 Send Marks Sheet to ALL Parents'}
+          </button>
+          {sendResult && <p style={{ marginTop: 10, fontSize: 13, color: '#166534' }}>{sendResult}</p>}
         </section>
 
         <section className="cat-panel cat-table-wrap">
