@@ -11,6 +11,19 @@ const isSameDay = (a, b) => {
 
 const DESC_PREVIEW_LEN = 240;
 
+// Split a description into paragraphs on blank lines so paragraph
+// spacing typed by the teacher is shown as real spacing.
+const toParagraphs = (text) =>
+  String(text).split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+
+const LessonText = ({ text, style }) => (
+  <div style={style}>
+    {toParagraphs(text).map((p, i) => (
+      <p key={i} style={{ margin: i === 0 ? 0 : '0.7em 0 0', whiteSpace: 'pre-wrap' }}>{p}</p>
+    ))}
+  </div>
+);
+
 // Recorded coaching lessons — today first, older ones grouped by subject.
 // `lessons` rows come from GET /classes/:id/lessons or GET /classes/lessons/mine
 // (the latter also carries class_name, shown when showClassName is true).
@@ -35,9 +48,7 @@ export default function RecordedLessons({ lessons = [], showClassName = false, e
     const tooLong = text.length > DESC_PREVIEW_LEN;
     return (
       <div style={{ marginTop: 8 }}>
-        <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
-          {tooLong ? `${text.slice(0, DESC_PREVIEW_LEN).trimEnd()}…` : text}
-        </p>
+        <LessonText text={tooLong ? `${text.slice(0, DESC_PREVIEW_LEN).trimEnd()}…` : text} />
         {tooLong && (
           <button
             type="button"
@@ -166,8 +177,8 @@ export default function RecordedLessons({ lessons = [], showClassName = false, e
               <strong style={{ fontSize: 16 }}>🎙 {readMore.title}</strong>
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => setReadMore(null)}>✕ Close</button>
             </div>
-            <div style={{ padding: '16px 18px', overflowY: 'auto', whiteSpace: 'pre-wrap', fontSize: 15, lineHeight: 1.6, color: '#1e293b' }}>
-              {readMore.description}
+            <div style={{ padding: '16px 18px', overflowY: 'auto', fontSize: 15, lineHeight: 1.6, color: '#1e293b' }}>
+              <LessonText text={readMore.description} />
             </div>
           </div>
         </div>
