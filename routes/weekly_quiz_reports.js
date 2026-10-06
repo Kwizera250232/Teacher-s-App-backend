@@ -763,6 +763,62 @@ ${studentMarks}`;
           <p style="color:#64748b;font-size:12px;margin-top:8px;">Use this link to create your parent account and see all of ${s.name}'s progress</p>
         </div>` : '';
 
+      // ---------- Word document attachment (full marks report) ----------
+      const escDoc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const docTeacherRows = columns.rows.map(c => {
+        const m = allMarks.rows.find(mk => mk.column_id === c.id && mk.student_id === s.id);
+        return `<tr><td>${escDoc(c.subject ? `[${c.subject}] ${c.name}` : c.name)}</td><td style="text-align:center">${m && m.marks !== null ? `${m.marks}/${c.max_marks}` : 'N/A'}</td></tr>`;
+      }).join('');
+      const docCatRows = Object.entries(
+        (catMarksByStudent[s.id] || []).reduce((acc, cm) => {
+          const k = cm.subject || 'General';
+          (acc[k] = acc[k] || []).push(cm);
+          return acc;
+        }, {})
+      ).map(([sname, items]) => {
+        const tot = items.reduce((a, i) => a + Number(i.marks_obtained), 0);
+        const mx = items.reduce((a, i) => a + Number(i.total_marks), 0);
+        const pct = mx ? ((tot / mx) * 100).toFixed(0) : '0';
+        const detail = items.map(i => `CAT ${i.test_number}: ${i.marks_obtained}/${i.total_marks}`).join('<br>');
+        return `<tr><td>${escDoc(sname)}</td><td>${detail}</td><td style="text-align:center">${tot}/${mx}</td><td style="text-align:center">${pct}%</td></tr>`;
+      }).join('');
+      const docQuizRows = systemQuizzes.rows.map(sq =>
+        `<tr><td>${escDoc(sq.title)}</td><td>${escDoc(sq.subject)}</td><td style="text-align:center">${sq.score}${sq.total ? '/' + sq.total : '%'}</td></tr>`
+      ).join('');
+      const docAiRows = aiRevisionQuizzes.rows.map(ar =>
+        `<tr><td>${escDoc(ar.subject)}</td><td>${escDoc(ar.quiz_type || 'revision')}</td><td style="text-align:center">${ar.score}/${ar.total} (${ar.percentage}%)</td></tr>`
+      ).join('');
+      const reportDocName = `AMANOTA-${s.name.replace(/[^a-zA-Z0-9]+/g, '_')}.doc`;
+      const reportDocHtml = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>Marks Report</title></head><body>
+<h1 style="color:#075e54">REBA AMANOTA AMAZE KUGIRA MU MYITOZO YO MU ISHURI</h1>
+<p><b>School:</b> ${escDoc(schoolName)} &nbsp; <b>Student:</b> ${escDoc(s.name)} &nbsp; <b>Class:</b> ${escDoc(className.rows[0]?.name || '')} &nbsp; <b>Week:</b> ${escDoc(weekLabel.rows[0]?.week_label || '')}</p>
+<p><b>Rank:</b> ${s.rank} of ${studentStats.length} &nbsp; <b>Total:</b> ${s.total} &nbsp; <b>Average:</b> ${s.avg.toFixed(2)}</p>
+<h2>Marks added by teacher</h2>
+<table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%">
+<tr style="background:#ede9fe"><th>Quiz / CAT</th><th>Marks</th></tr>
+${docTeacherRows || '<tr><td colspan="2">No marks</td></tr>'}
+</table>
+${docCatRows ? `<h2>Teacher CAT Marks (Marks Sheet)</h2>
+<table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%">
+<tr style="background:#f0f9ff"><th>Subject</th><th>CATs</th><th>Total</th><th>%</th></tr>
+${docCatRows}
+</table>` : ''}
+${docQuizRows ? `<h2>UClass quiz marks</h2>
+<table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%">
+<tr style="background:#f0fdf4"><th>Quiz</th><th>Subject</th><th>Score</th></tr>
+${docQuizRows}
+</table>` : ''}
+${docAiRows ? `<h2>AI Revision Quizzes</h2>
+<table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%">
+<tr style="background:#fff7ed"><th>Subject</th><th>Type</th><th>Score</th></tr>
+${docAiRows}
+</table>` : ''}
+<h2>Grand Total: ${grandTotal}/${grandMax} (${grandPct}%)</h2>
+${teacherComment ? `<p><b>Teacher's comment:</b> ${escDoc(teacherComment)}</p>` : ''}
+<p style="color:#64748b;font-size:12px">Report sent via UClass by the teacher.</p>
+</body></html>`;
+      const reportAttachments = [{ filename: reportDocName, content: Buffer.from(reportDocHtml, 'utf8'), type: 'application/msword' }];
+
       const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f0f2f5;font-family:'Segoe UI',Tahoma,sans-serif;">
@@ -782,6 +838,13 @@ ${studentMarks}`;
         Dear Parent, thank you for choosing our school for <strong>${s.name}</strong>'s education.
         We appreciate your trust and partnership. Here is this week's quiz report:
       </p>
+    </div>
+
+    <!-- Word document callout -->
+    <div style="padding:8px 28px 0;">
+      <div style="background:#fefce8;border:1px solid #facc15;border-radius:10px;padding:12px 16px;">
+        <p style="margin:0;font-size:14px;color:#713f12;font-weight:600;">📎 WORD DOCUMENT ATTACHED — <b>${escDoc(reportDocName)}</b>. Download it from the attachment above and open it in Word to see the full marks report.</p>
+      </div>
     </div>
 
     <!-- Stats summary -->
@@ -922,62 +985,6 @@ ${studentMarks}`;
     </div>
   </div>
 </body></html>`;
-
-      // ---------- Word document attachment (full marks report) ----------
-      const escDoc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const docTeacherRows = columns.rows.map(c => {
-        const m = allMarks.rows.find(mk => mk.column_id === c.id && mk.student_id === s.id);
-        return `<tr><td>${escDoc(c.subject ? `[${c.subject}] ${c.name}` : c.name)}</td><td style="text-align:center">${m && m.marks !== null ? `${m.marks}/${c.max_marks}` : 'N/A'}</td></tr>`;
-      }).join('');
-      const docCatRows = Object.entries(
-        (catMarksByStudent[s.id] || []).reduce((acc, cm) => {
-          const k = cm.subject || 'General';
-          (acc[k] = acc[k] || []).push(cm);
-          return acc;
-        }, {})
-      ).map(([sname, items]) => {
-        const tot = items.reduce((a, i) => a + Number(i.marks_obtained), 0);
-        const mx = items.reduce((a, i) => a + Number(i.total_marks), 0);
-        const pct = mx ? ((tot / mx) * 100).toFixed(0) : '0';
-        const detail = items.map(i => `CAT ${i.test_number}: ${i.marks_obtained}/${i.total_marks}`).join('<br>');
-        return `<tr><td>${escDoc(sname)}</td><td>${detail}</td><td style="text-align:center">${tot}/${mx}</td><td style="text-align:center">${pct}%</td></tr>`;
-      }).join('');
-      const docQuizRows = systemQuizzes.rows.map(sq =>
-        `<tr><td>${escDoc(sq.title)}</td><td>${escDoc(sq.subject)}</td><td style="text-align:center">${sq.score}${sq.total ? '/' + sq.total : '%'}</td></tr>`
-      ).join('');
-      const docAiRows = aiRevisionQuizzes.rows.map(ar =>
-        `<tr><td>${escDoc(ar.subject)}</td><td>${escDoc(ar.quiz_type || 'revision')}</td><td style="text-align:center">${ar.score}/${ar.total} (${ar.percentage}%)</td></tr>`
-      ).join('');
-      const reportDocHtml = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>Marks Report</title></head><body>
-<h1 style="color:#075e54">REBA AMANOTA AMAZE KUGIRA MU MYITOZO YO MU ISHURI</h1>
-<p><b>School:</b> ${escDoc(schoolName)} &nbsp; <b>Student:</b> ${escDoc(s.name)} &nbsp; <b>Class:</b> ${escDoc(className.rows[0]?.name || '')} &nbsp; <b>Week:</b> ${escDoc(weekLabel.rows[0]?.week_label || '')}</p>
-<p><b>Rank:</b> ${s.rank} of ${studentStats.length} &nbsp; <b>Total:</b> ${s.total} &nbsp; <b>Average:</b> ${s.avg.toFixed(2)}</p>
-<h2>Marks added by teacher</h2>
-<table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%">
-<tr style="background:#ede9fe"><th>Quiz / CAT</th><th>Marks</th></tr>
-${docTeacherRows || '<tr><td colspan="2">No marks</td></tr>'}
-</table>
-${docCatRows ? `<h2>Teacher CAT Marks (Marks Sheet)</h2>
-<table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%">
-<tr style="background:#f0f9ff"><th>Subject</th><th>CATs</th><th>Total</th><th>%</th></tr>
-${docCatRows}
-</table>` : ''}
-${docQuizRows ? `<h2>UClass quiz marks</h2>
-<table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%">
-<tr style="background:#f0fdf4"><th>Quiz</th><th>Subject</th><th>Score</th></tr>
-${docQuizRows}
-</table>` : ''}
-${docAiRows ? `<h2>AI Revision Quizzes</h2>
-<table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%">
-<tr style="background:#fff7ed"><th>Subject</th><th>Type</th><th>Score</th></tr>
-${docAiRows}
-</table>` : ''}
-<h2>Grand Total: ${grandTotal}/${grandMax} (${grandPct}%)</h2>
-${teacherComment ? `<p><b>Teacher's comment:</b> ${escDoc(teacherComment)}</p>` : ''}
-<p style="color:#64748b;font-size:12px">Report sent via UClass by the teacher.</p>
-</body></html>`;
-      const reportDocName = `AMANOTA-${s.name.replace(/[^a-zA-Z0-9]+/g, '_')}.doc`;
-      const reportAttachments = [{ filename: reportDocName, content: Buffer.from(reportDocHtml, 'utf8'), type: 'application/msword' }];
 
       // Send in-app notification to linked parent users
       for (const p of parents) {

@@ -445,7 +445,12 @@ ${quizRows}
     <p style="color:rgba(255,255,255,0.9);font-size:13px;margin:0;">${esc(schoolName)} · ${esc(className)}${classCode ? ` · ${esc(classCode)}` : ''}${subj ? ` · ${esc(subj)}` : ''}</p>
     <p style="color:rgba(255,255,255,0.85);font-size:13px;margin:4px 0 0;">Student: <b>${esc(s.name)}</b></p>
   </div>
-  <div style="padding:20px 28px;">
+  <div style="padding:20px 28px 0;">
+    <div style="background:#fefce8;border:1px solid #facc15;border-radius:10px;padding:12px 16px;">
+      <p style="margin:0;font-size:14px;color:#713f12;font-weight:600;">📎 WORD DOCUMENT ATTACHED — <b>${esc(docName)}</b>. Download it from the attachment above and open it in Word to see the full marks report.</p>
+    </div>
+  </div>
+  <div style="padding:16px 28px;">
     <h3 style="color:#075e54;font-size:15px;margin:0 0 10px;">📝 Marks added by teacher (Marks Sheet)</h3>
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead><tr style="background:#ede9fe;">
@@ -487,7 +492,6 @@ ${quizRows}
         <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:600;">${q.score}${q.total ? '/' + q.total : '%'}</td>
       </tr>`).join('')}</tbody>
     </table>` : ''}
-    <p style="margin-top:16px;font-size:13px;color:#475569;">📎 The full marks document (<b>${esc(docName)}</b>) is attached to this email — download and open it in Word.</p>
     ${inviteLink ? `<div style="margin-top:16px;text-align:center;"><a href="${inviteLink}" style="display:inline-block;background:linear-gradient(135deg,#25d366,#128c7e);color:#fff;text-decoration:none;padding:12px 28px;border-radius:10px;font-size:14px;font-weight:700;">🔐 Sign up to view all progress</a></div>` : ''}
   </div>
   <div style="padding:14px 28px;background:#f8fafc;border-top:1px solid #e2e8f0;">
