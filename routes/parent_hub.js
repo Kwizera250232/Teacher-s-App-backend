@@ -483,6 +483,14 @@ router.get('/children/:studentId/marks-export', authenticateToken, requireRole('
         sumTotal += Number(r.total_marks) || 100;
       });
       const percentage = sumTotal > 0 ? Math.round((1000 * sumMarks) / sumTotal) / 10 : 0;
+      const quizRows = await pool.query(
+        `SELECT q.title, qa.score, qa.total, qa.attempted_at
+         FROM quiz_attempts qa
+         JOIN quizzes q ON q.id = qa.quiz_id
+         WHERE q.class_id = $1 AND qa.student_id = $2
+         ORDER BY qa.attempted_at`,
+        [cls.id, studentId]
+      ).catch(() => ({ rows: [] }));
       exports.push({
         class_id: cls.id,
         class_name: cls.name,
@@ -495,6 +503,7 @@ router.get('/children/:studentId/marks-export', authenticateToken, requireRole('
           total: sumMarks,
           percentage,
         }],
+        quizzes: quizRows.rows,
       });
     }
 

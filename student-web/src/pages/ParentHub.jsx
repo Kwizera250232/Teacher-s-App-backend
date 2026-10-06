@@ -614,41 +614,7 @@ export default function ParentHub() {
                       ))}
                     </div>
                     <section className="phub-section">
-                      <h3>🎯 UClass quiz marks</h3>
-                      <p className="phub-muted" style={{ marginBottom: 8 }}>
-                        Quizzes {child.name} has done on UClass and the marks obtained.
-                      </p>
-                      {summary.quizzes?.length ? summary.quizzes.map((q, i) => (
-                        <div key={q.quiz_id || i} className="phub-row phub-row--quiz">
-                          <span>
-                            {q.class_name} — {q.title}: <strong>{q.score}{q.total ? `/${q.total}` : '%'}</strong>
-                            {q.attempted_at && (
-                              <small className="phub-muted" style={{ marginLeft: 6 }}>
-                                {new Date(q.attempted_at).toLocaleDateString()}
-                              </small>
-                            )}
-                          </span>
-                          {q.quiz_id && (
-                            <button
-                              type="button"
-                              className="btn btn-outline btn-sm"
-                              disabled={downloadingQuiz === q.quiz_id}
-                              onClick={() => downloadQuizWord(q.quiz_id, q.title)}
-                            >
-                              {downloadingQuiz === q.quiz_id ? '…' : '⬇ Word'}
-                            </button>
-                          )}
-                        </div>
-                      )) : <p className="phub-muted">No quiz attempts yet.</p>}
-                    </section>
-                    <section className="phub-section">
-                      <h3>Homework</h3>
-                      {summary.homework?.length ? summary.homework.map((h, i) => (
-                        <div key={i} className="phub-row">{h.class_name} — {h.title} {h.grade != null ? `(grade: ${h.grade})` : h.submitted_at ? '✓ submitted' : '· due ' + (h.due_date || '')}</div>
-                      )) : <p className="phub-muted">No homework yet.</p>}
-                    </section>
-                    <section className="phub-section">
-                      <h3>📝 Marks added by teachers (all subjects)</h3>
+                      <h3>📝 REBA AMANOTA — marks added by teachers (all subjects)</h3>
                       <p className="phub-muted" style={{ marginBottom: 8 }}>
                         CAT / test marks exactly as teachers recorded them for {child.name} — only your child&apos;s marks are shown.
                       </p>
@@ -690,6 +656,40 @@ export default function ParentHub() {
                           );
                         })
                       ) : <p className="phub-muted">No marks recorded by teachers yet.</p>}
+                    </section>
+                    <section className="phub-section">
+                      <h3>🎯 UClass quiz marks</h3>
+                      <p className="phub-muted" style={{ marginBottom: 8 }}>
+                        Quizzes {child.name} has done on UClass and the marks obtained.
+                      </p>
+                      {summary.quizzes?.length ? summary.quizzes.map((q, i) => (
+                        <div key={q.quiz_id || i} className="phub-row phub-row--quiz">
+                          <span>
+                            {q.class_name} — {q.title}: <strong>{q.score}{q.total ? `/${q.total}` : '%'}</strong>
+                            {q.attempted_at && (
+                              <small className="phub-muted" style={{ marginLeft: 6 }}>
+                                {new Date(q.attempted_at).toLocaleDateString()}
+                              </small>
+                            )}
+                          </span>
+                          {q.quiz_id && (
+                            <button
+                              type="button"
+                              className="btn btn-outline btn-sm"
+                              disabled={downloadingQuiz === q.quiz_id}
+                              onClick={() => downloadQuizWord(q.quiz_id, q.title)}
+                            >
+                              {downloadingQuiz === q.quiz_id ? '…' : '⬇ Word'}
+                            </button>
+                          )}
+                        </div>
+                      )) : <p className="phub-muted">No quiz attempts yet.</p>}
+                    </section>
+                    <section className="phub-section">
+                      <h3>Homework</h3>
+                      {summary.homework?.length ? summary.homework.map((h, i) => (
+                        <div key={i} className="phub-row">{h.class_name} — {h.title} {h.grade != null ? `(grade: ${h.grade})` : h.submitted_at ? '✓ submitted' : '· due ' + (h.due_date || '')}</div>
+                      )) : <p className="phub-muted">No homework yet.</p>}
                     </section>
                     <section className="phub-section">
                       <h3>📄 Inyandiko — letters &amp; reports uploaded by {child.name}</h3>

@@ -548,8 +548,9 @@ router.post('/:classId/weekly-reports/:reportId/notify-parents', authenticateTok
         console.error('[invite token for notify]', e.message);
       }
 
-      const title = `Uko umwana wawe yitwaye muri iki cyumweru - ${s.name}`;
-      let body = `UKO UMWANA WAWE YITWAYE MURI IKI CYUMWERU
+      const title = `📊 REBA AMANOTA AMAZE KUGIRA MU MYITOZO YO MU ISHURI — ${s.name}`;
+      let body = `REBA AMANOTA AMAZE KUGIRA MU MYITOZO YO MU ISHURI
+(Uko umwana wawe yitwaye muri iki cyumweru)
 School: ${schoolName}
 Student: ${s.name}
 Class: ${className.rows[0]?.name || ''}
