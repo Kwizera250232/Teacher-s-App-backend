@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 // PDF.js canvas renderer — renders each page as a <canvas>, no external viewer
-function PdfCanvasViewer({ fileUrl, onReady, badgeColor }) {
+function PdfCanvasViewer({ fileUrl, onReady, onError, badgeColor }) {
   const containerRef = useRef(null);
   const [error, setError] = useState('');
 
@@ -37,7 +37,7 @@ function PdfCanvasViewer({ fileUrl, onReady, badgeColor }) {
           await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
         }
       } catch (e) {
-        if (!cancelled) setError('Could not load PDF.');
+        if (!cancelled) { setError('Could not load PDF.'); onError && onError(); }
         onReady && onReady();
       }
     })();
@@ -83,9 +83,8 @@ export default function DocPreviewModal({ fileUrl, fileName, onClose }) {
   const fileType = getFileType(rawExt);
   const badgeColor = EXT_COLORS[ext] || '#667eea';
 
-  // Google Docs Viewer works for DOC/DOCX/PPT/PPTX/XLS/XLSX on mobile and desktop.
-  // Keep ?inline=1 so the server streams the file (not force-download) for the viewer.
-  const officeUrl = `https://docs.google.com/gview?embedded=1&url=${encodeURIComponent(fileUrl)}`;
+  // For office files the backend converts them to PDF (?view=1) and we render the PDF locally.
+  const viewUrl = `${fileUrl.split('?')[0]}?view=1`;
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -112,13 +111,11 @@ export default function DocPreviewModal({ fileUrl, fileName, onClose }) {
     }
   }, [fileUrl, fileType]);
 
-  // External office viewers (Google Docs / Office Online) don't always fire onLoad.
-  // Stop the spinner after 5s so the user can always download/open in another app.
+  // Office conversion can take a few seconds. Show a download fallback if the PDF fails.
   useEffect(() => {
     if (fileType === 'office') {
-      const t1 = setTimeout(() => setLoading(false), 5000);
-      const t2 = setTimeout(() => setViewerFallback(true), 7000);
-      return () => { clearTimeout(t1); clearTimeout(t2); };
+      const t = setTimeout(() => setLoading(false), 30000);
+      return () => clearTimeout(t);
     }
   }, [fileUrl, fileType]);
 
@@ -163,25 +160,22 @@ export default function DocPreviewModal({ fileUrl, fileName, onClose }) {
     if (fileType === 'office') {
       return (
         <div style={{ flex: 1, position: 'relative', background: '#f8fafc' }}>
-          <iframe
-            src={officeUrl}
-            style={{ position: 'absolute', inset: 0, border: 'none', background: '#fff', width: '100%', height: '100%' }}
-            title={displayName}
-            allowFullScreen
-            sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
-            onLoad={() => setLoading(false)}
-            onError={() => { setLoading(false); setViewerFallback(true); }}
-          />
-          {viewerFallback && (
+          {!viewerFallback ? (
+            <PdfCanvasViewer
+              fileUrl={viewUrl}
+              badgeColor={badgeColor}
+              onReady={() => setLoading(false)}
+              onError={() => { setLoading(false); setViewerFallback(true); }}
+            />
+          ) : (
             <div style={{
               position: 'absolute', inset: 0, background: 'rgba(255,255,255,0.96)',
               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
               textAlign: 'center', padding: 24, gap: 12,
             }}>
-              <p style={{ color: '#1e293b', fontWeight: 700, fontSize: 16, margin: 0 }}>📄 Preview not loading?</p>
+              <p style={{ color: '#1e293b', fontWeight: 700, fontSize: 16, margin: 0 }}>📄 Could not preview this file</p>
               <p style={{ color: '#475569', fontSize: 14, margin: 0 }}>
-                This {ext} file is best opened in Microsoft Word, WPS Office, or Google Docs.<br />
-                Download it and open with any Office app on your phone or computer.
+                Download it and open in Microsoft Word, WPS Office, or Google Docs on your device.
               </p>
               <a href={fileUrl} download={displayName} style={{
                 padding: '10px 22px', background: '#7c3aed', color: '#fff', borderRadius: 8,
@@ -251,7 +245,7 @@ export default function DocPreviewModal({ fileUrl, fileName, onClose }) {
           }} />
           <p style={{ marginTop: 16, color: '#64748b', fontWeight: 600 }}>Loading {displayName}…</p>
           <p style={{ color: '#94a3b8', fontSize: 13, marginTop: 4 }}>
-            {fileType === 'office' ? 'Connecting to document viewer…' : ''}
+            {fileType === 'office' ? 'Converting document to preview…' : ''}
           </p>
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
