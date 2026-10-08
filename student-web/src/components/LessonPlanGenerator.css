@@ -207,6 +207,9 @@
 }
 
 @media (max-width: 760px) {
+  .lesson-plan-generator {
+    padding-top: 60px;
+  }
   .lp-grid {
     grid-template-columns: 1fr;
   }

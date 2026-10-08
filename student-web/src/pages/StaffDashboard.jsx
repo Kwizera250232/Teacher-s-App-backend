@@ -240,6 +240,11 @@ export default function StaffDashboard({ roleLabel, basePath }) {
                 <CompositionStatusList token={token} schoolWide />
               </section>
             )}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+              <button type="button" className="btn btn-primary" onClick={() => setHubTab('lessonplan')}>
+                📝 AI Lesson Plan Generator (CBC)
+              </button>
+            </div>
             <StaffQuickActions
               token={token}
               onAddStudents={() => setShowAddStudents(true)}
@@ -357,6 +362,9 @@ export default function StaffDashboard({ roleLabel, basePath }) {
         </button>
         <button type="button" onClick={() => setHubTab('inyandiko')}>
           ✍️ Inyandiko
+        </button>
+        <button type="button" onClick={() => setHubTab('lessonplan')}>
+          📝 Lesson Plan
         </button>
         <button type="button" onClick={() => setHubTab('tools')}>
           ✍️ C. Status
