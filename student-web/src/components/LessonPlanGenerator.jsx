@@ -313,7 +313,10 @@ export default function LessonPlanGenerator({ user, token }) {
       <span class="lp-bold">School Name:</span> ${form.schoolName}
       <span style="margin-left: 80px;" class="lp-bold">Teacher's name:</span> ${form.teacherName}
     </div>
-    <table>
+    <table class="lp-meta">
+      <colgroup>
+        <col width="9%"/><col width="14%"/><col width="12%"/><col width="9%"/><col width="11%"/><col width="12%"/><col width="12%"/><col width="11%"/>
+      </colgroup>
       <tr>
         <td class="lp-hdr">Term</td>
         <td class="lp-hdr">Date</td>
@@ -335,7 +338,7 @@ export default function LessonPlanGenerator({ user, token }) {
         <td>${form.classSize}</td>
       </tr>
     </table>
-    <table>
+    <table class="lp-info">
       <tr>
         <td class="lp-bold" style="width: 33%;">Type of Special Educational Needs</td>
         <td>${form.specialNeeds || 'No specific special educational needs identified in this class'}</td>
@@ -369,7 +372,7 @@ export default function LessonPlanGenerator({ user, token }) {
         <td>${form.references || `${form.subject} book for ${form.class}, Rwanda Education Board curriculum`}</td>
       </tr>
     </table>
-    <table>
+    <table class="lp-acts">
       <tr>
         <td class="lp-bold" style="width: 15%;">Timing for each step</td>
         <td colspan="2" class="lp-bold lp-text-center">Description of teaching and learning activity</td>

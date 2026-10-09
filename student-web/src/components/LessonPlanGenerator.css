@@ -222,6 +222,17 @@
   font-weight: bold;
 }
 
+.lp-content .lp-meta,
+.lp-content .lp-info,
+.lp-content .lp-acts {
+  table-layout: fixed;
+}
+
+.lp-content .lp-meta td {
+  font-size: 9pt;
+  padding: 4px;
+}
+
 .lp-content .lp-bold,
 .lp-content strong {
   font-weight: bold;

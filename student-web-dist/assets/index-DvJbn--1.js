@@ -148,7 +148,10 @@ Pierre Habimana`})]}),e.jsxs("div",{className:"form-group",children:[e.jsx("labe
       <span class="lp-bold">School Name:</span> ${n.schoolName}
       <span style="margin-left: 80px;" class="lp-bold">Teacher's name:</span> ${n.teacherName}
     </div>
-    <table>
+    <table class="lp-meta">
+      <colgroup>
+        <col width="9%"/><col width="14%"/><col width="12%"/><col width="9%"/><col width="11%"/><col width="12%"/><col width="12%"/><col width="11%"/>
+      </colgroup>
       <tr>
         <td class="lp-hdr">Term</td>
         <td class="lp-hdr">Date</td>
@@ -170,7 +173,7 @@ Pierre Habimana`})]}),e.jsxs("div",{className:"form-group",children:[e.jsx("labe
         <td>${n.classSize}</td>
       </tr>
     </table>
-    <table>
+    <table class="lp-info">
       <tr>
         <td class="lp-bold" style="width: 33%;">Type of Special Educational Needs</td>
         <td>${n.specialNeeds||"No specific special educational needs identified in this class"}</td>
@@ -204,7 +207,7 @@ Pierre Habimana`})]}),e.jsxs("div",{className:"form-group",children:[e.jsx("labe
         <td>${n.references||`${n.subject} book for ${n.class}, Rwanda Education Board curriculum`}</td>
       </tr>
     </table>
-    <table>
+    <table class="lp-acts">
       <tr>
         <td class="lp-bold" style="width: 15%;">Timing for each step</td>
         <td colspan="2" class="lp-bold lp-text-center">Description of teaching and learning activity</td>

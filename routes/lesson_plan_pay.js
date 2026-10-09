@@ -300,6 +300,8 @@ const LP_DOC_STYLES = `
   table{width:100%;border-collapse:collapse;margin-bottom:5px;}
   td{border:1px solid #000;padding:5px 6px;vertical-align:top;word-break:keep-all;overflow-wrap:normal;}
   td.lp-hdr{white-space:nowrap;font-weight:bold;}
+  .lp-meta,.lp-info,.lp-acts{table-layout:fixed;}
+  .lp-meta td{font-size:9pt;padding:4px;}
   ul{margin:5px 0;padding-left:22px;}
   li{margin:2px 0;}
   .bold,.lp-bold{font-weight:bold;}
