@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
-import { api, uploadFile, UPLOADS_BASE } from '../api';
+import { api, uploadFile, UPLOADS_BASE, API_BASE } from '../api';
 import { useAuth } from '../context/AuthContext';
 import CreateQuizModal from '../components/CreateQuizModal';
 import DocPreviewModal from '../components/DocPreviewModal';
@@ -93,6 +93,7 @@ export default function TeacherClassPage() {
   const [shareItem, setShareItem] = useState(null);   // { title, text, url }
   const [quizShareModal, setQuizShareModal] = useState(null); // { quizTitle, className, shareUrl }
   const [quizShareBusy, setQuizShareBusy] = useState(null);
+  const [quizPdfBusy, setQuizPdfBusy] = useState(null);
   const [colleagueShareQuiz, setColleagueShareQuiz] = useState(null); // { id, title }
   const [colleagueShareNote, setColleagueShareNote] = useState(null); // { id, title }
   const [selectedStudent, setSelectedStudent] = useState(null); // popup
@@ -881,6 +882,37 @@ export default function TeacherClassPage() {
                   <button className="btn btn-danger btn-sm" onClick={() => deleteItem(`/classes/${id}/quizzes/${q.id}`)}>Delete</button>
                     </>
                   )}
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    disabled={quizPdfBusy === q.id}
+                    title="Download quiz as PDF (questions + answer key)"
+                    onClick={async () => {
+                      setQuizPdfBusy(q.id);
+                      setError('');
+                      try {
+                        const res = await fetch(`${API_BASE}/classes/${id}/quizzes/${q.id}/pdf`, {
+                          headers: { Authorization: `Bearer ${token}` },
+                        });
+                        if (!res.ok) {
+                          const d = await res.json().catch(() => ({}));
+                          throw new Error(d.error || `Download failed (${res.status})`);
+                        }
+                        const blob = await res.blob();
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `Quiz-${(q.title || 'quiz').replace(/[^\w]+/g, '-')}.pdf`;
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        URL.revokeObjectURL(url);
+                      } catch (e) {
+                        setError(e.message || 'Could not download the PDF.');
+                      } finally {
+                        setQuizPdfBusy(null);
+                      }
+                    }}
+                  >{quizPdfBusy === q.id ? '⏳' : '📄 PDF'}</button>
                   <button className="btn btn-secondary btn-sm" onClick={() => navigate(`${basePath}/classes/${id}/quizzes/${q.id}/results`)}>Results</button>
                 </div>
               </div>

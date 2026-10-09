@@ -156,8 +156,8 @@ router.post('/groups', authenticateToken, async (req, res) => {
   if (!name?.trim()) return res.status(400).json({ error: 'Group name is required.' });
   try {
     const result = await pool.query(
-      `INSERT INTO alumni_groups (name, description, creator_id, is_public)
-       VALUES ($1,$2,$3,$4) RETURNING *`,
+      `INSERT INTO alumni_groups (name, description, creator_id, created_by, is_public)
+       VALUES ($1,$2,$3,$3,$4) RETURNING *`,
       [name.trim(), description || null, req.user.id, is_public !== false]
     );
     const group = result.rows[0];

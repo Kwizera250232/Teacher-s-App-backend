@@ -10,8 +10,39 @@ const {
   sharePageUrl,
 } = require('../lib/quizShares');
 const { ensureQuizTeacherShareSchema } = require('../lib/quizTeacherShares');
+const { spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 const router = express.Router();
+
+// Convert HTML → PDF via wkhtmltopdf (installed on VPS)
+function htmlToPdfBuffer(htmlString) {
+  return new Promise((resolve, reject) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uclass-quiz-'));
+    const htmlPath = path.join(tempDir, 'quiz.html');
+    const pdfPath = path.join(tempDir, 'quiz.pdf');
+    fs.writeFileSync(htmlPath, htmlString, 'utf8');
+    const child = spawn('wkhtmltopdf', ['--enable-local-file-access', '--encoding', 'utf-8', '--quiet', htmlPath, pdfPath]);
+    let killed = false;
+    const timer = setTimeout(() => { killed = true; child.kill('SIGTERM'); reject(new Error('PDF conversion timed out')); }, 90000);
+    child.on('error', (err) => { clearTimeout(timer); reject(err); });
+    child.on('exit', (code) => {
+      clearTimeout(timer);
+      if (killed) return;
+      if (code !== 0 || !fs.existsSync(pdfPath)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        return reject(new Error('PDF not produced'));
+      }
+      const bytes = fs.readFileSync(pdfPath);
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      resolve(bytes);
+    });
+  });
+}
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 async function listQuizzesForClass(classId) {
   await ensureQuizShareSchema();
@@ -228,6 +259,94 @@ router.put('/:classId/quizzes/:quizId', authenticateToken, requireRole('teacher'
     res.status(500).json({ error: 'Internal server error.' });
   } finally {
     client.release();
+  }
+});
+
+// GET quiz as a printable PDF (teacher / HT) — questions + answer key at the end
+router.get('/:classId/quizzes/:quizId/pdf', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  try {
+    const quiz = (await pool.query(
+      `SELECT q.*, c.name AS class_name, c.subject AS class_subject
+       FROM quizzes q JOIN classes c ON c.id = q.class_id
+       WHERE q.id=$1 AND (
+         q.class_id=$2 OR EXISTS(
+           SELECT 1 FROM quiz_teacher_shares ts
+           WHERE ts.source_quiz_id=q.id AND ts.target_class_id=$2 AND ts.status='accepted'
+         )
+       )`,
+      [req.params.quizId, req.params.classId]
+    )).rows[0];
+    if (!quiz) return res.status(404).json({ error: 'Quiz not found.' });
+
+    const questions = (await pool.query(
+      `SELECT question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage
+       FROM quiz_questions WHERE quiz_id=$1 ORDER BY order_num`,
+      [req.params.quizId]
+    )).rows;
+
+    const letters = ['A', 'B', 'C', 'D'];
+    const qHtml = questions.map((q, i) => {
+      const opts = [q.option_a, q.option_b, q.option_c, q.option_d].filter(o => o != null && o !== '');
+      const isMcq = (q.question_type || 'multiple_choice') === 'multiple_choice';
+      return `<div class="q">
+        <div class="q-title">Question ${i + 1}</div>
+        ${q.passage ? `<div class="passage">${esc(q.passage)}</div>` : ''}
+        <div class="q-text">${esc(q.question)}</div>
+        ${opts.length && isMcq ? `<ol class="opts" type="A">${opts.map(o => `<li>${esc(o)}</li>`).join('')}</ol>`
+          : '<div class="answer-line">Answer: ______________________________________________</div>'}
+      </div>`;
+    }).join('');
+
+    const keyRows = questions.map((q, i) => {
+      const ca = String(q.correct_answer || '').toLowerCase();
+      const label = /^[abcd]$/.test(ca) ? ca.toUpperCase() : esc(q.correct_answer || '—');
+      return `<tr><td>Q${i + 1}</td><td>${label}</td></tr>`;
+    }).join('');
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+      body{font-family:Arial,sans-serif;font-size:11pt;line-height:1.5;margin:22px;color:#0f172a;}
+      .head{border-bottom:2px solid #667eea;padding-bottom:10px;margin-bottom:16px;}
+      h1{font-size:18pt;margin:0 0 4px;color:#1e293b;}
+      .meta{color:#475569;font-size:10pt;}
+      .q{margin-bottom:14px;page-break-inside:avoid;}
+      .q-title{font-weight:bold;color:#667eea;font-size:10pt;}
+      .q-text{font-weight:bold;margin:4px 0;}
+      .passage{background:#f1f5f9;border-left:3px solid #667eea;padding:8px 10px;margin:6px 0;font-size:10pt;white-space:pre-wrap;}
+      .opts{margin:4px 0 0 22px;}
+      .opts li{margin:2px 0;}
+      .answer-line{color:#94a3b8;margin:6px 0 0 14px;}
+      .key{page-break-before:always;}
+      .key table{border-collapse:collapse;width:auto;}
+      .key td{border:1px solid #94a3b8;padding:4px 14px;font-size:10pt;}
+      .key td:first-child{font-weight:bold;}
+      .foot{margin-top:20px;border-top:1px solid #e2e8f0;padding-top:8px;font-size:8pt;color:#94a3b8;}
+    </style></head><body>
+      <div class="head">
+        <h1>${esc(quiz.title)}</h1>
+        <div class="meta">
+          ${esc(quiz.class_name)}${quiz.class_subject ? ' · ' + esc(quiz.class_subject) : ''}
+          ${quiz.subject ? ' · ' + esc(quiz.subject) : ''}${quiz.grade_level ? ' · ' + esc(quiz.grade_level) : ''}
+          &nbsp;·&nbsp;${questions.length} question${questions.length === 1 ? '' : 's'}
+        </div>
+        ${quiz.description ? `<div class="meta" style="margin-top:4px;">${esc(quiz.description)}</div>` : ''}
+      </div>
+      <div class="meta" style="margin-bottom:10px;">Name: ______________________________ &nbsp;&nbsp; Class: ____________ &nbsp;&nbsp; Date: ____________</div>
+      ${qHtml}
+      <div class="key">
+        <h1 style="font-size:14pt;">Answer Key (Teacher only)</h1>
+        <table><tr><td><strong>Q</strong></td><td><strong>Answer</strong></td></tr>${keyRows}</table>
+      </div>
+      <div class="foot">Generated with UClass — student.umunsi.com</div>
+    </body></html>`;
+
+    const pdf = await htmlToPdfBuffer(html);
+    const safe = String(quiz.title || 'quiz').replace(/[^\w]+/g, '-').slice(0, 60);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Quiz-${safe}.pdf"`);
+    res.send(Buffer.from(pdf));
+  } catch (err) {
+    console.error('[quiz pdf]', err.message);
+    res.status(500).json({ error: 'Could not build the PDF right now.' });
   }
 });
 
