@@ -8,7 +8,7 @@ try { pdfParse = require('pdf-parse'); } catch (e) { console.log('[AI Quiz] pdf-
 const router = express.Router();
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
+const GROQ_MODEL = 'openai/gpt-oss-120b';
 const SEARXNG_URL = 'http://localhost:8888';
 
 /**
@@ -36,7 +36,7 @@ function chunkText(text, maxChars = 6000) {
  * Call Groq API (OpenAI-compatible). Permanently free tier.
  * Returns the text content from the response.
  */
-async function callGroq(messages, maxTokens = 4096, temperature = 0.3) {
+async function callGroq(messages, maxTokens = 8192, temperature = 0.3) {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error('GROQ_API_KEY not configured');
 

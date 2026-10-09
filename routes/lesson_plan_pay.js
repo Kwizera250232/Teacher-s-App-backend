@@ -210,6 +210,90 @@ router.get('/pay-status/:referenceId', authenticateToken, async (req, res) => {
   }
 });
 
+// ── AI generation (Groq — same provider as AI Quiz Gen) ──
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_MODEL = 'openai/gpt-oss-120b';
+
+async function callGroq(messages, maxTokens = 6000, temperature = 0.7) {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) throw new Error('GROQ_API_KEY not configured');
+  const res = await fetch(GROQ_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+    body: JSON.stringify({ model: GROQ_MODEL, messages, temperature, max_tokens: maxTokens }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`Groq error ${res.status}: ${t.slice(0, 160)}`);
+  }
+  const data = await res.json();
+  return data?.choices?.[0]?.message?.content || '';
+}
+
+function extractJson(text) {
+  const m = String(text || '').match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try { return JSON.parse(m[0]); } catch { return null; }
+}
+
+function validAiSections(s) {
+  if (!s || typeof s !== 'object') return false;
+  for (const k of ['intro', 'dev', 'conc']) {
+    const step = s[k];
+    if (!step || !Array.isArray(step.teacher) || !Array.isArray(step.learner)
+      || !step.teacher.length || !step.learner.length) return false;
+  }
+  return true;
+}
+
+// ── POST /generate — AI lesson plan content (falls back to template if AI unavailable) ──
+router.post('/generate', authenticateToken, requireRole('teacher', 'head_teacher', 'admin'), async (req, res) => {
+  try {
+    const f = req.body || {};
+    const prompt = [
+      'You are an expert Rwandan primary school lesson planner writing CBC (Competence-Based Curriculum) lesson plans.',
+      '',
+      'Write the teaching/learning content for THIS exact lesson (do not write generic filler):',
+      `- Subject: ${f.subject || ''}`,
+      `- Class: ${f.className || ''}`,
+      `- Unit title: ${f.unitTitle || ''}`,
+      `- Lesson title: ${f.lessonTitle || ''}`,
+      `- Lesson ${f.lessonNo || '?'} of ${f.totalLessons || '?'} in the unit`,
+      `- Total duration: ${f.duration || '?'} minutes (introduction ${f.introMin || 5} min, development ${f.devMin || '?'} min, conclusion ${f.concMin || '?'} min)`,
+      `- Class size: ${f.classSize || '?'} learners`,
+      f.sen ? `- Special educational needs present: ${f.sen}` : '',
+      f.refs ? `- References/materials: ${f.refs}` : '',
+      '',
+      'Rules:',
+      '- Activities must be SPECIFIC to this lesson topic and subject — mention the actual topic/concept in several activities.',
+      '- Include subject-appropriate methods (e.g. manipulatives for maths, reading/dialogue for languages, observation/experiment for science).',
+      '- Clear, correct, simple English suitable for a Rwandan primary classroom (groups, exercise books, manila paper, board work).',
+      '- Every bullet must be different — no repeated or rephrased activities between steps.',
+      '- genericComp: 3-4 competences, each "Label: one sentence". crossCut: a short title; crossCutDesc: one sentence.',
+      '- selfEval: 3-4 short reflection points for the teacher.',
+      '',
+      'Return ONLY valid JSON in exactly this shape:',
+      '{"intro":{"teacher":["..."],"learner":["..."],"genericComp":"...","crossCut":"...","crossCutDesc":"..."},',
+      '"dev":{"teacher":["..."],"learner":["..."],"genericComp":"...","crossCut":"...","crossCutDesc":"..."},',
+      '"conc":{"teacher":["..."],"learner":["..."],"genericComp":"...","crossCut":"...","crossCutDesc":"..."},',
+      '"selfEval":["..."]}',
+    ].filter(Boolean).join('\n');
+
+    const raw = await callGroq([
+      { role: 'system', content: 'You produce structured CBC lesson plan content as JSON.' },
+      { role: 'user', content: prompt },
+    ]);
+    const sections = extractJson(raw);
+    if (!validAiSections(sections)) {
+      return res.json({ ai: false });
+    }
+    res.json({ ai: true, sections });
+  } catch (err) {
+    console.error('[lesson plan generate]', err.message);
+    res.json({ ai: false });
+  }
+});
+
 // ── Export helpers ──
 const LP_DOC_STYLES = `
   body{font-family:Arial,sans-serif;font-size:10pt;line-height:1.4;margin:24px;}
