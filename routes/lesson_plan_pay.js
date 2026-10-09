@@ -318,14 +318,14 @@ function buildLpDoc(innerHtml, withBrand) {
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${LP_DOC_STYLES}</style></head><body>${innerHtml}${withBrand ? LP_BRAND_BLOCK : ''}</body></html>`;
 }
 
-// Convert an HTML string to PDF via LibreOffice headless.
+// Convert an HTML string to PDF via wkhtmltopdf (real WebKit rendering — respects table layout).
 function htmlToPdf(htmlString) {
   return new Promise((resolve, reject) => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uclass-lp-'));
     const htmlPath = path.join(tempDir, 'plan.html');
     const pdfPath = path.join(tempDir, 'plan.pdf');
     fs.writeFileSync(htmlPath, htmlString, 'utf8');
-    const child = spawn('soffice', ['--headless', '--convert-to', 'pdf', '--outdir', tempDir, htmlPath]);
+    const child = spawn('wkhtmltopdf', ['--enable-local-file-access', '--encoding', 'utf-8', '--quiet', htmlPath, pdfPath]);
     let killed = false;
     const timer = setTimeout(() => {
       killed = true;
