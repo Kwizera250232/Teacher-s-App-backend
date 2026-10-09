@@ -294,24 +294,32 @@ async function lessonPlanPaid(teacherId) {
   return r.rows[0] || null;
 }
 
-// ── POST /export — free: protected watermarked PDF · paid: clean .doc ──
+// ── POST /export — free: watermarked PDF · paid: clean .doc OR clean .pdf ──
 router.post('/export', authenticateToken, requireRole('teacher', 'head_teacher', 'admin'), async (req, res) => {
   try {
     const html = String(req.body.html || '');
-    const mode = req.body.mode === 'paid' ? 'paid' : 'free';
+    const rawMode = String(req.body.mode || 'free');
+    // 'paid' kept for backward compat → clean doc
+    const mode = rawMode === 'paid' ? 'doc' : (['doc', 'pdf'].includes(rawMode) ? rawMode : 'free');
     if (!html.trim() || html.length > 400000) {
       return res.status(400).json({ error: 'Lesson plan content is missing.' });
     }
     const title = String(req.body.title || 'lesson-plan').replace(/[^\w-]+/g, '-').slice(0, 60) || 'lesson-plan';
 
-    if (mode === 'paid') {
+    if (mode === 'doc' || mode === 'pdf') {
       const sub = await lessonPlanPaid(req.user.id);
       if (!sub) {
         return res.status(402).json({ error: 'Term payment required to download without the UClass signature.' });
       }
-      res.setHeader('Content-Type', 'application/msword');
-      res.setHeader('Content-Disposition', `attachment; filename="Lesson-Plan-${title}.doc"`);
-      return res.send('﻿' + buildLpDoc(html, false));
+      if (mode === 'doc') {
+        res.setHeader('Content-Type', 'application/msword');
+        res.setHeader('Content-Disposition', `attachment; filename="Lesson-Plan-${title}.doc"`);
+        return res.send('﻿' + buildLpDoc(html, false));
+      }
+      const pdfBytes = await htmlToPdf(buildLpDoc(html, false));
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="Lesson-Plan-${title}.pdf"`);
+      return res.send(Buffer.from(pdfBytes));
     }
 
     const pdfBytes = await htmlToPdf(buildLpDoc(html, true));

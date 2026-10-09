@@ -112,7 +112,7 @@ export default function LessonPlanGenerator({ user, token }) {
       const a = document.createElement('a');
       const safe = (form.lessonTitle || 'plan').replace(/[^\w]+/g, '-');
       a.href = url;
-      a.download = mode === 'paid' ? `Lesson-Plan-${safe}.doc` : `Lesson-Plan-${safe}.pdf`;
+      a.download = mode === 'doc' ? `Lesson-Plan-${safe}.doc` : `Lesson-Plan-${safe}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -457,9 +457,14 @@ export default function LessonPlanGenerator({ user, token }) {
               {downloading === 'free' ? '⏳ Building PDF…' : '📄 FREE Download — protected PDF + UClass signature'}
             </button>
             {isPaid ? (
-              <button type="button" className="lp-download-btn lp-btn-pay" disabled={downloading === 'paid'} onClick={() => downloadServer('paid')}>
-                {downloading === 'paid' ? '⏳ Building…' : '⬇️ Download Word (.doc) — no signature'}
-              </button>
+              <>
+                <button type="button" className="lp-download-btn lp-btn-pay" disabled={downloading === 'doc'} onClick={() => downloadServer('doc')}>
+                  {downloading === 'doc' ? '⏳ Building…' : '⬇️ Word (.doc) — no signature'}
+                </button>
+                <button type="button" className="lp-download-btn lp-btn-pay" disabled={downloading === 'pdf'} onClick={() => downloadServer('pdf')}>
+                  {downloading === 'pdf' ? '⏳ Building…' : '⬇️ PDF — no signature'}
+                </button>
+              </>
             ) : (
               <button type="button" className="lp-download-btn lp-btn-pay" onClick={() => setShowPay(true)}>
                 💎 Pay {payInfo?.amount_rwf ? `${payInfo.amount_rwf.toLocaleString()} RWF` : 'RWF'} / Term — editable .doc, no signature
