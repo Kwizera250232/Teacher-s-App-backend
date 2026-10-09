@@ -137,6 +137,7 @@ app.use('/api/past-papers', require('./routes/past-papers'));
 app.use('/api/education-hub', require('./routes/education-hub'));
 app.use('/api/classes', require('./routes/weekly_quiz_reports'));
 app.use('/api/classes', require('./routes/ai_quiz_generator'));
+app.use('/api/lesson-plan', require('./routes/lesson_plan_pay'));
 
 // Serve avatars
 app.use('/uploads/avatars', express.static(require('path').join(__dirname, 'uploads/avatars')));

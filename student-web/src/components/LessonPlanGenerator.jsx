@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import { api } from '../api';
 import './LessonPlanGenerator.css';
 
-export default function LessonPlanGenerator({ user }) {
+export default function LessonPlanGenerator({ user, token }) {
   const [form, setForm] = useState({
     schoolName: user?.school_name || '',
     teacherName: user?.name || '',
@@ -24,8 +25,24 @@ export default function LessonPlanGenerator({ user }) {
   });
   const [error, setError] = useState('');
   const [showResult, setShowResult] = useState(false);
+  const [payInfo, setPayInfo] = useState(null); // {paid, amount_rwf, duration_days, expires_at}
+  const [showPay, setShowPay] = useState(false);
+  const [payPhone, setPayPhone] = useState('');
+  const [paying, setPaying] = useState(false);
+  const [payError, setPayError] = useState('');
+  const [payFail, setPayFail] = useState('');
+  const [payStatus, setPayStatus] = useState(null);
+  const [referenceId, setReferenceId] = useState(null);
+  const pollRef = useRef(null);
   const contentRef = useRef(null);
   const resultRef = useRef(null);
+
+  useEffect(() => {
+    if (!token) return;
+    api.get('/lesson-plan/my-access', token).then(setPayInfo).catch(() => {});
+  }, [token]);
+
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
   useEffect(() => {
     if (showResult && resultRef.current) {
@@ -53,21 +70,92 @@ export default function LessonPlanGenerator({ user }) {
     setShowResult(true);
   };
 
-  const copyToWord = () => {
-    const node = contentRef.current;
-    if (!node) return;
-    const range = document.createRange();
-    range.selectNode(node);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
+  const isPaid = Boolean(payInfo?.paid);
+
+  const brandBlock = `
+    <div style="margin-top:24px;border-top:2px solid #667eea;padding-top:8px;display:flex;justify-content:space-between;align-items:center;font-size:9pt;color:#475569;">
+      <span><strong style="color:#667eea;">UClass</strong> — AI-Powered CBC Lesson Plan Generator</span>
+      <span>student.umunsi.com</span>
+    </div>`;
+
+  const buildDoc = (withBrand) => `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Lesson Plan - ${form.lessonTitle}</title>
+    <style>
+      body{font-family:Arial,sans-serif;font-size:10pt;line-height:1.4;margin:24px;}
+      table{width:100%;border-collapse:collapse;margin-bottom:5px;}
+      td{border:1px solid #000;padding:5px;vertical-align:top;}
+      ul{margin:5px 0;padding-left:22px;}
+      li{margin:2px 0;}
+      .bold,.lp-bold{font-weight:bold;}
+      .text-center,.lp-text-center{text-align:center;}
+    </style></head><body>${planHtml}${withBrand ? brandBlock : ''}</body></html>`;
+
+  const downloadWord = (withBrand) => {
+    const blob = new Blob(['﻿', buildDoc(withBrand)], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Lesson-Plan-${(form.lessonTitle || 'plan').replace(/[^\w]+/g, '-')}.doc`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const printPlan = (withBrand) => {
+    const w = window.open('', '_blank');
+    if (!w) return;
+    w.document.write(buildDoc(withBrand));
+    w.document.close();
+    w.focus();
+    setTimeout(() => w.print(), 400);
+  };
+
+  const startLpPolling = (ref) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const s = await api.get(`/lesson-plan/pay-status/${ref}`, token);
+        setPayStatus(s.status);
+        if (s.status === 'SUCCESSFUL') {
+          clearInterval(pollRef.current);
+          setPayInfo(p => ({ ...(p || {}), paid: true, expires_at: s.expires_at }));
+          setShowPay(false); setReferenceId(null); setPayStatus(null); setPayPhone('');
+        } else if (['FAILED', 'REJECTED', 'EXPIRED'].includes(s.status)) {
+          clearInterval(pollRef.current);
+          setPayFail(s.reason_message || 'Ubwishyu ntibwashobotse. Gerageza ukundi. (Payment was not completed — try again)');
+        }
+      } catch { /* keep polling */ }
+    }, 5000);
+  };
+
+  const doPay = async () => {
+    setPayError('');
+    if (!payPhone.trim()) { setPayError('Andika numero yawe hano.'); return; }
+    setPaying(true);
     try {
-      document.execCommand('copy');
-      alert('✅ Lesson plan copied!\n\nNow:\n1. Open Microsoft Word\n2. Press Ctrl+V (or Cmd+V on Mac) to paste\n3. Save your file');
-    } catch (err) {
-      alert('Please select the content manually and press Ctrl+C to copy');
+      const r = await api.post('/lesson-plan/pay', { phone: payPhone.trim() }, token);
+      if (r.already_paid) {
+        setPayInfo(p => ({ ...(p || {}), paid: true }));
+        setShowPay(false); return;
+      }
+      setReferenceId(r.reference_id);
+      setPayStatus(r.status);
+      if (r.status === 'SUCCESSFUL') {
+        setPayInfo(p => ({ ...(p || {}), paid: true }));
+        setShowPay(false);
+      } else {
+        startLpPolling(r.reference_id);
+      }
+    } catch (e) {
+      const msg = e.message || 'Payment failed. Try again.';
+      if (/mafaranga|not approved|not allowed|rejected|limit|not registered/i.test(msg)) {
+        setPayFail(msg);
+      } else {
+        setPayError(msg);
+      }
+    } finally {
+      setPaying(false);
     }
-    sel.removeAllRanges();
   };
 
   const dur = Number(form.duration) || 0;
@@ -342,10 +430,118 @@ export default function LessonPlanGenerator({ user }) {
       {showResult && (
         <div className="lp-result" ref={resultRef}>
           <div className="lp-download-buttons">
-            <button type="button" className="lp-download-btn lp-btn-word" onClick={copyToWord}>📄 Copy to Word</button>
-            <button type="button" className="lp-download-btn lp-btn-pdf" onClick={() => window.print()}>📑 Print / Save as PDF</button>
+            <button type="button" className="lp-download-btn lp-btn-word" onClick={() => downloadWord(true)}>
+              📄 FREE Download — with UClass signature
+            </button>
+            {isPaid ? (
+              <button type="button" className="lp-download-btn lp-btn-pay" onClick={() => downloadWord(false)}>
+                ⬇️ Download — no signature (paid)
+              </button>
+            ) : (
+              <button type="button" className="lp-download-btn lp-btn-pay" onClick={() => setShowPay(true)}>
+                💎 Pay {payInfo?.amount_rwf ? `${payInfo.amount_rwf.toLocaleString()} RWF` : 'RWF'} / Term — no signature
+              </button>
+            )}
+            <button type="button" className="lp-download-btn lp-btn-pdf" onClick={() => printPlan(!isPaid)}>
+              🖨️ Print / Save as PDF
+            </button>
           </div>
+          {payInfo?.paid && (
+            <p style={{ textAlign: 'center', fontSize: 12, color: '#16a34a', fontWeight: 600, marginTop: -8, marginBottom: 12 }}>
+              ✅ Term active — your downloads have no UClass signature{payInfo.expires_at ? ` until ${new Date(payInfo.expires_at).toLocaleDateString()}` : ''}.
+            </p>
+          )}
           <div className="lp-content" ref={contentRef} dangerouslySetInnerHTML={{ __html: planHtml }} />
+        </div>
+      )}
+
+      {showPay && (
+        <div className="lp-pay-overlay">
+          <div className="lp-pay-card">
+            <button className="lp-pay-close" onClick={() => setShowPay(false)}>✕</button>
+            <div style={{
+              width: 56, height: 56, borderRadius: '50%', background: '#ede9fe',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px',
+            }}>
+              <span style={{ fontSize: 26 }}>💎</span>
+            </div>
+            <h3 style={{ margin: '0 0 4px', fontSize: 18, color: '#111827', textAlign: 'center' }}>Lesson Plan — Whole Term</h3>
+            <p style={{ color: '#6b7280', fontSize: 13, margin: '0 0 14px', textAlign: 'center' }}>
+              Pay {payInfo?.amount_rwf ? `${payInfo.amount_rwf.toLocaleString()} RWF` : 'RWF'} once and download lesson plans without the UClass signature for {payInfo?.duration_days || 120} days.
+            </p>
+            {payStatus && referenceId ? (
+              <div style={{ textAlign: 'center' }}>
+                <span className="paywall-spinner" style={{
+                  width: 16, height: 16, border: '2px solid #e2e8f0', borderTopColor: '#5A3FFF',
+                  borderRadius: '50%', display: 'inline-block', animation: 'spin 1s linear infinite',
+                }} />
+                <p style={{ fontSize: 13, color: '#6b7280', marginTop: 10 }}>Waiting for your approval on MTN…</p>
+                <p style={{ fontSize: 12, color: '#854d0e' }}>If you don't see the prompt, dial <strong>*182#</strong>.</p>
+                <button type="button" onClick={() => { setReferenceId(null); setPayStatus(null); }}
+                  style={{ background: 'none', border: 'none', color: '#6b7280', fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}>
+                  Cancel and go back
+                </button>
+              </div>
+            ) : (
+              <>
+                <label style={{ display: 'block', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                  MTN MoMo number
+                </label>
+                <input
+                  type="tel"
+                  placeholder="Andika numero yawe hano."
+                  value={payPhone}
+                  onChange={e => setPayPhone(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') doPay(); }}
+                  style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '2px solid #e2e8f0', fontSize: 15, outline: 'none' }}
+                  onFocus={e => e.target.style.borderColor = '#5A3FFF'}
+                  onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                />
+                <button
+                  onClick={doPay}
+                  disabled={paying}
+                  style={{
+                    width: '100%', marginTop: 14, padding: '14px', borderRadius: 10, border: 'none',
+                    background: paying ? '#a5b4fc' : '#ffcc00', color: '#1e1e1e', fontWeight: 800,
+                    fontSize: 15, cursor: paying ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {paying ? 'Requesting…' : `📱 Pay ${payInfo?.amount_rwf ? `${payInfo.amount_rwf.toLocaleString()} RWF` : 'RWF'} with MTN MoMo`}
+                </button>
+              </>
+            )}
+            {payError && <div style={{ color: '#dc2626', fontSize: 13, marginTop: 10, textAlign: 'center' }}>{payError}</div>}
+
+            {payFail && (
+              <div style={{
+                position: 'absolute', inset: 0, borderRadius: 16, background: 'rgba(15,23,42,0.6)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, zIndex: 10,
+              }}>
+                <div style={{
+                  background: '#fff', borderRadius: 16, padding: '28px 24px', maxWidth: 300, width: '100%',
+                  textAlign: 'center', boxShadow: '0 12px 40px rgba(0,0,0,0.3)',
+                }}>
+                  <div style={{
+                    width: 56, height: 56, borderRadius: '50%', background: '#fef2f2',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px',
+                  }}>
+                    <span style={{ fontSize: 28 }}>⚠️</span>
+                  </div>
+                  <h3 style={{ margin: '0 0 8px', fontSize: 17, color: '#111827' }}>Ubwishyu ntibwashobotse</h3>
+                  <p style={{ color: '#dc2626', fontSize: 14, fontWeight: 600, margin: '0 0 20px', lineHeight: 1.5 }}>{payFail}</p>
+                  <button
+                    onClick={() => { setPayFail(''); setReferenceId(null); setPayStatus(null); setPayError(''); }}
+                    style={{
+                      width: '100%', padding: '12px', borderRadius: 10, border: 'none',
+                      background: '#5A3FFF', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer',
+                    }}
+                  >
+                    Gerageza ukundi
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
