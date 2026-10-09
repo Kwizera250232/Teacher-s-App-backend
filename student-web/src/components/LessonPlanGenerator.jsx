@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api } from '../api';
+import { api, API_BASE } from '../api';
 import './LessonPlanGenerator.css';
 
 export default function LessonPlanGenerator({ user, token }) {
@@ -33,6 +33,7 @@ export default function LessonPlanGenerator({ user, token }) {
   const [payFail, setPayFail] = useState('');
   const [payStatus, setPayStatus] = useState(null);
   const [referenceId, setReferenceId] = useState(null);
+  const [downloading, setDownloading] = useState('');
   const pollRef = useRef(null);
   const contentRef = useRef(null);
   const resultRef = useRef(null);
@@ -89,16 +90,38 @@ export default function LessonPlanGenerator({ user, token }) {
       .text-center,.lp-text-center{text-align:center;}
     </style></head><body>${planHtml}${withBrand ? brandBlock : ''}</body></html>`;
 
-  const downloadWord = (withBrand) => {
-    const blob = new Blob(['﻿', buildDoc(withBrand)], { type: 'application/msword' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Lesson-Plan-${(form.lessonTitle || 'plan').replace(/[^\w]+/g, '-')}.doc`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+  // Server-side export: free → watermarked protected PDF; paid → clean .doc
+  const downloadServer = async (mode) => {
+    setError('');
+    setDownloading(mode);
+    try {
+      const res = await fetch(`${API_BASE}/lesson-plan/export`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ html: planHtml, mode, title: form.lessonTitle }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || `Export failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const safe = (form.lessonTitle || 'plan').replace(/[^\w]+/g, '-');
+      a.href = url;
+      a.download = mode === 'paid' ? `Lesson-Plan-${safe}.doc` : `Lesson-Plan-${safe}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setDownloading('');
+    }
   };
 
   const printPlan = (withBrand) => {
@@ -430,16 +453,16 @@ export default function LessonPlanGenerator({ user, token }) {
       {showResult && (
         <div className="lp-result" ref={resultRef}>
           <div className="lp-download-buttons">
-            <button type="button" className="lp-download-btn lp-btn-word" onClick={() => downloadWord(true)}>
-              📄 FREE Download — with UClass signature
+            <button type="button" className="lp-download-btn lp-btn-word" disabled={downloading === 'free'} onClick={() => downloadServer('free')}>
+              {downloading === 'free' ? '⏳ Building PDF…' : '📄 FREE Download — protected PDF + UClass signature'}
             </button>
             {isPaid ? (
-              <button type="button" className="lp-download-btn lp-btn-pay" onClick={() => downloadWord(false)}>
-                ⬇️ Download — no signature (paid)
+              <button type="button" className="lp-download-btn lp-btn-pay" disabled={downloading === 'paid'} onClick={() => downloadServer('paid')}>
+                {downloading === 'paid' ? '⏳ Building…' : '⬇️ Download Word (.doc) — no signature'}
               </button>
             ) : (
               <button type="button" className="lp-download-btn lp-btn-pay" onClick={() => setShowPay(true)}>
-                💎 Pay {payInfo?.amount_rwf ? `${payInfo.amount_rwf.toLocaleString()} RWF` : 'RWF'} / Term — no signature
+                💎 Pay {payInfo?.amount_rwf ? `${payInfo.amount_rwf.toLocaleString()} RWF` : 'RWF'} / Term — editable .doc, no signature
               </button>
             )}
             <button type="button" className="lp-download-btn lp-btn-pdf" onClick={() => printPlan(!isPaid)}>

@@ -1,5 +1,10 @@
 const express = require('express');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const { spawn } = require('child_process');
+const { PDFDocument, rgb, degrees, StandardFonts } = require('pdf-lib');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { getConfig, requestToPay, getPaymentStatus, normalizePhone } = require('../lib/mtnMomo');
@@ -202,6 +207,121 @@ router.get('/pay-status/:referenceId', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('[lesson plan pay status]', err.message);
     res.status(502).json({ error: err.message || 'Status check failed.' });
+  }
+});
+
+// ── Export helpers ──
+const LP_DOC_STYLES = `
+  body{font-family:Arial,sans-serif;font-size:10pt;line-height:1.4;margin:24px;}
+  table{width:100%;border-collapse:collapse;margin-bottom:5px;}
+  td{border:1px solid #000;padding:5px;vertical-align:top;}
+  ul{margin:5px 0;padding-left:22px;}
+  li{margin:2px 0;}
+  .bold,.lp-bold{font-weight:bold;}
+  .text-center,.lp-text-center{text-align:center;}
+`;
+
+const LP_BRAND_BLOCK = `
+  <div style="margin-top:24px;border-top:2px solid #667eea;padding-top:8px;display:flex;justify-content:space-between;align-items:center;font-size:9pt;color:#475569;">
+    <span><strong style="color:#667eea;">UClass</strong> — AI-Powered CBC Lesson Plan Generator</span>
+    <span>student.umunsi.com</span>
+  </div>`;
+
+function buildLpDoc(innerHtml, withBrand) {
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${LP_DOC_STYLES}</style></head><body>${innerHtml}${withBrand ? LP_BRAND_BLOCK : ''}</body></html>`;
+}
+
+// Convert an HTML string to PDF via LibreOffice headless.
+function htmlToPdf(htmlString) {
+  return new Promise((resolve, reject) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uclass-lp-'));
+    const htmlPath = path.join(tempDir, 'plan.html');
+    const pdfPath = path.join(tempDir, 'plan.pdf');
+    fs.writeFileSync(htmlPath, htmlString, 'utf8');
+    const child = spawn('soffice', ['--headless', '--convert-to', 'pdf', '--outdir', tempDir, htmlPath]);
+    let killed = false;
+    const timer = setTimeout(() => {
+      killed = true;
+      child.kill('SIGTERM');
+      reject(new Error('LibreOffice conversion timed out'));
+    }, 90000);
+    child.on('error', (err) => { clearTimeout(timer); reject(err); });
+    child.on('exit', (code) => {
+      clearTimeout(timer);
+      if (killed) return;
+      if (code !== 0 || !fs.existsSync(pdfPath)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        return reject(new Error('PDF not produced'));
+      }
+      const bytes = fs.readFileSync(pdfPath);
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      resolve(bytes);
+    });
+  });
+}
+
+// Stamp every page with a diagonal UClass watermark + footer signature.
+async function stampBranded(pdfBytes) {
+  const doc = await PDFDocument.load(pdfBytes);
+  const font = await doc.embedFont(StandardFonts.HelveticaBold);
+  const wm = 'UCLASS  ·  student.umunsi.com';
+  for (const page of doc.getPages()) {
+    const { width, height } = page.getSize();
+    for (let y = height * 0.08; y < height; y += 170) {
+      for (let x = -60; x < width; x += 340) {
+        page.drawText(wm, {
+          x, y, size: 34, font,
+          color: rgb(0.4, 0.45, 0.92),
+          opacity: 0.09,
+          rotate: degrees(38),
+        });
+      }
+    }
+    page.drawText('Generated with UClass AI Lesson Plan Generator — student.umunsi.com', {
+      x: 40, y: 18, size: 9, font, color: rgb(0.4, 0.45, 0.92),
+    });
+  }
+  return Buffer.from(await doc.save());
+}
+
+async function lessonPlanPaid(teacherId) {
+  await ensureSchema();
+  const r = await pool.query(
+    `SELECT id, expires_at FROM lesson_plan_payments
+     WHERE teacher_id=$1 AND status='SUCCESSFUL' AND expires_at > NOW() LIMIT 1`,
+    [teacherId]
+  );
+  return r.rows[0] || null;
+}
+
+// ── POST /export — free: protected watermarked PDF · paid: clean .doc ──
+router.post('/export', authenticateToken, requireRole('teacher', 'head_teacher', 'admin'), async (req, res) => {
+  try {
+    const html = String(req.body.html || '');
+    const mode = req.body.mode === 'paid' ? 'paid' : 'free';
+    if (!html.trim() || html.length > 400000) {
+      return res.status(400).json({ error: 'Lesson plan content is missing.' });
+    }
+    const title = String(req.body.title || 'lesson-plan').replace(/[^\w-]+/g, '-').slice(0, 60) || 'lesson-plan';
+
+    if (mode === 'paid') {
+      const sub = await lessonPlanPaid(req.user.id);
+      if (!sub) {
+        return res.status(402).json({ error: 'Term payment required to download without the UClass signature.' });
+      }
+      res.setHeader('Content-Type', 'application/msword');
+      res.setHeader('Content-Disposition', `attachment; filename="Lesson-Plan-${title}.doc"`);
+      return res.send('﻿' + buildLpDoc(html, false));
+    }
+
+    const pdfBytes = await htmlToPdf(buildLpDoc(html, true));
+    const stamped = await stampBranded(pdfBytes);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Lesson-Plan-${title}.pdf"`);
+    res.send(stamped);
+  } catch (err) {
+    console.error('[lesson plan export]', err.message);
+    res.status(500).json({ error: 'Could not build the file right now. Try again.' });
   }
 });
 
