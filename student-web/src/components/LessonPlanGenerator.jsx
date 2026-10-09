@@ -13,6 +13,9 @@ export default function LessonPlanGenerator({ user }) {
     lessonNo: '',
     totalLessons: '',
     duration: '',
+    introMin: '',
+    devMin: '',
+    concMin: '',
     classSize: '',
     unitTitle: '',
     lessonTitle: '',
@@ -67,9 +70,10 @@ export default function LessonPlanGenerator({ user }) {
     sel.removeAllRanges();
   };
 
-  const introDuration = 5;
-  const devDuration = Math.floor((Number(form.duration) || 0) * 0.6);
-  const concDuration = Math.floor((Number(form.duration) || 0) * 0.25);
+  const dur = Number(form.duration) || 0;
+  const introDuration = form.introMin !== '' ? Number(form.introMin) : 5;
+  const devDuration = form.devMin !== '' ? Number(form.devMin) : Math.floor(dur * 0.6);
+  const concDuration = form.concMin !== '' ? Number(form.concMin) : Math.floor(dur * 0.25);
 
   const planHtml = `
     <div class="lp-text-center lp-bold" style="font-size: 12pt; margin-bottom: 10px;">LESSON PLAN</div>
@@ -301,6 +305,14 @@ export default function LessonPlanGenerator({ user }) {
           <div className="lp-group">
             <label className="lp-required">Duration (minutes)</label>
             <input type="number" value={form.duration} onChange={handleChange('duration')} placeholder="e.g., 40" required />
+          </div>
+          <div className="lp-group lp-full-width">
+            <label className="lp-optional">Timing for each step (Optional — teacher chooses; leave blank for automatic)</label>
+            <div className="lp-double-input">
+              <input type="number" value={form.introMin} onChange={handleChange('introMin')} placeholder="Introduction min (auto: 5)" />
+              <input type="number" value={form.devMin} onChange={handleChange('devMin')} placeholder="Development min (auto: 60%)" />
+              <input type="number" value={form.concMin} onChange={handleChange('concMin')} placeholder="Conclusion min (auto: 25%)" />
+            </div>
           </div>
           <div className="lp-group">
             <label className="lp-required">Class Size</label>
