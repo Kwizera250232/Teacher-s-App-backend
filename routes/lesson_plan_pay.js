@@ -462,17 +462,17 @@ router.post('/my', authenticateToken, requireRole('teacher', 'head_teacher', 'ad
   }
 });
 
-// GET /my — list the teacher's saved plans
+// GET /my — list the teacher's saved plans (viewable any time once created)
 router.get('/my', authenticateToken, requireRole('teacher', 'head_teacher', 'admin'), async (req, res) => {
   try {
+    await ensureSchema();
     const sub = await lessonPlanPaid(req.user.id);
-    if (!sub) return res.json({ paid: false, plans: [] });
     const r = await pool.query(
       `SELECT id, title, subject, class_name, created_at FROM lesson_plans
        WHERE teacher_id=$1 ORDER BY created_at DESC LIMIT 100`,
       [req.user.id]
     );
-    res.json({ paid: true, expires_at: sub.expires_at, plans: r.rows });
+    res.json({ paid: Boolean(sub), expires_at: sub?.expires_at || null, plans: r.rows });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
   }

@@ -52,10 +52,10 @@ export default function LessonPlanGenerator({ user, token }) {
 
   const isPaidEarly = Boolean(payInfo?.paid);
   const loadSaved = () => {
-    if (!token || !isPaidEarly) return;
+    if (!token) return;
     api.get('/lesson-plan/my', token).then(r => setSavedPlans(r.plans || [])).catch(() => {});
   };
-  useEffect(() => { loadSaved(); }, [token, isPaidEarly]);
+  useEffect(() => { loadSaved(); }, [token]);
 
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
@@ -456,7 +456,7 @@ export default function LessonPlanGenerator({ user, token }) {
         <p>Fill in the mandatory fields below, and AI will generate a complete, professional lesson plan for you!</p>
       </div>
 
-      {isPaid && savedPlans.length > 0 && (
+      {savedPlans.length > 0 && (
         <div className="lp-saved">
           <h3>📁 My saved lesson plans ({savedPlans.length})</h3>
           {savedPlans.map(p => (
@@ -478,8 +478,14 @@ export default function LessonPlanGenerator({ user, token }) {
           <div className="lp-result-header">
             <h2>📋 {savedHtml.title || 'Saved lesson plan'}</h2>
             <div className="lp-download-buttons">
-              <button type="button" className="lp-btn lp-btn-paid" onClick={() => downloadServer('doc', savedHtml.html, savedHtml.title)}>⬇️ Word (.doc)</button>
-              <button type="button" className="lp-btn lp-btn-paid" onClick={() => downloadServer('pdf', savedHtml.html, savedHtml.title)}>⬇️ PDF</button>
+              {isPaid ? (
+                <>
+                  <button type="button" className="lp-btn lp-btn-paid" onClick={() => downloadServer('doc', savedHtml.html, savedHtml.title)}>⬇️ Word (.doc)</button>
+                  <button type="button" className="lp-btn lp-btn-paid" onClick={() => downloadServer('pdf', savedHtml.html, savedHtml.title)}>⬇️ PDF</button>
+                </>
+              ) : (
+                <button type="button" className="lp-btn lp-btn-primary" onClick={() => downloadServer('free', savedHtml.html, savedHtml.title)}>📄 FREE PDF</button>
+              )}
               <button type="button" className="lp-btn" onClick={() => setSavedHtml(null)}>✖ Close</button>
             </div>
           </div>
