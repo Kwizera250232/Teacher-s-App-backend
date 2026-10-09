@@ -1,7 +1,10 @@
 .lesson-plan-generator {
   max-width: 1200px;
+  width: 100%;
   margin: 0 auto;
   padding: 20px;
+  box-sizing: border-box;
+  overflow-x: clip;
 }
 
 .lp-header {
@@ -34,9 +37,18 @@
 
 .lp-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
   gap: 20px;
   margin-bottom: 20px;
+}
+
+.lp-group input,
+.lp-group select,
+.lp-group textarea,
+.lp-double-input input {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .lp-group {
@@ -203,6 +215,45 @@
 .lp-content {
   font-size: 10pt;
   line-height: 1.4;
+  overflow-x: auto;
+}
+
+.lp-saved {
+  background: white;
+  border-radius: 15px;
+  padding: 20px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  margin-bottom: 20px;
+}
+
+.lp-saved h3 {
+  color: #667eea;
+  margin-bottom: 12px;
+}
+
+.lp-saved-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid #eef2f7;
+  flex-wrap: wrap;
+}
+
+.lp-saved-row:last-child {
+  border-bottom: none;
+}
+
+.lp-saved-meta {
+  font-size: 0.9em;
+  color: #334155;
+  flex: 1;
+  min-width: 200px;
+}
+
+.lp-saved-meta small {
+  color: #94a3b8;
 }
 
 .lp-content table {

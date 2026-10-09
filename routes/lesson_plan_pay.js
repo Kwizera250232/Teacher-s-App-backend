@@ -8,6 +8,7 @@ const { PDFDocument, rgb, degrees, StandardFonts } = require('pdf-lib');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { getConfig, requestToPay, getPaymentStatus, normalizePhone } = require('../lib/mtnMomo');
+const { sendMail } = require('../lib/optionalMailer');
 
 const router = express.Router();
 
@@ -47,7 +48,21 @@ async function ensureSchema() {
     )
   `);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_lpp_teacher ON lesson_plan_payments(teacher_id, status, expires_at)');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS lesson_plans (
+      id SERIAL PRIMARY KEY,
+      teacher_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title TEXT,
+      subject TEXT,
+      class_name TEXT,
+      html TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_lp_teacher ON lesson_plans(teacher_id, created_at DESC)');
 }
+
+const escHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // ── GET payment info — price + term length ──
 router.get('/payment-info', authenticateToken, async (req, res) => {
@@ -417,6 +432,137 @@ router.post('/export', authenticateToken, requireRole('teacher', 'head_teacher',
   } catch (err) {
     console.error('[lesson plan export]', err.message);
     res.status(500).json({ error: 'Could not build the file right now. Try again.' });
+  }
+});
+
+// ── Saved plans (paid teachers keep every generated plan) ──
+
+// POST /my — save the generated plan (requires active term)
+router.post('/my', authenticateToken, requireRole('teacher', 'head_teacher', 'admin'), async (req, res) => {
+  try {
+    const sub = await lessonPlanPaid(req.user.id);
+    if (!sub) return res.status(402).json({ error: 'A paid term is required to save lesson plans.' });
+    const html = String(req.body.html || '');
+    if (!html.trim() || html.length > 400000) {
+      return res.status(400).json({ error: 'Lesson plan content is missing.' });
+    }
+    const r = await pool.query(
+      `INSERT INTO lesson_plans (teacher_id, title, subject, class_name, html)
+       VALUES ($1,$2,$3,$4,$5) RETURNING id, created_at`,
+      [req.user.id,
+       String(req.body.title || '').slice(0, 200),
+       String(req.body.subject || '').slice(0, 120),
+       String(req.body.class_name || '').slice(0, 60),
+       html]
+    );
+    res.json({ saved: true, id: r.rows[0].id, created_at: r.rows[0].created_at });
+  } catch (err) {
+    console.error('[lesson plan save]', err.message);
+    res.status(500).json({ error: 'Could not save the lesson plan.' });
+  }
+});
+
+// GET /my — list the teacher's saved plans
+router.get('/my', authenticateToken, requireRole('teacher', 'head_teacher', 'admin'), async (req, res) => {
+  try {
+    const sub = await lessonPlanPaid(req.user.id);
+    if (!sub) return res.json({ paid: false, plans: [] });
+    const r = await pool.query(
+      `SELECT id, title, subject, class_name, created_at FROM lesson_plans
+       WHERE teacher_id=$1 ORDER BY created_at DESC LIMIT 100`,
+      [req.user.id]
+    );
+    res.json({ paid: true, expires_at: sub.expires_at, plans: r.rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// GET /my/:id — fetch one saved plan (HTML for re-view / re-download)
+router.get('/my/:id', authenticateToken, requireRole('teacher', 'head_teacher', 'admin'), async (req, res) => {
+  try {
+    const r = await pool.query(
+      'SELECT id, title, subject, class_name, html, created_at FROM lesson_plans WHERE id=$1 AND teacher_id=$2',
+      [req.params.id, req.user.id]
+    );
+    if (!r.rows[0]) return res.status(404).json({ error: 'Lesson plan not found.' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── Admin ──
+
+// GET /admin/subscribers — teachers who paid for the Lesson Plan generator
+router.get('/admin/subscribers', authenticateToken, requireRole('admin'), async (req, res) => {
+  try {
+    await ensureSchema();
+    const r = await pool.query(`
+      SELECT p.id, p.teacher_id, u.name, u.email, u.phone AS account_phone,
+             p.phone AS pay_phone, p.amount, p.status, p.mode, p.paid_at, p.expires_at, p.created_at,
+             (p.expires_at > NOW()) AS active,
+             (SELECT COUNT(*) FROM lesson_plans lp WHERE lp.teacher_id = p.teacher_id) AS plans_saved
+      FROM lesson_plan_payments p
+      JOIN users u ON u.id = p.teacher_id
+      ORDER BY p.created_at DESC`);
+    res.json({ subscribers: r.rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// POST /admin/email — send an immediate one-way email to teachers
+// body: { teacher_ids: number[] | 'paid' | 'all', subject, message }
+router.post('/admin/email', authenticateToken, requireRole('admin'), async (req, res) => {
+  try {
+    await ensureSchema();
+    const subject = String(req.body.subject || '').trim();
+    const message = String(req.body.message || '').trim();
+    if (!subject || !message) {
+      return res.status(400).json({ error: 'Subject and message are required.' });
+    }
+    const ids = req.body.teacher_ids;
+    let rows;
+    if (ids === 'paid' || ids === 'all_paid') {
+      rows = (await pool.query(
+        `SELECT DISTINCT u.id, u.email, u.name FROM lesson_plan_payments p
+         JOIN users u ON u.id = p.teacher_id
+         WHERE p.status='SUCCESSFUL' AND p.expires_at > NOW() AND u.email IS NOT NULL AND u.email <> ''`
+      )).rows;
+    } else if (ids === 'all') {
+      rows = (await pool.query(
+        `SELECT id, email, name FROM users
+         WHERE role IN ('teacher','head_teacher') AND email IS NOT NULL AND email <> ''`
+      )).rows;
+    } else {
+      const arr = (Array.isArray(ids) ? ids : []).map(Number).filter(Number.isFinite);
+      if (!arr.length) return res.status(400).json({ error: 'Select at least one teacher.' });
+      rows = (await pool.query(
+        `SELECT id, email, name FROM users WHERE id = ANY($1::int[]) AND email IS NOT NULL AND email <> ''`,
+        [arr]
+      )).rows;
+    }
+
+    const html = `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;color:#1e293b;line-height:1.6;">
+      <div style="max-width:600px;margin:0 auto;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
+        <div style="background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:18px 22px;font-weight:bold;">UClass — student.umunsi.com</div>
+        <div style="padding:22px;">${escHtml(message).replace(/\n/g, '<br>')}</div>
+        <div style="padding:14px 22px;background:#f8fafc;font-size:11px;color:#94a3b8;">
+          This is a one-way notification from UClass. Please do not reply to this email.
+        </div>
+      </div></body></html>`;
+    const text = `${message}\n\n— UClass (one-way notification, please do not reply)`;
+
+    let sent = 0, failed = 0;
+    for (const t of rows) {
+      const r = await sendMail({ to: t.email, subject, text, html });
+      if (r.sent) sent++; else failed++;
+    }
+    res.json({ sent, failed, total: rows.length });
+  } catch (err) {
+    console.error('[lesson plan admin email]', err.message);
+    res.status(500).json({ error: 'Could not send emails.' });
   }
 });
 

@@ -36,14 +36,26 @@ export default function LessonPlanGenerator({ user, token }) {
   const [downloading, setDownloading] = useState('');
   const [generating, setGenerating] = useState(false);
   const [aiSections, setAiSections] = useState(null);
+  const [genCount, setGenCount] = useState(0);
+  const [savedPlans, setSavedPlans] = useState([]);
+  const [savedHtml, setSavedHtml] = useState(null);
+  const [savedLoading, setSavedLoading] = useState(0);
   const pollRef = useRef(null);
   const contentRef = useRef(null);
   const resultRef = useRef(null);
+  const savedRef = useRef(null);
 
   useEffect(() => {
     if (!token) return;
     api.get('/lesson-plan/my-access', token).then(setPayInfo).catch(() => {});
   }, [token]);
+
+  const isPaidEarly = Boolean(payInfo?.paid);
+  const loadSaved = () => {
+    if (!token || !isPaidEarly) return;
+    api.get('/lesson-plan/my', token).then(r => setSavedPlans(r.plans || [])).catch(() => {});
+  };
+  useEffect(() => { loadSaved(); }, [token, isPaidEarly]);
 
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
@@ -92,7 +104,30 @@ export default function LessonPlanGenerator({ user, token }) {
       setAiSections(null); // fall back to local template
     }
     setGenerating(false);
+    setGenCount(c => c + 1);
     setShowResult(true);
+  };
+
+  // Auto-save every generated plan for paid teachers (they can re-open it later)
+  useEffect(() => {
+    if (!genCount || !showResult || !isPaidEarly || !token) return;
+    api.post('/lesson-plan/my', {
+      title: form.lessonTitle,
+      subject: form.subject,
+      class_name: form.class,
+      html: planHtml,
+    }, token).then(loadSaved).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [genCount]);
+
+  const viewSaved = async (id) => {
+    setSavedLoading(id);
+    try {
+      const p = await api.get(`/lesson-plan/my/${id}`, token);
+      setSavedHtml({ id: p.id, title: p.title, html: p.html });
+      setTimeout(() => savedRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    } catch { /* ignore */ }
+    setSavedLoading(0);
   };
 
   const isPaid = Boolean(payInfo?.paid);
@@ -115,9 +150,11 @@ export default function LessonPlanGenerator({ user, token }) {
     </style></head><body>${planHtml}${withBrand ? brandBlock : ''}</body></html>`;
 
   // Server-side export: free → watermarked protected PDF; paid → clean .doc
-  const downloadServer = async (mode) => {
+  const downloadServer = async (mode, htmlOverride, titleOverride) => {
     setError('');
     setDownloading(mode);
+    const htmlToSend = htmlOverride || planHtml;
+    const titleToUse = titleOverride || form.lessonTitle;
     try {
       const res = await fetch(`${API_BASE}/lesson-plan/export`, {
         method: 'POST',
@@ -125,7 +162,7 @@ export default function LessonPlanGenerator({ user, token }) {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ html: planHtml, mode, title: form.lessonTitle }),
+        body: JSON.stringify({ html: htmlToSend, mode, title: titleToUse }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -134,7 +171,7 @@ export default function LessonPlanGenerator({ user, token }) {
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      const safe = (form.lessonTitle || 'plan').replace(/[^\w]+/g, '-');
+      const safe = (titleToUse || 'plan').replace(/[^\w]+/g, '-');
       a.href = url;
       a.download = mode === 'doc' ? `Lesson-Plan-${safe}.doc` : `Lesson-Plan-${safe}.pdf`;
       document.body.appendChild(a);
@@ -418,6 +455,37 @@ export default function LessonPlanGenerator({ user, token }) {
         <h1>🤖 AI-Powered CBC Lesson Plan Generator</h1>
         <p>Fill in the mandatory fields below, and AI will generate a complete, professional lesson plan for you!</p>
       </div>
+
+      {isPaid && savedPlans.length > 0 && (
+        <div className="lp-saved">
+          <h3>📁 My saved lesson plans ({savedPlans.length})</h3>
+          {savedPlans.map(p => (
+            <div key={p.id} className="lp-saved-row">
+              <span className="lp-saved-meta">
+                <strong>{p.title || 'Untitled'}</strong> — {p.subject} ({p.class_name})
+                <br/><small>{new Date(p.created_at).toLocaleString()}</small>
+              </span>
+              <button type="button" className="lp-btn lp-btn-primary" disabled={savedLoading === p.id} onClick={() => viewSaved(p.id)}>
+                {savedLoading === p.id ? '…' : '👁 View'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {savedHtml && (
+        <div className="lp-result" ref={savedRef}>
+          <div className="lp-result-header">
+            <h2>📋 {savedHtml.title || 'Saved lesson plan'}</h2>
+            <div className="lp-download-buttons">
+              <button type="button" className="lp-btn lp-btn-paid" onClick={() => downloadServer('doc', savedHtml.html, savedHtml.title)}>⬇️ Word (.doc)</button>
+              <button type="button" className="lp-btn lp-btn-paid" onClick={() => downloadServer('pdf', savedHtml.html, savedHtml.title)}>⬇️ PDF</button>
+              <button type="button" className="lp-btn" onClick={() => setSavedHtml(null)}>✖ Close</button>
+            </div>
+          </div>
+          <div className="lp-content" dangerouslySetInnerHTML={{ __html: savedHtml.html }} />
+        </div>
+      )}
 
       <form className="lp-form" onSubmit={generate}>
         <div className="lp-grid">
