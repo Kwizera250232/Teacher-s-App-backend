@@ -34,6 +34,8 @@ export default function LessonPlanGenerator({ user, token }) {
   const [payStatus, setPayStatus] = useState(null);
   const [referenceId, setReferenceId] = useState(null);
   const [downloading, setDownloading] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [aiSections, setAiSections] = useState(null);
   const pollRef = useRef(null);
   const contentRef = useRef(null);
   const resultRef = useRef(null);
@@ -63,11 +65,33 @@ export default function LessonPlanGenerator({ user, token }) {
     return '';
   };
 
-  const generate = (e) => {
+  const generate = async (e) => {
     e.preventDefault();
     const err = validate();
     setError(err);
     if (err) return;
+    setGenerating(true);
+    try {
+      const r = await api.post('/lesson-plan/generate', {
+        subject: form.subject,
+        className: form.class,
+        unitTitle: form.unitTitle,
+        lessonTitle: form.lessonTitle,
+        lessonNo: form.lessonNo,
+        totalLessons: form.totalLessons,
+        duration: form.duration,
+        classSize: form.classSize,
+        introMin: introDuration,
+        devMin: devDuration,
+        concMin: concDuration,
+        sen: form.specialNeeds,
+        refs: form.references,
+      }, token);
+      setAiSections(r?.ai && r.sections ? r.sections : null);
+    } catch {
+      setAiSections(null); // fall back to local template
+    }
+    setGenerating(false);
     setShowResult(true);
   };
 
@@ -186,6 +210,103 @@ export default function LessonPlanGenerator({ user, token }) {
   const devDuration = form.devMin !== '' ? Number(form.devMin) : Math.floor(dur * 0.6);
   const concDuration = form.concMin !== '' ? Number(form.concMin) : Math.floor(dur * 0.25);
 
+  // ── Content: AI-generated if available, else the built-in template ──
+  const escHtml = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const ul = (items) => `<ul>${(items || []).map((b) => `<li>${escHtml(b)}</li>`).join('')}</ul>`;
+  const aiCompCell = (step) => {
+    const gen = String(step?.genericComp || '')
+      .split(/[\n;]+/).map((l) => l.trim()).filter(Boolean)
+      .map((l) => {
+        const m = l.match(/^([^:]{1,60}):\s*(.+)$/);
+        return m ? `<strong>${escHtml(m[1])}:</strong> ${escHtml(m[2])}` : escHtml(l);
+      }).join('<br/><br/>');
+    const cross = step?.crossCut
+      ? `<strong>${escHtml(step.crossCut)}:</strong> ${escHtml(step.crossCutDesc || '')}`
+      : '';
+    return [gen, cross].filter(Boolean).join('<br/><br/>');
+  };
+
+  const TPL_INTRO_T = [
+    'Greets learners and checks attendance',
+    `Reviews previous lesson related to ${form.unitTitle}`,
+    `Asks learners: "What do you remember about ${form.unitTitle}?"`,
+    `Introduces today's topic: "${form.lessonTitle}"`,
+    'Shares the lesson objectives with learners',
+  ];
+  const TPL_INTRO_L = [
+    'Respond to greetings and settle down',
+    'Recall and share what they learned in previous lesson',
+    'Listen attentively to the new topic',
+    'Write lesson title in their exercise books',
+    'Ask questions if they need clarification',
+  ];
+  const TPL_INTRO_C = `<strong>Communication:</strong> Learners express their prior knowledge clearly<br/><br/><strong>Peace and values education:</strong> Respectful participation in class discussions`;
+
+  const TPL_DEV_T = [
+    'Organizes learners into groups of 5',
+    'Distributes learning materials to each group',
+    `Explains the key concepts of ${form.lessonTitle} using examples`,
+    'Demonstrates the main concept on the board with step-by-step explanation',
+    'Guides groups to work on practice activities related to the topic',
+    'Moves around the classroom observing and assisting learners',
+    'Asks probing questions to check understanding',
+    'Invites group representatives to present their work',
+    'Provides constructive feedback and clarifies misconceptions',
+    'Gives additional practice exercises for individual work',
+  ];
+  const TPL_DEV_L = [
+    'Form groups as instructed by the teacher',
+    'Collect and handle learning materials carefully',
+    "Listen to teacher's explanation and take notes",
+    'Follow the demonstration and ask questions',
+    'Work collaboratively in groups to complete activities',
+    'Discuss and share ideas with group members',
+    'Record findings on Manila paper or in exercise books',
+    'Present group work to the class',
+    'Listen to feedback and make corrections',
+    'Complete individual practice exercises',
+  ];
+  const TPL_DEV_C = `<strong>Critical thinking:</strong> Learners analyze concepts and solve problems independently<br/><br/><strong>Cooperation:</strong> Working in groups develops teamwork and interpersonal skills<br/><br/><strong>Inclusive education:</strong> Mixed-ability groups ensure all learners participate actively<br/><br/><strong>Creativity and innovation:</strong> Learners explore different approaches to solve problems`;
+
+  const TPL_CONC_T = [
+    `Guides learners to summarize the main points about ${form.lessonTitle}`,
+    'Reinforces key concepts through questions and answers',
+    'Conducts a quick oral assessment with 2-3 questions',
+    `Assigns homework: Practice exercises on ${form.lessonTitle} from textbook`,
+    'Links to the next lesson and explains what will be covered',
+    'Appreciates learners for their active participation and good work',
+  ];
+  const TPL_CONC_L = [
+    'Participate in summarizing what they have learned',
+    "Answer teacher's questions to demonstrate understanding",
+    'Self-assess their learning progress',
+    'Write down homework assignment clearly',
+    'Ask final questions for clarification',
+    'Pack their materials and prepare for the next lesson',
+  ];
+  const TPL_CONC_C = `<strong>Self-confidence:</strong> Learners gain confidence through successful practice and participation<br/><br/><strong>Communication:</strong> Summarizing helps consolidate and articulate learning<br/><br/><strong>Lifelong learning:</strong> Reflection on learning promotes continuous improvement`;
+
+  const step = (key, fbT, fbL, fbC) => {
+    const s = aiSections?.[key];
+    if (s && Array.isArray(s.teacher) && s.teacher.length && Array.isArray(s.learner) && s.learner.length) {
+      return { teacher: s.teacher, learner: s.learner, comp: aiCompCell(s) };
+    }
+    return { teacher: fbT, learner: fbL, comp: fbC };
+  };
+  const intro = step('intro', TPL_INTRO_T, TPL_INTRO_L, TPL_INTRO_C);
+  const dev = step('dev', TPL_DEV_T, TPL_DEV_L, TPL_DEV_C);
+  const conc = step('conc', TPL_CONC_T, TPL_CONC_L, TPL_CONC_C);
+
+  const TPL_EVAL = [
+    'Did all learners achieve the lesson objective?',
+    'Which activities worked well and which need improvement?',
+    'Were the learning materials adequate and effective?',
+    'How many learners need additional support?',
+    'What adjustments are needed for the next lesson?',
+  ];
+  const evalLines = (aiSections?.selfEval?.length ? aiSections.selfEval : TPL_EVAL)
+    .map((b) => `• ${escHtml(b)}`).join('<br/>');
+
   const planHtml = `
     <div class="lp-text-center lp-bold" style="font-size: 12pt; margin-bottom: 10px;">LESSON PLAN</div>
     <div style="margin-bottom: 5px; font-size: 10pt;">
@@ -262,103 +383,27 @@ export default function LessonPlanGenerator({ user, token }) {
       </tr>
       <tr>
         <td class="lp-bold">Introduction<br/>${introDuration} min</td>
-        <td>
-          <ul>
-            <li>Greets learners and checks attendance</li>
-            <li>Reviews previous lesson related to ${form.unitTitle}</li>
-            <li>Asks learners: "What do you remember about ${form.unitTitle}?"</li>
-            <li>Introduces today's topic: "${form.lessonTitle}"</li>
-            <li>Shares the lesson objectives with learners</li>
-          </ul>
-        </td>
-        <td>
-          <ul>
-            <li>Respond to greetings and settle down</li>
-            <li>Recall and share what they learned in previous lesson</li>
-            <li>Listen attentively to the new topic</li>
-            <li>Write lesson title in their exercise books</li>
-            <li>Ask questions if they need clarification</li>
-          </ul>
-        </td>
-        <td>
-          <strong>Communication:</strong> Learners express their prior knowledge clearly<br/><br/>
-          <strong>Peace and values education:</strong> Respectful participation in class discussions
-        </td>
+        <td>${ul(intro.teacher)}</td>
+        <td>${ul(intro.learner)}</td>
+        <td>${intro.comp}</td>
       </tr>
       <tr>
         <td class="lp-bold">Development of the lesson<br/>${devDuration} min</td>
-        <td>
-          <ul>
-            <li>Organizes learners into groups of 5</li>
-            <li>Distributes learning materials to each group</li>
-            <li>Explains the key concepts of ${form.lessonTitle} using examples</li>
-            <li>Demonstrates the main concept on the board with step-by-step explanation</li>
-            <li>Guides groups to work on practice activities related to the topic</li>
-            <li>Moves around the classroom observing and assisting learners</li>
-            <li>Asks probing questions to check understanding</li>
-            <li>Invites group representatives to present their work</li>
-            <li>Provides constructive feedback and clarifies misconceptions</li>
-            <li>Gives additional practice exercises for individual work</li>
-          </ul>
-        </td>
-        <td>
-          <ul>
-            <li>Form groups as instructed by the teacher</li>
-            <li>Collect and handle learning materials carefully</li>
-            <li>Listen to teacher's explanation and take notes</li>
-            <li>Follow the demonstration and ask questions</li>
-            <li>Work collaboratively in groups to complete activities</li>
-            <li>Discuss and share ideas with group members</li>
-            <li>Record findings on Manila paper or in exercise books</li>
-            <li>Present group work to the class</li>
-            <li>Listen to feedback and make corrections</li>
-            <li>Complete individual practice exercises</li>
-          </ul>
-        </td>
-        <td>
-          <strong>Critical thinking:</strong> Learners analyze concepts and solve problems independently<br/><br/>
-          <strong>Cooperation:</strong> Working in groups develops teamwork and interpersonal skills<br/><br/>
-          <strong>Inclusive education:</strong> Mixed-ability groups ensure all learners participate actively<br/><br/>
-          <strong>Creativity and innovation:</strong> Learners explore different approaches to solve problems
-        </td>
+        <td>${ul(dev.teacher)}</td>
+        <td>${ul(dev.learner)}</td>
+        <td>${dev.comp}</td>
       </tr>
       <tr>
         <td class="lp-bold">Conclusion<br/>${concDuration} min</td>
-        <td>
-          <ul>
-            <li>Guides learners to summarize the main points about ${form.lessonTitle}</li>
-            <li>Reinforces key concepts through questions and answers</li>
-            <li>Conducts a quick oral assessment with 2-3 questions</li>
-            <li>Assigns homework: Practice exercises on ${form.lessonTitle} from textbook</li>
-            <li>Links to the next lesson and explains what will be covered</li>
-            <li>Appreciates learners for their active participation and good work</li>
-          </ul>
-        </td>
-        <td>
-          <ul>
-            <li>Participate in summarizing what they have learned</li>
-            <li>Answer teacher's questions to demonstrate understanding</li>
-            <li>Self-assess their learning progress</li>
-            <li>Write down homework assignment clearly</li>
-            <li>Ask final questions for clarification</li>
-            <li>Pack their materials and prepare for the next lesson</li>
-          </ul>
-        </td>
-        <td>
-          <strong>Self-confidence:</strong> Learners gain confidence through successful practice and participation<br/><br/>
-          <strong>Communication:</strong> Summarizing helps consolidate and articulate learning<br/><br/>
-          <strong>Lifelong learning:</strong> Reflection on learning promotes continuous improvement
-        </td>
+        <td>${ul(conc.teacher)}</td>
+        <td>${ul(conc.learner)}</td>
+        <td>${conc.comp}</td>
       </tr>
       <tr>
         <td class="lp-bold">Teacher self-evaluation</td>
         <td colspan="3">
           <em>To be completed after lesson delivery:</em><br/>
-          • Did all learners achieve the lesson objective?<br/>
-          • Which activities worked well and which need improvement?<br/>
-          • Were the learning materials adequate and effective?<br/>
-          • How many learners need additional support?<br/>
-          • What adjustments are needed for the next lesson?
+          ${evalLines}
         </td>
       </tr>
     </table>
@@ -446,7 +491,9 @@ export default function LessonPlanGenerator({ user, token }) {
             <input type="text" value={form.references} onChange={handleChange('references')} placeholder="e.g., Mathematics book for primary 4" />
           </div>
         </div>
-        <button type="submit" className="lp-generate-btn">✨ Generate Complete Lesson Plan</button>
+        <button type="submit" className="lp-generate-btn" disabled={generating}>
+          {generating ? '⏳ AI is writing your lesson plan…' : '✨ Generate Complete Lesson Plan'}
+        </button>
         {error && <div className="lp-error">{error}</div>}
       </form>
 
