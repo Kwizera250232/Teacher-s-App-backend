@@ -315,14 +315,14 @@ export default function LessonPlanGenerator({ user, token }) {
     </div>
     <table>
       <tr>
-        <td class="lp-bold">Term</td>
-        <td class="lp-bold">Date</td>
-        <td class="lp-bold">Subject</td>
-        <td class="lp-bold">Class</td>
-        <td class="lp-bold">Unit N°</td>
-        <td class="lp-bold">Lesson N°</td>
-        <td class="lp-bold">Duration</td>
-        <td class="lp-bold">Class size</td>
+        <td class="lp-hdr">Term</td>
+        <td class="lp-hdr">Date</td>
+        <td class="lp-hdr">Subject</td>
+        <td class="lp-hdr">Class</td>
+        <td class="lp-hdr">Unit N°</td>
+        <td class="lp-hdr">Lesson N°</td>
+        <td class="lp-hdr">Duration</td>
+        <td class="lp-hdr">Class size</td>
       </tr>
       <tr>
         <td>${form.term}</td>

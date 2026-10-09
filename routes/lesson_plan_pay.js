@@ -296,9 +296,10 @@ router.post('/generate', authenticateToken, requireRole('teacher', 'head_teacher
 
 // ── Export helpers ──
 const LP_DOC_STYLES = `
-  body{font-family:Arial,sans-serif;font-size:10pt;line-height:1.4;margin:24px;}
+  body{font-family:Arial,sans-serif;font-size:10pt;line-height:1.4;margin:20px;}
   table{width:100%;border-collapse:collapse;margin-bottom:5px;}
-  td{border:1px solid #000;padding:5px;vertical-align:top;}
+  td{border:1px solid #000;padding:5px 6px;vertical-align:top;word-break:keep-all;overflow-wrap:normal;}
+  td.lp-hdr{white-space:nowrap;font-weight:bold;}
   ul{margin:5px 0;padding-left:22px;}
   li{margin:2px 0;}
   .bold,.lp-bold{font-weight:bold;}
