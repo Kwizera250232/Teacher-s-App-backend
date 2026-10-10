@@ -192,8 +192,9 @@ router.get('/plans', authenticateToken, requireRole('teacher', 'head_teacher', '
   }
 });
 
-router.get('/:id(\\d+)', authenticateToken, requireRole('teacher', 'head_teacher', 'admin'), async (req, res) => {
+router.get('/:id', authenticateToken, requireRole('teacher', 'head_teacher', 'admin'), async (req, res) => {
   try {
+    if (!/^\d+$/.test(req.params.id)) return res.status(404).json({ error: 'Notes not found.' });
     const r = await pool.query(
       'SELECT * FROM teacher_notes WHERE id=$1 AND teacher_id=$2',
       [req.params.id, req.user.id]
@@ -205,8 +206,9 @@ router.get('/:id(\\d+)', authenticateToken, requireRole('teacher', 'head_teacher
   }
 });
 
-router.delete('/:id(\\d+)', authenticateToken, requireRole('teacher', 'head_teacher', 'admin'), async (req, res) => {
+router.delete('/:id', authenticateToken, requireRole('teacher', 'head_teacher', 'admin'), async (req, res) => {
   try {
+    if (!/^\d+$/.test(req.params.id)) return res.status(404).json({ error: 'Notes not found.' });
     await pool.query('DELETE FROM teacher_notes WHERE id=$1 AND teacher_id=$2', [req.params.id, req.user.id]);
     res.json({ deleted: true });
   } catch (err) {
