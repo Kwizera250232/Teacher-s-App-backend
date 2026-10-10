@@ -13,6 +13,7 @@ import StaffQuickActions from '../components/StaffQuickActions';
 import SchoolHubPanel from '../components/staff/SchoolHubPanel';
 import AddTeacherModal from '../components/staff/AddTeacherModal';
 import LessonPlanGenerator from '../components/LessonPlanGenerator';
+import NoteGenerator from '../components/NoteGenerator';
 import NotifyParentsModal from '../components/staff/NotifyParentsModal';
 import ParentInvitesPickerModal from '../components/ParentInvitesPickerModal';
 import StaffChatsPanel from '../components/staff/StaffChatsPanel';
@@ -109,6 +110,7 @@ export default function StaffDashboard({ roleLabel, basePath }) {
     { id: 'classnow', label: '📸 Class Now' },
     { id: 'inyandiko', label: '✍️ Inyandiko' },
     { id: 'lessonplan', label: '📝 Lesson Plan' },
+    { id: 'notes', label: '📓 Notes' },
     { id: 'tools', label: '⚡ Tools' },
   ];
 
@@ -221,6 +223,10 @@ export default function StaffDashboard({ roleLabel, basePath }) {
 
         {hubTab === 'lessonplan' && (
           <LessonPlanGenerator user={user} token={token} />
+        )}
+
+        {hubTab === 'notes' && (
+          <NoteGenerator user={user} token={token} />
         )}
 
         {hubTab === 'tools' && (

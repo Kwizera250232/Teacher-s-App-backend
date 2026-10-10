@@ -1,0 +1,127 @@
+.note-generator {
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 20px;
+  box-sizing: border-box;
+  overflow-x: clip;
+}
+
+.ng-header {
+  background: white;
+  border-radius: 15px;
+  padding: 30px;
+  margin-bottom: 20px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  text-align: center;
+}
+
+.ng-header h1 {
+  color: #667eea;
+  font-size: 2em;
+  margin-bottom: 10px;
+}
+
+.ng-header p {
+  color: #666;
+  font-size: 1.05em;
+}
+
+.ng-saved,
+.ng-form,
+.ng-result {
+  background: white;
+  border-radius: 15px;
+  padding: 25px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  margin-bottom: 20px;
+}
+
+.ng-saved h3 {
+  color: #667eea;
+  margin-bottom: 12px;
+}
+
+.ng-saved-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid #eef2f7;
+  flex-wrap: wrap;
+}
+
+.ng-saved-row:last-child { border-bottom: none; }
+
+.ng-saved-meta { font-size: 0.9em; color: #334155; flex: 1; min-width: 200px; }
+.ng-saved-meta small { color: #94a3b8; }
+
+.ng-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.ng-full { grid-column: 1 / -1; }
+
+.ng-group { display: flex; flex-direction: column; }
+
+.ng-group label {
+  font-weight: bold;
+  margin-bottom: 5px;
+  font-size: 0.9em;
+}
+
+.ng-group label.ng-required::after {
+  content: " *";
+  color: red;
+}
+
+.ng-group input,
+.ng-group select,
+.ng-group textarea {
+  padding: 10px 12px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 1em;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.ng-result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.ng-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.ng-content {
+  font-size: 11pt;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+.ng-content h2 { color: #667eea; font-size: 1.2em; margin-top: 18px; }
+.ng-content h3 { color: #334155; margin-top: 12px; }
+.ng-content ul, .ng-content ol { margin: 6px 0; padding-left: 24px; }
+.ng-content li { margin: 3px 0; display: list-item !important; list-style-type: disc !important; }
+.ng-content ol li { list-style-type: decimal !important; }
+
+.ng-editing {
+  border: 2px dashed #667eea;
+  border-radius: 10px;
+  padding: 12px;
+  min-height: 200px;
+}
+
+@media (max-width: 760px) {
+  .note-generator { padding-top: 60px; }
+  .ng-header h1 { font-size: 1.4em; }
+}
