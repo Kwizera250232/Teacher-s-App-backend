@@ -325,12 +325,22 @@
     overflow-x: clip;
   }
   .lesson-plan-generator {
-    padding: 60px 8px 12px;
+    /* break out of any padded parent — always exactly as wide as the phone screen */
+    width: 100vw;
     max-width: 100vw;
+    margin-left: 50%;
+    transform: translateX(-50%);
+    padding: 60px 10px 12px;
     min-width: 0;
-    /* if anything inside is wider than the screen, let the teacher slide to reach it */
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+  }
+  .lp-double-input {
+    flex-wrap: wrap;
+  }
+  .lp-double-input input {
+    flex: 1 1 45%;
+    min-width: 0;
   }
   .lp-header,
   .lp-form,
