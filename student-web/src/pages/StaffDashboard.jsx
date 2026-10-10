@@ -372,6 +372,9 @@ export default function StaffDashboard({ roleLabel, basePath }) {
         <button type="button" onClick={() => setHubTab('lessonplan')}>
           📝 Lesson Plan
         </button>
+        <button type="button" onClick={() => setHubTab('notes')}>
+          📓 Notes
+        </button>
         <button type="button" onClick={() => setHubTab('tools')}>
           ✍️ C. Status
         </button>

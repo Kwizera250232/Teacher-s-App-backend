@@ -78,11 +78,21 @@ router.post('/generate', authenticateToken, requireRole('teacher', 'head_teacher
         ? 'Detailed notes with worked examples and activities'
         : 'Complete classroom notes';
 
-    // Gather context in parallel: web search (REB/CBC + topic) + related UClass note titles
-    const queries = [
-      `Rwanda CBC ${subject} ${topic} ${classLevel || ''} competence based curriculum`,
-      `${topic} ${subject} primary school teaching notes`,
-    ];
+    // Language-specific searches — bias toward the updated REB syllabus & curriculum books
+    const queries = lang === 'Kinyarwanda'
+      ? [
+          `REB Kinyarwanda ${subject} ${topic} ikirundo cy'amasomo ${classLevel || ''}`,
+          `${subject} ${topic} umurongo w'inyigisho Kinyarwanda`,
+        ]
+      : lang === 'French'
+        ? [
+            `REB programme ${subject} ${topic} ${classLevel || ''} Rwanda compétences`,
+            `${topic} ${subject} notes de cours école primaire`,
+          ]
+        : [
+            `REB Rwanda CBC syllabus ${subject} ${topic} ${classLevel || ''}`,
+            `${topic} ${subject} primary school teaching notes`,
+          ];
     const [web1, web2, uclassNotes] = await Promise.all([
       searchWeb(queries[0]),
       searchWeb(queries[1]),
@@ -100,13 +110,13 @@ router.post('/generate', authenticateToken, requireRole('teacher', 'head_teacher
       : '';
 
     const prompt = [
-      `You are an expert Rwandan ${subject} teacher preparing ${typeLabel} for ${classLevel || 'a primary class'} following the REB Competence-Based Curriculum (CBC).`,
+      `You are an expert Rwandan ${subject} teacher preparing ${typeLabel} for ${classLevel || 'a primary class'} following the updated REB (Rwanda Basic Education Board) syllabus and Competence-Based Curriculum (CBC).`,
       '',
       `Topic / unit: ${topic}`,
       `Subject: ${subject}`,
       `Class level: ${classLevel || 'Primary'}`,
       objectives ? `Learning objectives (from the teacher's lesson plan): ${objectives}` : '',
-      `Write ALL notes in ${lang}.`,
+      `LANGUAGE RULE (strict): Write the ENTIRE document in ${lang} only — every heading, sentence, question and answer. Do NOT mix in English or other languages.${lang === 'Kinyarwanda' ? ' Use natural, correct Kinyarwanda as used in REB primary school books (ikinyarwanda cy\'ishuri).' : ''}`,
       '',
       'Structure — use exactly these sections (as <h2> headings):',
       '1. Topic and Learning Objectives',
