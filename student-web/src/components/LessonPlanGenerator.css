@@ -321,8 +321,12 @@
 }
 
 @media (max-width: 760px) {
+  html, body {
+    overflow-x: clip;
+  }
   .lesson-plan-generator {
     padding: 60px 8px 12px;
+    max-width: 100vw;
   }
   .lp-header,
   .lp-form,
