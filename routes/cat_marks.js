@@ -588,6 +588,37 @@ async function loadSettings(classId, user) {
   )).rows[0] || {};
   const y = new Date().getFullYear();
   const level = saved?.level || (/^s|sec/i.test(cls.class_name || '') ? 'Secondary' : 'Primary');
+
+  // Subjects the teacher actually recorded marks for in this class
+  const recorded = (await pool.query(
+    `SELECT DISTINCT subject FROM cat_marks WHERE class_id = $1 AND subject IS NOT NULL ORDER BY subject`, [classId]
+  )).rows.map((r) => r.subject).filter((s) => s && s !== 'General');
+
+  const savedList = Array.isArray(saved?.subjects) ? saved.subjects.filter(Boolean) : [];
+  const levelDefaults = DEFAULT_SUBJECTS[level] || [];
+
+  // Smart subject list:
+  //  - every subject with recorded marks MUST appear (marks can never be dropped silently)
+  //  - recorded subjects are ordered by the level's standard order first, then alphabetically
+  //  - a teacher's saved/custom order is preserved; new recorded subjects are appended
+  const recordedOrdered = [...recorded].sort((a, b) => {
+    const ia = levelDefaults.findIndex((d) => normSubj(d) === normSubj(a));
+    const ib = levelDefaults.findIndex((d) => normSubj(d) === normSubj(b));
+    if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    return a.localeCompare(b);
+  });
+  let subjects;
+  if (savedList.length) {
+    subjects = [...savedList];
+    for (const r of recordedOrdered) {
+      if (!subjects.some((s) => normSubj(s) === normSubj(r))) subjects.push(r);
+    }
+  } else if (recordedOrdered.length) {
+    subjects = recordedOrdered;
+  } else {
+    subjects = levelDefaults;
+  }
+
   return {
     class_name: cls.class_name || '',
     school_name: saved?.school_name || cls.school_name || '',
@@ -595,7 +626,8 @@ async function loadSettings(classId, user) {
     level,
     academic_year: saved?.academic_year || `${y}-${y + 1}`,
     term: saved?.term || 'I',
-    subjects: Array.isArray(saved?.subjects) && saved.subjects.length ? saved.subjects : DEFAULT_SUBJECTS[level],
+    subjects,
+    recorded_subjects: recordedOrdered,
     logo: saved?.logo || null,
     defaults: DEFAULT_SUBJECTS,
   };

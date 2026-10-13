@@ -126,7 +126,7 @@ export default function MidTermReportModal({ classId, token, student, onClose, o
             </div>
 
             <div style={{ marginTop: 16 }}>
-              <label style={lbl}>Subjects on the report ({form.subjects.length}) — remove ✕ or add below</label>
+              <label style={lbl}>Subjects on the report ({form.subjects.length}) — auto-loaded from recorded marks; ✕ removes, add below</label>
               <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
                 {form.subjects.map((s, i) => {
                   const sc = scoreFor(s);
