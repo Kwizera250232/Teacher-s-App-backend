@@ -36,6 +36,7 @@ export default function ClassPointsPanel({
   onSuccess,
   onStudentClick,
   onParentInvite,
+  onMidTerm,
   basePath = '/teacher',
 }) {
   const [loading, setLoading] = useState(true);
@@ -306,6 +307,20 @@ export default function ClassPointsPanel({
             }}
           >
             👪 Parent invite
+          </button>
+        )}
+        {!pickForGroup && !multiMode && onMidTerm && (
+          <button
+            type="button"
+            className="btn btn-outline btn-sm"
+            style={{ fontSize: 10, padding: '2px 6px', marginTop: 4, marginLeft: 4 }}
+            title="Generate mid-term report card (Word)"
+            onClick={(ev) => {
+              ev.stopPropagation();
+              onMidTerm({ studentId: s.id, studentName: displayName });
+            }}
+          >
+            📄 Mid-Term
           </button>
         )}
       </div>

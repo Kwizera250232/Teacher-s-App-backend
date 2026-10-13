@@ -548,4 +548,126 @@ ${quizRows}
   }
 });
 
+// ── MID-TERM REPORT CARD (.doc) — teacher marks only, no UClass quiz marks ──
+// POST /:classId/midterm-report { student_id, teacher_comment }
+router.post('/:classId/midterm-report', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = req.params.classId;
+  const studentId = parseInt(req.body.student_id, 10);
+  const teacherComment = String(req.body.teacher_comment || '').trim();
+  if (!studentId) return res.status(400).json({ error: 'student_id is required.' });
+  try {
+    const manage = await userCanManageClass(req.user, classId);
+    if (!manage?.ok) return res.status(403).json({ error: 'You cannot generate reports for this class.' });
+
+    const cls = (await pool.query(
+      `SELECT c.name AS class_name, c.subject AS class_subject, c.class_code,
+              s.name AS school_name
+       FROM classes c LEFT JOIN schools s ON s.id = c.school_id
+       WHERE c.id = $1`, [classId]
+    )).rows[0];
+    const student = (await pool.query(
+      `SELECT u.id, u.name FROM class_members cm JOIN users u ON u.id = cm.student_id
+       WHERE cm.class_id = $1 AND u.id = $2`, [classId, studentId]
+    )).rows[0];
+    if (!student) return res.status(404).json({ error: 'Student not found in this class.' });
+    const teacherName = (await pool.query('SELECT name FROM users WHERE id=$1', [req.user.id])).rows[0]?.name || 'Teacher';
+
+    const marks = (await pool.query(
+      `SELECT subject, test_number, marks_obtained, total_marks
+       FROM cat_marks WHERE class_id = $1 AND student_id = $2
+       ORDER BY subject, test_number`, [classId, studentId]
+    )).rows;
+
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    // Group marks by subject → per-subject table
+    const bySubject = new Map();
+    for (const m of marks) {
+      const subj = m.subject || 'General';
+      if (!bySubject.has(subj)) bySubject.set(subj, []);
+      bySubject.get(subj).push(m);
+    }
+
+    const gradeFor = (pct) =>
+      pct >= 80 ? ['A', 'Excellent'] : pct >= 65 ? ['B', 'Very Good'] : pct >= 50 ? ['C', 'Good'] : pct >= 40 ? ['D', 'Fair'] : ['E', 'Needs Improvement'];
+
+    let grandObtained = 0, grandTotal = 0;
+    const subjectBlocks = [...bySubject.entries()].map(([subj, rows]) => {
+      const cols = rows.map(r => {
+        const t = Number(r.total_marks) || 100;
+        const mk = Number(r.marks_obtained);
+        grandObtained += mk; grandTotal += t;
+        return `<td style="border:1px solid #94a3b8;padding:6px;text-align:center;">${mk}<span style="color:#64748b;font-size:9px;">/${t}</span></td>`;
+      }).join('');
+      const subjObt = rows.reduce((a, r) => a + Number(r.marks_obtained), 0);
+      const subjTot = rows.reduce((a, r) => a + (Number(r.total_marks) || 100), 0);
+      const pct = subjTot ? Math.round((subjObt / subjTot) * 1000) / 10 : 0;
+      const [g, gLabel] = gradeFor(pct);
+      const header = rows.map(r => `<td style="border:1px solid #94a3b8;padding:6px;text-align:center;background:#f1f5f9;font-weight:bold;font-size:10px;">CAT ${r.test_number}</td>`).join('');
+      return `
+        <h3 style="color:#075e54;margin:16px 0 6px;">${esc(subj)}</h3>
+        <table style="border-collapse:collapse;width:100%;">
+          <tr><td style="border:1px solid #94a3b8;padding:6px;background:#f1f5f9;font-weight:bold;font-size:10px;">Assessment</td>${header}<td style="border:1px solid #94a3b8;padding:6px;text-align:center;background:#f1f5f9;font-weight:bold;font-size:10px;">%</td><td style="border:1px solid #94a3b8;padding:6px;text-align:center;background:#f1f5f9;font-weight:bold;font-size:10px;">Grade</td></tr>
+          <tr><td style="border:1px solid #94a3b8;padding:6px;font-weight:bold;">Marks</td>${cols}<td style="border:1px solid #94a3b8;padding:6px;text-align:center;font-weight:bold;">${pct}%</td><td style="border:1px solid #94a3b8;padding:6px;text-align:center;"><strong>${g}</strong> ${gLabel}</td></tr>
+        </table>`;
+    }).join('');
+
+    const overallPct = grandTotal ? Math.round((grandObtained / grandTotal) * 1000) / 10 : 0;
+    const [oGrade, oLabel] = gradeFor(overallPct);
+    const today = new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    const noMarks = !marks.length ? '<p style="color:#b91c1c;font-weight:bold;">No teacher marks recorded yet for this student.</p>' : '';
+
+    const doc = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+      body{font-family:'Times New Roman',Times,serif;font-size:12pt;margin:28px;color:#1e293b;}
+      h1{font-size:19pt;text-align:center;color:#075e54;margin:0;}
+      .sub{text-align:center;color:#475569;font-size:11pt;margin:4px 0 2px;}
+      .meta{width:100%;border-collapse:collapse;margin:14px 0;}
+      .meta td{border:1px solid #94a3b8;padding:7px 10px;font-size:11pt;}
+      .meta td b{color:#075e54;}
+      .overall{border:2px solid #075e54;background:#ecfdf5;padding:10px 14px;margin-top:16px;font-size:12pt;}
+      .comment{border:1.5px solid #075e54;padding:12px;margin-top:18px;}
+      .sig{margin-top:40px;width:100%;}
+      .sig td{padding-top:34px;border-top:none;}
+      .sigline{border-top:1px solid #000;width:220px;padding-top:6px;font-size:10pt;color:#475569;}
+      .foot{margin-top:22px;font-size:9pt;color:#94a3b8;text-align:center;}
+    </style></head><body>
+      <h1>${esc(cls?.school_name || 'UClass School')}</h1>
+      <p class="sub"><strong>MID-TERM REPORT CARD</strong></p>
+      <p class="sub">Academic Year ${new Date().getFullYear()} — Based on class assessments recorded by the teacher</p>
+      <table class="meta">
+        <tr><td><b>Student Name</b></td><td>${esc(student.name)}</td><td><b>Class</b></td><td>${esc(cls?.class_name || '')}</td></tr>
+        <tr><td><b>Class Code</b></td><td>${esc(cls?.class_code || '')}</td><td><b>Report Date</b></td><td>${today}</td></tr>
+      </table>
+      ${noMarks}
+      ${subjectBlocks}
+      <div class="overall">
+        <strong>OVERALL:</strong> ${grandObtained} / ${grandTotal} marks —
+        <strong>Average: ${overallPct}%</strong> —
+        Grade <strong>${oGrade}</strong> (${oLabel})
+      </div>
+      <table style="border-collapse:collapse;margin-top:12px;font-size:10pt;color:#475569;">
+        <tr><td style="padding:2px 14px 2px 0;"><b>A</b> ≥ 80 Excellent</td><td style="padding:2px 14px 2px 0;"><b>B</b> 65–79 Very Good</td><td style="padding:2px 14px 2px 0;"><b>C</b> 50–64 Good</td><td style="padding:2px 14px 2px 0;"><b>D</b> 40–49 Fair</td><td style="padding:2px 0;"><b>E</b> &lt; 40 Needs Improvement</td></tr>
+      </table>
+      <div class="comment">
+        <strong>Teacher's Comment:</strong>
+        <p style="margin:6px 0 0;min-height:40px;">${teacherComment ? esc(teacherComment).replace(/\n/g, '<br/>') : '<i>No comment added.</i>'}</p>
+      </div>
+      <table class="sig"><tr>
+        <td><div class="sigline"><b>Class Teacher</b><br/>${esc(teacherName)}</div></td>
+        <td style="text-align:right;"><div class="sigline" style="margin-left:auto;"><b>Head Teacher / Date</b><br/>&nbsp;</div></td>
+      </tr></table>
+      <p class="foot">Generated by UClass — ${esc(cls?.school_name || 'UClass School')} · student.umunsi.com</p>
+    </body></html>`;
+
+    const safe = String(student.name || 'student').replace(/[^\w]+/g, '-').slice(0, 60);
+    res.setHeader('Content-Type', 'application/msword');
+    res.setHeader('Content-Disposition', `attachment; filename="MidTerm-Report-${safe}.doc"`);
+    res.send('﻿' + doc);
+  } catch (err) {
+    console.error('[midterm report]', err.message);
+    res.status(500).json({ error: 'Could not build the report right now.' });
+  }
+});
+
 module.exports = router;
