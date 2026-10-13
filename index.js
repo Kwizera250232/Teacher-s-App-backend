@@ -60,7 +60,7 @@ app.use(cors({
   ],
   credentials: true
 }));
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 // Allow uploads to be embedded in iframes and loaded cross-origin (avatars, PDFs)
 app.use('/uploads', (req, res, next) => {
   res.removeHeader('X-Frame-Options');

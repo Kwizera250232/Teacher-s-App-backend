@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'uclass-v37';
+const CACHE_VERSION = 'uclass-v38';
 const API_CACHE = 'uclass-api-v2';
 const STATIC_ASSETS = ['/', '/index.html', '/manifest.json', '/icon.svg'];
 

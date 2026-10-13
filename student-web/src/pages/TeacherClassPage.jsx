@@ -23,6 +23,7 @@ import CompositionStatusList from '../components/CompositionStatusList';
 import ClassDeanHelp from '../components/ClassDeanHelp';
 import GuestMarksPanel from '../components/GuestMarksPanel';
 import ClassPointsPanel from '../components/ClassPointsPanel';
+import MidTermReportModal from '../components/MidTermReportModal';
 import AssignWorkToGroupModal from '../components/AssignWorkToGroupModal';
 import TeacherQuizReportsPanel from '../components/quizReflection/TeacherQuizReportsPanel';
 import AppNotificationsBell from '../components/AppNotificationsBell';
@@ -95,8 +96,6 @@ export default function TeacherClassPage() {
   const [quizShareBusy, setQuizShareBusy] = useState(null);
   const [quizPdfBusy, setQuizPdfBusy] = useState(null);
   const [midTermStudent, setMidTermStudent] = useState(null);
-  const [midTermComment, setMidTermComment] = useState('');
-  const [midTermBusy, setMidTermBusy] = useState(false);
   const [colleagueShareQuiz, setColleagueShareQuiz] = useState(null); // { id, title }
   const [colleagueShareNote, setColleagueShareNote] = useState(null); // { id, title }
   const [selectedStudent, setSelectedStudent] = useState(null); // popup
@@ -998,74 +997,19 @@ export default function TeacherClassPage() {
               onSuccess={(msg) => showSuccess(msg)}
               onStudentClick={setSelectedStudent}
               onParentInvite={setParentInviteFor}
-              onMidTerm={(info) => { setMidTermStudent(info); setMidTermComment(''); }}
+              onMidTerm={setMidTermStudent}
             />
           </div>
         )}
 
-        {/* Mid-Term report comment modal */}
         {midTermStudent && (
-          <div
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-            onClick={(e) => e.target === e.currentTarget && setMidTermStudent(null)}
-          >
-            <div style={{ background: '#fff', borderRadius: 18, padding: 26, width: '100%', maxWidth: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
-              <h3 style={{ margin: '0 0 6px', fontSize: 19 }}>📄 Mid-Term Report Card</h3>
-              <p style={{ margin: '0 0 14px', fontSize: 13, color: '#64748b' }}>
-                Generate a Word report for <strong>{midTermStudent.studentName}</strong> with all teacher-recorded marks (out of /100, %, average and grade).
-              </p>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6, color: '#374151' }}>
-                Teacher's comment on the report
-              </label>
-              <textarea
-                autoFocus
-                rows={4}
-                placeholder="e.g., Kwizera has shown steady improvement this mid-term. Encourage more practice in reading comprehension."
-                value={midTermComment}
-                onChange={(e) => setMidTermComment(e.target.value)}
-                style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1.5px solid #e2e8f0', fontSize: 14, resize: 'vertical', boxSizing: 'border-box' }}
-              />
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setMidTermStudent(null)}>Cancel</button>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  disabled={midTermBusy}
-                  onClick={async () => {
-                    setMidTermBusy(true);
-                    setError('');
-                    try {
-                      const res = await fetch(`${API_BASE}/catmarks/${id}/midterm-report`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                        body: JSON.stringify({ student_id: midTermStudent.studentId, teacher_comment: midTermComment }),
-                      });
-                      if (!res.ok) {
-                        const d = await res.json().catch(() => ({}));
-                        throw new Error(d.error || `Failed (${res.status})`);
-                      }
-                      const blob = await res.blob();
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = `MidTerm-Report-${(midTermStudent.studentName || 'student').replace(/[^\w]+/g, '-')}.doc`;
-                      document.body.appendChild(a);
-                      a.click();
-                      a.remove();
-                      URL.revokeObjectURL(url);
-                      setMidTermStudent(null);
-                    } catch (e) {
-                      setError(e.message || 'Could not generate the report.');
-                    } finally {
-                      setMidTermBusy(false);
-                    }
-                  }}
-                >
-                  {midTermBusy ? '⏳ Generating…' : '⬇️ Generate Word Report'}
-                </button>
-              </div>
-            </div>
-          </div>
+          <MidTermReportModal
+            classId={id}
+            token={token}
+            student={midTermStudent}
+            onClose={() => setMidTermStudent(null)}
+            onError={(msg) => setError(msg)}
+          />
         )}
 
         {/* Student profile popup */}
