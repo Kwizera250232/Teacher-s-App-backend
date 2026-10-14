@@ -195,9 +195,10 @@ router.get('/groups/:id', authenticateToken, async (req, res) => {
     const group = await pool.query(`SELECT * FROM alumni_groups WHERE id=$1`, [req.params.id]);
     if (group.rows.length === 0) return res.status(404).json({ error: 'Group not found.' });
     const members = await pool.query(`
-      SELECT m.*, u.name, u.email, u.role as user_role, u.avatar_url, u.is_verified
+      SELECT m.*, u.name, u.email, u.role as user_role, u.avatar_url, ap.is_verified
       FROM alumni_group_members m
       JOIN users u ON u.id=m.user_id
+      LEFT JOIN alumni_profiles ap ON ap.user_id=u.id
       WHERE m.group_id=$1
       ORDER BY m.joined_at
     `, [req.params.id]);
@@ -292,9 +293,9 @@ router.get('/groups/:id/search-members', authenticateToken, async (req, res) => 
     if (membership.rows.length === 0) return res.status(403).json({ error: 'Members only.' });
     const q = `%${(req.query.q || '').trim().toLowerCase()}%`;
     const rows = await pool.query(
-      `SELECT u.id, u.name, u.email, u.avatar_url, u.is_verified,
+      `SELECT u.id, u.name, u.email, u.avatar_url, ap.is_verified,
               EXISTS(SELECT 1 FROM alumni_group_members m WHERE m.group_id=$1 AND m.user_id=u.id) AS already_member
-       FROM users u
+       FROM users u LEFT JOIN alumni_profiles ap ON ap.user_id=u.id
        WHERE (LOWER(u.name) LIKE $2 OR LOWER(u.email) LIKE $2)
          AND u.role IN ('alumni','student','teacher','head_teacher')
        ORDER BY already_member, u.name LIMIT 12`,
@@ -351,9 +352,10 @@ router.get('/groups/:id/messages', authenticateToken, async (req, res) => {
     }
     let query = `
       SELECT m.*, u.name as sender_name, u.email as sender_email,
-             u.avatar_url as sender_avatar, u.is_verified as sender_verified
+             u.avatar_url as sender_avatar, ap.is_verified as sender_verified
       FROM alumni_group_messages m
       JOIN users u ON u.id=m.sender_id
+      LEFT JOIN alumni_profiles ap ON ap.user_id=u.id
       WHERE m.group_id=$1
     `;
     const params = [req.params.id];
@@ -386,7 +388,7 @@ router.post('/groups/:id/messages', authenticateToken, async (req, res) => {
     );
     // Notify all group members except sender
     const members = await pool.query('SELECT user_id FROM alumni_group_members WHERE group_id=$1 AND user_id!=$2', [req.params.id, req.user.id]);
-    const sender = (await pool.query('SELECT name, avatar_url, is_verified FROM users WHERE id=$1', [req.user.id])).rows[0] || {};
+    const sender = (await pool.query('SELECT u.name, u.avatar_url, ap.is_verified FROM users u LEFT JOIN alumni_profiles ap ON ap.user_id=u.id WHERE u.id=$1', [req.user.id])).rows[0] || {};
     const groupName = await pool.query('SELECT name FROM alumni_groups WHERE id=$1', [req.params.id]);
     for (const m of members.rows) {
       await notify(pool, m.user_id, 'group_message', `${sender.name || 'Someone'} in ${groupName.rows[0]?.name || 'a group'}`, (content || '').trim().slice(0, 100), { group_id: parseInt(req.params.id) });
