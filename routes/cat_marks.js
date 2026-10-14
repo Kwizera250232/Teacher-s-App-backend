@@ -671,26 +671,25 @@ function buildReportHtml({ student, teacherName, schoolName, district, level, ye
   const totalTxt = Number.isInteger(total) ? total : total.toFixed(1);
 
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Mid-Term Report</title><style>
-    @page { size: A4; margin: 1.5cm; }
-    body{font-family:'Times New Roman',Times,serif;font-size:14pt;color:#000;margin:0;}
-    .frame{border:3px double #000;padding:24px 28px;}
+    @page { size: A4; margin: 1.2cm; }
+    body{font-family:'Times New Roman',Times,serif;font-size:12pt;color:#000;margin:0;}
+    .frame{border:3px double #000;padding:16px 22px;}
     .hdr{width:100%;border-collapse:collapse;}
     .hdr td{border:none;vertical-align:top;padding:0;}
-    .hdr .lines{font-weight:bold;font-size:14pt;line-height:1.5;text-transform:uppercase;}
+    .hdr .lines{font-weight:bold;font-size:13pt;line-height:1.4;text-transform:uppercase;}
     .hdr .lines .nm{text-transform:none;font-weight:normal;}
-    .logo{width:110px;height:110px;}
-    h2{text-align:center;text-decoration:underline;font-size:15pt;margin:22px 0 14px;font-family:Arial,Helvetica,sans-serif;}
-    table.m{border-collapse:collapse;margin:0 auto;width:85%;font-size:12pt;}
-    table.m th,table.m td{border:1px solid #000;padding:6px 8px;}
+    h2{text-align:center;text-decoration:underline;font-size:14pt;margin:14px 0 10px;font-family:Arial,Helvetica,sans-serif;}
+    table.m{border-collapse:collapse;margin:0 auto;width:88%;font-size:11pt;table-layout:fixed;}
+    table.m th,table.m td{border:1px solid #000;padding:4px 6px;}
     table.m th{font-weight:bold;text-align:center;}
     table.m td.c{text-align:center;}
     table.m td.b{font-weight:bold;}
     table.m tr.tot td{font-weight:bold;}
-    .cmt{margin:26px auto 0;width:85%;font-size:12pt;}
-    .cmt .box{border:1px solid #000;min-height:60px;padding:8px 10px;margin-top:6px;}
-    .sig{width:85%;margin:40px auto 0;border-collapse:collapse;font-size:11pt;}
-    .sig td{border:none;padding-top:36px;width:50%;}
-    .sig .ln{border-top:1px solid #000;width:230px;padding-top:4px;}
+    .cmt{margin:16px auto 0;width:88%;font-size:11pt;}
+    .cmt .box{border:1px solid #000;min-height:42px;padding:6px 8px;margin-top:5px;}
+    .sig{width:88%;margin:24px auto 0;border-collapse:collapse;font-size:10.5pt;}
+    .sig td{border:none;padding-top:26px;width:50%;}
+    .sig .ln{border-top:1px solid #000;width:220px;padding-top:4px;}
   </style></head><body><div class="frame">
     <table class="hdr"><tr>
       <td class="lines">
@@ -699,7 +698,7 @@ function buildReportHtml({ student, teacherName, schoolName, district, level, ye
         ${escHtml(level)} ${escHtml(year)}<br/>
         Student Names: <span class="nm">${escHtml(student.name)}</span>
       </td>
-      <td style="width:120px;text-align:right;">${logo ? `<img class="logo" src="${logo}" alt="logo"/>` : ''}</td>
+      <td style="width:110px;text-align:right;">${logo ? `<img src="${logo}" alt="logo" width="90" style="width:90px;max-height:110px;"/>` : ''}</td>
     </tr></table>
     <h2>MID-TERM ${escHtml(term)} REPORT</h2>
     <table class="m">
