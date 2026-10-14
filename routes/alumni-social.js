@@ -195,10 +195,55 @@ router.get('/groups/:id', authenticateToken, async (req, res) => {
       ORDER BY m.joined_at
     `, [req.params.id]);
     const isMember = members.rows.some(m => m.user_id === req.user.id);
+    const isAdmin = members.rows.some(m => m.user_id === req.user.id && m.role === 'admin')
+      || group.rows[0].creator_id === req.user.id;
     if (!group.rows[0].is_public && !isMember) return res.status(403).json({ error: 'Private group.' });
-    res.json({ ...group.rows[0], members: members.rows, is_member: isMember });
+    res.json({ ...group.rows[0], members: members.rows, is_member: isMember, is_admin: isAdmin });
   } catch (err) {
     console.error('[alumni/groups/id]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// Update group (admin only) — name, description, photo
+router.put('/groups/:id', authenticateToken, async (req, res) => {
+  const { name, description, image_path, is_public } = req.body || {};
+  try {
+    const admin = await pool.query(
+      `SELECT 1 FROM alumni_group_members m WHERE m.group_id=$1 AND m.user_id=$2 AND m.role='admin'
+       UNION SELECT 1 FROM alumni_groups g WHERE g.id=$1 AND g.creator_id=$2`,
+      [req.params.id, req.user.id]
+    );
+    if (admin.rows.length === 0) return res.status(403).json({ error: 'Only group admins can edit.' });
+    const sets = []; const vals = []; let i = 1;
+    if (name !== undefined && String(name).trim()) { sets.push(`name=$${i++}`); vals.push(String(name).trim().slice(0, 120)); }
+    if (description !== undefined) { sets.push(`description=$${i++}`); vals.push(String(description || '').slice(0, 1000)); }
+    if (image_path !== undefined) { sets.push(`image_path=$${i++}`); vals.push(image_path || null); }
+    if (is_public !== undefined) { sets.push(`is_public=$${i++}`); vals.push(Boolean(is_public)); }
+    if (!sets.length) return res.status(400).json({ error: 'Nothing to update.' });
+    vals.push(req.params.id);
+    await pool.query(`UPDATE alumni_groups SET ${sets.join(', ')} WHERE id=$${i}`, vals);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[alumni/groups/update]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// Remove a member (admin only)
+router.delete('/groups/:id/members/:userId', authenticateToken, async (req, res) => {
+  try {
+    const admin = await pool.query(
+      `SELECT 1 FROM alumni_group_members m WHERE m.group_id=$1 AND m.user_id=$2 AND m.role='admin'
+       UNION SELECT 1 FROM alumni_groups g WHERE g.id=$1 AND g.creator_id=$2`,
+      [req.params.id, req.user.id]
+    );
+    if (admin.rows.length === 0) return res.status(403).json({ error: 'Only group admins can remove members.' });
+    await pool.query(`DELETE FROM alumni_group_members WHERE group_id=$1 AND user_id=$2 AND role<>'admin'`, [req.params.id, req.params.userId]);
+    await pool.query(`UPDATE alumni_groups SET member_count=(SELECT COUNT(*) FROM alumni_group_members WHERE group_id=$1) WHERE id=$1`, [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[alumni/groups/remove-member]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
