@@ -104,7 +104,15 @@ pool.query(`
   CREATE INDEX IF NOT EXISTS idx_group_members_group ON alumni_group_members(group_id);
   CREATE INDEX IF NOT EXISTS idx_group_members_user ON alumni_group_members(user_id);
   CREATE INDEX IF NOT EXISTS idx_group_messages_group ON alumni_group_messages(group_id);
-`).catch((e) => console.warn('[alumni-social] schema fix:', e.message.slice(0, 120)));
+`).then(() => pool.query(`
+  -- older databases created alumni_group_messages with user_id only — upgrade it
+  ALTER TABLE alumni_group_messages ADD COLUMN IF NOT EXISTS sender_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
+  ALTER TABLE alumni_group_messages ADD COLUMN IF NOT EXISTS image_path VARCHAR(500);
+  ALTER TABLE alumni_group_messages ADD COLUMN IF NOT EXISTS message_type VARCHAR(20) DEFAULT 'text';
+  ALTER TABLE alumni_group_messages ADD COLUMN IF NOT EXISTS reply_to_id INTEGER REFERENCES alumni_group_messages(id) ON DELETE SET NULL;
+  ALTER TABLE alumni_group_messages ADD COLUMN IF NOT EXISTS user_id INTEGER;
+  UPDATE alumni_group_messages SET sender_id = user_id WHERE sender_id IS NULL;
+`)).catch((e) => console.warn('[alumni-social] schema fix:', e.message.slice(0, 120)));
 
 // Helper: create notification
 async function notify(pool, userId, type, title, body, payload = {}) {
@@ -222,6 +230,58 @@ router.post('/groups/:id/leave', authenticateToken, async (req, res) => {
   }
 });
 
+// Search users to add (members only) — by name or email
+router.get('/groups/:id/search-members', authenticateToken, async (req, res) => {
+  try {
+    const membership = await pool.query(
+      `SELECT 1 FROM alumni_group_members WHERE group_id=$1 AND user_id=$2`,
+      [req.params.id, req.user.id]
+    );
+    if (membership.rows.length === 0) return res.status(403).json({ error: 'Members only.' });
+    const q = `%${(req.query.q || '').trim().toLowerCase()}%`;
+    const rows = await pool.query(
+      `SELECT u.id, u.name, u.email, u.avatar_url,
+              EXISTS(SELECT 1 FROM alumni_group_members m WHERE m.group_id=$1 AND m.user_id=u.id) AS already_member
+       FROM users u
+       WHERE (LOWER(u.name) LIKE $2 OR LOWER(u.email) LIKE $2)
+         AND u.role IN ('alumni','student','teacher','head_teacher')
+       ORDER BY already_member, u.name LIMIT 12`,
+      [req.params.id, q]
+    );
+    res.json(rows.rows);
+  } catch (err) {
+    console.error('[alumni/groups/search-members]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// Add a member (any current member can add — like WhatsApp group members)
+router.post('/groups/:id/members', authenticateToken, async (req, res) => {
+  const { user_id, email } = req.body || {};
+  try {
+    const membership = await pool.query(
+      `SELECT 1 FROM alumni_group_members WHERE group_id=$1 AND user_id=$2`,
+      [req.params.id, req.user.id]
+    );
+    if (membership.rows.length === 0) return res.status(403).json({ error: 'Join the group first.' });
+    let targetId = parseInt(user_id, 10) || null;
+    if (!targetId && email) {
+      targetId = (await pool.query('SELECT id FROM users WHERE LOWER(email)=LOWER($1)', [String(email).trim()])).rows[0]?.id || null;
+    }
+    if (!targetId) return res.status(400).json({ error: 'User not found.' });
+    await pool.query(
+      `INSERT INTO alumni_group_members (group_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+      [req.params.id, targetId]
+    );
+    await pool.query(`UPDATE alumni_groups SET member_count=(SELECT COUNT(*) FROM alumni_group_members WHERE group_id=$1) WHERE id=$1`, [req.params.id]);
+    await notify(pool, targetId, 'group_invite', 'You were added to a group', `A member added you to a group.`, { group_id: parseInt(req.params.id) });
+    res.status(201).json({ success: true });
+  } catch (err) {
+    console.error('[alumni/groups/add-member]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // ── GROUP MESSAGES (Chat) ──────────────────────────────────────────────────
 
 // Get messages for a group
@@ -267,9 +327,9 @@ router.post('/groups/:id/messages', authenticateToken, async (req, res) => {
     );
     if (membership.rows.length === 0) return res.status(403).json({ error: 'You must join this group to send messages.' });
     const result = await pool.query(
-      `INSERT INTO alumni_group_messages (group_id, sender_id, content, image_path, message_type, reply_to_id)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [req.params.id, req.user.id, content || null, image_path || null, message_type || 'text', reply_to_id || null]
+      `INSERT INTO alumni_group_messages (group_id, sender_id, user_id, content, image_path, message_type, reply_to_id)
+       VALUES ($1,$2,$2,$3,$4,$5,$6) RETURNING *`,
+      [req.params.id, req.user.id, content || '', image_path || null, message_type || 'text', reply_to_id || null]
     );
     // Notify all group members except sender
     const members = await pool.query('SELECT user_id FROM alumni_group_members WHERE group_id=$1 AND user_id!=$2', [req.params.id, req.user.id]);
