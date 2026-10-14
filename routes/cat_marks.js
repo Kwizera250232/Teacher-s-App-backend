@@ -653,11 +653,12 @@ async function loadSettings(classId) {
 
 /** Build the single-page Word report HTML for one student. */
 function buildReportHtml({ student, teacherName, schoolName, district, level, year, term, logo, comment, subjects, scores }) {
-  let total = 0, outOf = 0;
+  let total = 0;
+  const outOf = subjects.length * 100;
   const rowsHtml = subjects.map((name, i) => {
     const sc = scores[normSubj(name)];
     const mark = sc ? sc.score : null;
-    if (mark !== null) { total += mark; outOf += 100; }
+    if (mark !== null) total += mark;
     const markTxt = mark === null ? '' : (Number.isInteger(mark) ? mark : mark.toFixed(1));
     return `<tr>
       <td class="c">${i + 1}.</td>
