@@ -615,6 +615,14 @@ async function loadSettings(classId) {
   const savedList = Array.isArray(saved?.subjects) ? saved.subjects.filter(Boolean) : [];
   const recordedOrdered = orderByRef(recorded, levelDefaults);
 
+  // Default authority email = the school's head teacher (auto-filled, editable)
+  const htEmail = (await pool.query(
+    `SELECT u.email FROM classes c
+     JOIN users t ON t.id = c.teacher_id
+     JOIN users u ON u.school_id = t.school_id AND u.role = 'head_teacher'
+     WHERE c.id = $1 LIMIT 1`, [classId]
+  )).rows[0]?.email || '';
+
   // Subject list rule:
   //  - fresh class → the FULL standard list for the level + any recorded extras (arranged like the shared report card)
   //  - after teacher edits → their list is kept, but any newly-recorded subject is appended (marks never drop silently)
@@ -635,7 +643,7 @@ async function loadSettings(classId) {
     level,
     academic_year: saved?.academic_year || `${y}-${y + 1}`,
     term: saved?.term || 'I',
-    authority_email: saved?.authority_email || '',
+    authority_email: saved?.authority_email || htEmail,
     subjects,
     recorded_subjects: recordedOrdered,
     logo: saved?.logo || null,
