@@ -22,6 +22,8 @@ export default function LessonPlanGenerator({ user, token }) {
     lessonTitle: '',
     specialNeeds: '',
     references: '',
+    objective: '',
+    grouping: '',
   });
   const [error, setError] = useState('');
   const [showResult, setShowResult] = useState(false);
@@ -98,6 +100,8 @@ export default function LessonPlanGenerator({ user, token }) {
         concMin: concDuration,
         sen: form.specialNeeds,
         refs: form.references,
+        objective: form.objective,
+        grouping: form.grouping,
       }, token);
       setAiSections(r?.ai && r.sections ? r.sections : null);
     } catch {
@@ -394,11 +398,11 @@ export default function LessonPlanGenerator({ user, token }) {
       </tr>
       <tr>
         <td class="lp-bold">Instructional Objective</td>
-        <td>By the end of this lesson, learners should be able to explain and demonstrate ${form.lessonTitle} with accuracy and confidence</td>
+        <td>${String(aiSections?.objective || form.objective || `By the end of this lesson, learners should be able to explain and demonstrate ${form.lessonTitle} with accuracy and confidence`).replace(/[<>]/g, '')}</td>
       </tr>
       <tr>
         <td class="lp-bold">Plan for this Class</td>
-        <td>Inside the classroom - learners arranged in groups of 5</td>
+        <td>Inside the classroom - learners arranged in ${form.grouping || 'groups of 5'}</td>
       </tr>
       <tr>
         <td class="lp-bold">Learning Materials</td>
@@ -566,6 +570,24 @@ export default function LessonPlanGenerator({ user, token }) {
           <div className="lp-group lp-full-width">
             <label className="lp-optional">References (Optional)</label>
             <input type="text" value={form.references} onChange={handleChange('references')} placeholder="e.g., Mathematics book for primary 4" />
+          </div>
+          <div className="lp-group lp-full-width">
+            <label className="lp-optional">Instructional Objective (Optional — AI refines the verbs while keeping your meaning)</label>
+            <input type="text" value={form.objective} onChange={handleChange('objective')} placeholder="e.g., Learners will be able to add fractions with the same denominator" />
+          </div>
+          <div className="lp-group lp-full-width">
+            <label className="lp-optional">Learner grouping (Optional — used in activities and "Plan for this Class")</label>
+            <select value={form.grouping} onChange={handleChange('grouping')}>
+              <option value="">Auto — AI varies it per lesson</option>
+              <option value="pairs">pairs</option>
+              <option value="groups of 3">groups of 3</option>
+              <option value="groups of 4">groups of 4</option>
+              <option value="groups of 5">groups of 5</option>
+              <option value="groups of 6">groups of 6</option>
+              <option value="mixed-ability groups of 4">mixed-ability groups of 4</option>
+              <option value="mixed-ability groups of 5">mixed-ability groups of 5</option>
+              <option value="whole class">whole class</option>
+            </select>
           </div>
         </div>
         <button type="submit" className="lp-generate-btn" disabled={generating}>

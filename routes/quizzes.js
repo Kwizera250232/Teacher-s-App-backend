@@ -229,14 +229,6 @@ router.put('/:classId/quizzes/:quizId', authenticateToken, requireRole('teacher'
   }
   const client = await pool.connect();
   try {
-    // Block edit if any student has already attempted this quiz
-    const attemptCheck = await client.query(
-      'SELECT COUNT(*) FROM quiz_attempts WHERE quiz_id = $1',
-      [req.params.quizId]
-    );
-    if (parseInt(attemptCheck.rows[0].count) > 0) {
-      return res.status(403).json({ error: 'Cannot edit a quiz that students have already attempted.' });
-    }
     await client.query('BEGIN');
     await client.query(
       'UPDATE quizzes SET title=$1, description=$2, grade_level=$3, subject=$4 WHERE id=$5 AND class_id=$6',

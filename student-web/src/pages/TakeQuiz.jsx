@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
@@ -28,6 +28,20 @@ export default function TakeQuiz() {
   const [quizMeta, setQuizMeta] = useState(null);
   const [reflectionOpen, setReflectionOpen] = useState(false);
   const [submitAchievements, setSubmitAchievements] = useState([]);
+  const scrollingRef = useRef(false);
+
+  // Ignore option taps that land right after a scroll gesture (mobile: finger
+  // releasing over an option label fired a click and silently changed answers)
+  useEffect(() => {
+    let t;
+    const onMove = () => {
+      scrollingRef.current = true;
+      clearTimeout(t);
+      t = setTimeout(() => { scrollingRef.current = false; }, 180);
+    };
+    window.addEventListener('touchmove', onMove, { passive: true });
+    return () => { window.removeEventListener('touchmove', onMove); clearTimeout(t); };
+  }, []);
 
   useEffect(() => {
     Promise.all([
@@ -46,13 +60,13 @@ export default function TakeQuiz() {
   }, []);
 
   const handleAnswer = (questionId, option) => {
-    if (submitted) return;
-    setAnswers({ ...answers, [questionId]: option });
+    if (submitted || scrollingRef.current) return;
+    setAnswers(prev => ({ ...prev, [questionId]: option }));
   };
 
   const handleTextAnswer = (questionId, value) => {
     if (submitted) return;
-    setAnswers({ ...answers, [questionId]: value });
+    setAnswers(prev => ({ ...prev, [questionId]: value }));
   };
 
   const handleSubmit = async () => {
