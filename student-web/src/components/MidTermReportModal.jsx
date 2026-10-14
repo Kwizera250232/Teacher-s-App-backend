@@ -13,6 +13,7 @@ export default function MidTermReportModal({ classId, token, student, onClose, o
   const [form, setForm] = useState({ school_name: '', district: '', level: 'Primary', academic_year: '', term: 'I', subjects: [], logo: null, authority_email: '' });
   const [comment, setComment] = useState('');
   const [newSubject, setNewSubject] = useState('');
+  const [dragIdx, setDragIdx] = useState(null);
   const [previewHtml, setPreviewHtml] = useState(null);
   const [emailBusy, setEmailBusy] = useState(false);
   const [emailDone, setEmailDone] = useState('');
@@ -52,6 +53,13 @@ export default function MidTermReportModal({ classId, token, student, onClose, o
     setForm((f) => ({ ...f, level: lvl, subjects: defaults[lvl] || f.subjects }));
   };
   const removeSubject = (i) => set('subjects', form.subjects.filter((_, idx) => idx !== i));
+  const moveSubject = (from, to) => {
+    if (from === to || to < 0 || to >= form.subjects.length) return;
+    const next = [...form.subjects];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    set('subjects', next);
+  };
   const addSubject = (name) => {
     const n = String(name || '').trim();
     if (!n || form.subjects.some((s) => norm(s) === norm(n))) return;
@@ -190,15 +198,31 @@ export default function MidTermReportModal({ classId, token, student, onClose, o
             </div>
 
             <div style={{ marginTop: 16 }}>
-              <label style={lbl}>Subjects on the report ({form.subjects.length}) — auto-loaded from recorded marks; ✕ removes, add below</label>
+              <label style={lbl}>Subjects on the report ({form.subjects.length}) — drag ⋮⋮ or use ▲▼ to reorder; ✕ removes</label>
               <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
                 {form.subjects.map((s, i) => {
                   const sc = scoreFor(s);
                   return (
-                    <div key={`${s}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderTop: i ? '1px solid #f1f5f9' : 'none', fontSize: 13 }}>
-                      <span style={{ color: '#94a3b8', width: 22 }}>{i + 1}.</span>
+                    <div
+                      key={`${s}-${i}`}
+                      draggable
+                      onDragStart={() => setDragIdx(i)}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={() => { moveSubject(dragIdx, i); setDragIdx(null); }}
+                      onDragEnd={() => setDragIdx(null)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px',
+                        borderTop: i ? '1px solid #f1f5f9' : 'none', fontSize: 13,
+                        background: dragIdx === i ? '#eef2ff' : 'transparent',
+                        cursor: 'grab',
+                      }}
+                    >
+                      <span title="Drag to reorder" style={{ color: '#94a3b8', cursor: 'grab', userSelect: 'none', fontSize: 14, letterSpacing: 1 }}>⋮⋮</span>
+                      <span style={{ color: '#94a3b8', width: 20 }}>{i + 1}.</span>
                       <span style={{ flex: 1, fontWeight: 600 }}>{s}</span>
                       <span style={{ color: sc == null ? '#cbd5e1' : '#166534', fontWeight: 600, minWidth: 54, textAlign: 'right' }}>{sc == null ? 'no marks' : `${sc}/100`}</span>
+                      <button type="button" onClick={() => moveSubject(i, i - 1)} disabled={i === 0} title="Move up" style={{ border: 'none', background: 'transparent', color: i === 0 ? '#cbd5e1' : '#475569', cursor: i === 0 ? 'default' : 'pointer', fontSize: 13, padding: '0 2px' }}>▲</button>
+                      <button type="button" onClick={() => moveSubject(i, i + 1)} disabled={i === form.subjects.length - 1} title="Move down" style={{ border: 'none', background: 'transparent', color: i === form.subjects.length - 1 ? '#cbd5e1' : '#475569', cursor: i === form.subjects.length - 1 ? 'default' : 'pointer', fontSize: 13, padding: '0 2px' }}>▼</button>
                       <button type="button" onClick={() => removeSubject(i)} title="Remove" style={{ border: 'none', background: 'transparent', color: '#b91c1c', cursor: 'pointer', fontSize: 15 }}>✕</button>
                     </div>
                   );
