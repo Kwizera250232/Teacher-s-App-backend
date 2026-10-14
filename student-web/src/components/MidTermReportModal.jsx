@@ -17,6 +17,9 @@ export default function MidTermReportModal({ classId, token, student, onClose, o
   const [previewHtml, setPreviewHtml] = useState(null);
   const [emailBusy, setEmailBusy] = useState(false);
   const [emailDone, setEmailDone] = useState('');
+  const [roster, setRoster] = useState([]);
+  const [selectedIds, setSelectedIds] = useState(null); // null = all
+  const [showStudents, setShowStudents] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -30,6 +33,7 @@ export default function MidTermReportModal({ classId, token, student, onClose, o
         if (!alive) return;
         setDefaults(d.defaults || {});
         setScores(d.scores || []);
+        setRoster(d.roster || []);
         setForm({
           school_name: d.school_name || '', district: d.district || '', level: d.level || 'Primary',
           academic_year: d.academic_year || '', term: d.term || 'I', subjects: d.subjects || [], logo: d.logo || null,
@@ -124,7 +128,7 @@ export default function MidTermReportModal({ classId, token, student, onClose, o
       const res = await fetch(`${API_BASE}/catmarks/${classId}/midterm-report/send-all`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ teacher_comment: comment, ...form }),
+        body: JSON.stringify({ teacher_comment: comment, ...form, student_ids: selectedIds }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || `Failed (${res.status})`);
@@ -160,7 +164,7 @@ export default function MidTermReportModal({ classId, token, student, onClose, o
               <button type="button" className="btn btn-secondary" onClick={() => setPreviewHtml(null)}>← Edit details</button>
               <div style={{ display: 'flex', gap: 10 }}>
                 <button type="button" className="btn btn-outline" disabled={emailBusy} onClick={emailAll}>
-                  {emailBusy ? '⏳ Emailing…' : '📧 Email All Reports'}
+                  {emailBusy ? '⏳ Emailing…' : `📧 Email ${selectedIds ? selectedIds.length : roster.length || 'All'} Reports (ZIP)`}
                 </button>
                 <button type="button" className="btn btn-primary" disabled={busy} onClick={downloadDoc}>
                   {busy ? '⏳ …' : '⬇️ Download Word'}
@@ -192,9 +196,44 @@ export default function MidTermReportModal({ classId, token, student, onClose, o
                   {form.logo && <button type="button" className="btn btn-outline btn-sm" onClick={() => set('logo', null)}>✕</button>}
                 </div>
               </div>
-              <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>School authority email — all class reports go here in one click</label>
+              <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>School authority email — reports arrive as ONE zipped folder</label>
                 <input style={inp} type="email" value={form.authority_email} onChange={(e) => set('authority_email', e.target.value)} placeholder="headteacher@school.rw" />
               </div>
+              {roster.length > 0 && (
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <button type="button" className="btn btn-outline btn-sm" style={{ fontSize: 12 }} onClick={() => setShowStudents((v) => !v)}>
+                    👥 {showStudents ? 'Hide students' : `Choose students to email (${selectedIds ? selectedIds.length : roster.length}/${roster.length})`}
+                  </button>
+                  {showStudents && (
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, marginTop: 8 }}>
+                      <div style={{ display: 'flex', gap: 8, padding: '6px 10px', borderBottom: '1px solid #f1f5f9', fontSize: 12 }}>
+                        <button type="button" className="btn btn-outline btn-sm" style={{ fontSize: 11, padding: '1px 8px' }} onClick={() => setSelectedIds(null)}>All</button>
+                        <button type="button" className="btn btn-outline btn-sm" style={{ fontSize: 11, padding: '1px 8px' }} onClick={() => setSelectedIds([])}>None</button>
+                        <span style={{ marginLeft: 'auto', color: '#64748b', alignSelf: 'center' }}>{selectedIds ? selectedIds.length : roster.length} selected</span>
+                      </div>
+                      <div style={{ maxHeight: 160, overflowY: 'auto' }}>
+                        {roster.map((s) => {
+                          const checked = selectedIds === null || selectedIds.includes(s.id);
+                          return (
+                            <label key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', fontSize: 13, borderTop: '1px solid #f8fafc', cursor: 'pointer' }}>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => {
+                                  const cur = selectedIds === null ? roster.map((r) => r.id) : [...selectedIds];
+                                  const next = checked ? cur.filter((x) => x !== s.id) : [...cur, s.id];
+                                  setSelectedIds(next.length === roster.length ? null : next);
+                                }}
+                              />
+                              {s.name}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div style={{ marginTop: 16 }}>
@@ -265,10 +304,10 @@ export default function MidTermReportModal({ classId, token, student, onClose, o
                 type="button"
                 className="btn btn-outline"
                 disabled={emailBusy || !form.subjects.length}
-                title="Email every student's report card to the school authority in one click"
+                title="Email the selected students' report cards as ONE zipped folder to the school authority"
                 onClick={emailAll}
               >
-                {emailBusy ? '⏳ Emailing…' : '📧 Email All Reports'}
+                {emailBusy ? '⏳ Emailing…' : `📧 Email ${selectedIds ? selectedIds.length : roster.length || 'All'} Report${(selectedIds ? selectedIds.length : roster.length) === 1 ? '' : 's'} (ZIP)`}
               </button>
               <button type="button" className="btn btn-primary" disabled={busy || !form.subjects.length} onClick={showPreview}>
                 {busy ? '⏳ Generating…' : '👁 Generate Report'}
