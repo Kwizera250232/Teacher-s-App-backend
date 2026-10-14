@@ -112,6 +112,13 @@ pool.query(`
   ALTER TABLE alumni_group_messages ADD COLUMN IF NOT EXISTS reply_to_id INTEGER REFERENCES alumni_group_messages(id) ON DELETE SET NULL;
   ALTER TABLE alumni_group_messages ADD COLUMN IF NOT EXISTS user_id INTEGER;
   UPDATE alumni_group_messages SET sender_id = user_id WHERE sender_id IS NULL;
+  -- heal groups whose creator was never added as a member (earlier insert bug)
+  INSERT INTO alumni_group_members (group_id, user_id, role)
+    SELECT g.id, g.creator_id, 'admin' FROM alumni_groups g
+    WHERE g.creator_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM alumni_group_members m WHERE m.group_id = g.id AND m.user_id = g.creator_id)
+    ON CONFLICT DO NOTHING;
+  UPDATE alumni_groups SET member_count = (SELECT COUNT(*) FROM alumni_group_members WHERE group_id = alumni_groups.id);
 `)).catch((e) => console.warn('[alumni-social] schema fix:', e.message.slice(0, 120)));
 
 // Helper: create notification
