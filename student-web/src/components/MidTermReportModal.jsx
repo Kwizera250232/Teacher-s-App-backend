@@ -10,9 +10,12 @@ export default function MidTermReportModal({ classId, token, student, onClose, o
   const [busy, setBusy] = useState(false);
   const [defaults, setDefaults] = useState({});
   const [scores, setScores] = useState([]);
-  const [form, setForm] = useState({ school_name: '', district: '', level: 'Primary', academic_year: '', term: 'I', subjects: [], logo: null });
+  const [form, setForm] = useState({ school_name: '', district: '', level: 'Primary', academic_year: '', term: 'I', subjects: [], logo: null, authority_email: '' });
   const [comment, setComment] = useState('');
   const [newSubject, setNewSubject] = useState('');
+  const [previewHtml, setPreviewHtml] = useState(null);
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [emailDone, setEmailDone] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -29,6 +32,7 @@ export default function MidTermReportModal({ classId, token, student, onClose, o
         setForm({
           school_name: d.school_name || '', district: d.district || '', level: d.level || 'Primary',
           academic_year: d.academic_year || '', term: d.term || 'I', subjects: d.subjects || [], logo: d.logo || null,
+          authority_email: d.authority_email || '',
         });
       } catch (e) {
         onError?.(e.message);
@@ -62,18 +66,35 @@ export default function MidTermReportModal({ classId, token, student, onClose, o
     r.readAsDataURL(file);
   };
 
-  const generate = async () => {
+  const postReport = async (extra) => {
+    const res = await fetch(`${API_BASE}/catmarks/${classId}/midterm-report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ student_id: student.studentId, teacher_comment: comment, ...form, ...extra }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      throw new Error(d.error || `Failed (${res.status})`);
+    }
+    return res;
+  };
+
+  const showPreview = async () => {
     setBusy(true);
     try {
-      const res = await fetch(`${API_BASE}/catmarks/${classId}/midterm-report`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ student_id: student.studentId, teacher_comment: comment, ...form }),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || `Failed (${res.status})`);
-      }
+      const res = await postReport({ preview: true });
+      setPreviewHtml(await res.text());
+    } catch (e) {
+      onError?.(e.message || 'Could not generate the report.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const downloadDoc = async () => {
+    setBusy(true);
+    try {
+      const res = await postReport({});
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -81,11 +102,29 @@ export default function MidTermReportModal({ classId, token, student, onClose, o
       a.download = `MidTerm-${form.term}-Report-${(student.studentName || 'student').replace(/[^\w]+/g, '-')}.doc`;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
-      onClose();
     } catch (e) {
-      onError?.(e.message || 'Could not generate the report.');
+      onError?.(e.message || 'Could not download the report.');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const emailAll = async () => {
+    if (!form.authority_email.trim()) { onError?.('Add the school authority email first.'); return; }
+    setEmailBusy(true); setEmailDone('');
+    try {
+      const res = await fetch(`${API_BASE}/catmarks/${classId}/midterm-report/send-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ teacher_comment: comment, ...form }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || `Failed (${res.status})`);
+      setEmailDone(`✅ Sent ${d.sent} report card${d.sent > 1 ? 's' : ''} to ${d.to}`);
+    } catch (e) {
+      onError?.(e.message || 'Could not email the reports.');
+    } finally {
+      setEmailBusy(false);
     }
   };
 
@@ -100,7 +139,29 @@ export default function MidTermReportModal({ classId, token, student, onClose, o
           For <strong>{student.studentName}</strong> — marks come only from the Marks tab (teacher-recorded). School details are remembered for this class.
         </p>
 
-        {loading ? <p style={{ color: '#64748b' }}>Loading…</p> : (
+        {loading ? <p style={{ color: '#64748b' }}>Loading…</p> : previewHtml ? (
+          <>
+            <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', background: '#f8fafc' }}>
+              <iframe
+                title="Mid-term report preview"
+                srcDoc={previewHtml}
+                style={{ width: '100%', height: '62vh', border: 'none', background: '#fff' }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', marginTop: 14, flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setPreviewHtml(null)}>← Edit details</button>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button type="button" className="btn btn-outline" disabled={emailBusy} onClick={emailAll}>
+                  {emailBusy ? '⏳ Emailing…' : '📧 Email All Reports'}
+                </button>
+                <button type="button" className="btn btn-primary" disabled={busy} onClick={downloadDoc}>
+                  {busy ? '⏳ …' : '⬇️ Download Word'}
+                </button>
+              </div>
+            </div>
+            {emailDone && <p style={{ margin: '10px 0 0', fontSize: 13, color: '#166534', fontWeight: 600 }}>{emailDone}</p>}
+          </>
+        ) : (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
               <div><label style={lbl}>School name</label><input style={inp} value={form.school_name} onChange={(e) => set('school_name', e.target.value)} placeholder="BRIGHT SCHOOL" /></div>
@@ -122,6 +183,9 @@ export default function MidTermReportModal({ classId, token, student, onClose, o
                   <input type="file" accept="image/*" style={{ fontSize: 12, flex: 1 }} onChange={(e) => onLogo(e.target.files?.[0])} />
                   {form.logo && <button type="button" className="btn btn-outline btn-sm" onClick={() => set('logo', null)}>✕</button>}
                 </div>
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>School authority email — all class reports go here in one click</label>
+                <input style={inp} type="email" value={form.authority_email} onChange={(e) => set('authority_email', e.target.value)} placeholder="headteacher@school.rw" />
               </div>
             </div>
 
@@ -171,12 +235,22 @@ export default function MidTermReportModal({ classId, token, student, onClose, o
               />
             </div>
 
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16, flexWrap: 'wrap' }}>
               <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
-              <button type="button" className="btn btn-primary" disabled={busy || !form.subjects.length} onClick={generate}>
-                {busy ? '⏳ Generating…' : '⬇️ Generate Word Report'}
+              <button
+                type="button"
+                className="btn btn-outline"
+                disabled={emailBusy || !form.subjects.length}
+                title="Email every student's report card to the school authority in one click"
+                onClick={emailAll}
+              >
+                {emailBusy ? '⏳ Emailing…' : '📧 Email All Reports'}
+              </button>
+              <button type="button" className="btn btn-primary" disabled={busy || !form.subjects.length} onClick={showPreview}>
+                {busy ? '⏳ Generating…' : '👁 Generate Report'}
               </button>
             </div>
+            {emailDone && <p style={{ margin: '10px 0 0', fontSize: 13, color: '#166534', fontWeight: 600 }}>{emailDone}</p>}
           </>
         )}
       </div>

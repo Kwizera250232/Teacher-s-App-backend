@@ -551,13 +551,16 @@ ${quizRows}
 // ═══════════════════════════════════════════════════════════════════════════
 // MID-TERM REPORT CARD (.doc) — uses ONLY teacher-recorded cat_marks
 // ═══════════════════════════════════════════════════════════════════════════
+const { sendMail } = require('../lib/optionalMailer');
+
 pool.query(`
   CREATE TABLE IF NOT EXISTS midterm_report_settings (
     class_id INTEGER PRIMARY KEY REFERENCES classes(id) ON DELETE CASCADE,
     school_name TEXT, district TEXT, level TEXT DEFAULT 'Primary',
-    academic_year TEXT, term TEXT DEFAULT 'I',
+    academic_year TEXT, term TEXT DEFAULT 'I', authority_email TEXT,
     subjects JSONB, logo TEXT, updated_at TIMESTAMP DEFAULT NOW()
   );
+  ALTER TABLE midterm_report_settings ADD COLUMN IF NOT EXISTS authority_email TEXT;
 `).catch(e => console.error('[midterm settings] migration error:', e.message));
 
 const DEFAULT_SUBJECTS = {
@@ -580,14 +583,29 @@ async function subjectScores(classId, studentId) {
   return out;
 }
 
-async function loadSettings(classId, user) {
+/** Ordered union: items in refOrder first (in that order), then the rest alphabetically. */
+function orderByRef(items, refOrder) {
+  return [...items].sort((a, b) => {
+    const ia = refOrder.findIndex((d) => normSubj(d) === normSubj(a));
+    const ib = refOrder.findIndex((d) => normSubj(d) === normSubj(b));
+    if (ia !== -1 || ib !== -1) return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+    return a.localeCompare(b);
+  });
+}
+
+async function loadSettings(classId) {
   const saved = (await pool.query('SELECT * FROM midterm_report_settings WHERE class_id = $1', [classId])).rows[0];
+  // classes link to schools through the owning teacher's school_id
   const cls = (await pool.query(
     `SELECT c.name AS class_name, c.class_code, s.name AS school_name, s.district
-     FROM classes c LEFT JOIN schools s ON s.id = c.school_id WHERE c.id = $1`, [classId]
+     FROM classes c
+     LEFT JOIN users t ON t.id = c.teacher_id
+     LEFT JOIN schools s ON s.id = t.school_id
+     WHERE c.id = $1`, [classId]
   )).rows[0] || {};
   const y = new Date().getFullYear();
   const level = saved?.level || (/^s|sec/i.test(cls.class_name || '') ? 'Secondary' : 'Primary');
+  const levelDefaults = DEFAULT_SUBJECTS[level] || [];
 
   // Subjects the teacher actually recorded marks for in this class
   const recorded = (await pool.query(
@@ -595,28 +613,19 @@ async function loadSettings(classId, user) {
   )).rows.map((r) => r.subject).filter((s) => s && s !== 'General');
 
   const savedList = Array.isArray(saved?.subjects) ? saved.subjects.filter(Boolean) : [];
-  const levelDefaults = DEFAULT_SUBJECTS[level] || [];
+  const recordedOrdered = orderByRef(recorded, levelDefaults);
 
-  // Smart subject list:
-  //  - every subject with recorded marks MUST appear (marks can never be dropped silently)
-  //  - recorded subjects are ordered by the level's standard order first, then alphabetically
-  //  - a teacher's saved/custom order is preserved; new recorded subjects are appended
-  const recordedOrdered = [...recorded].sort((a, b) => {
-    const ia = levelDefaults.findIndex((d) => normSubj(d) === normSubj(a));
-    const ib = levelDefaults.findIndex((d) => normSubj(d) === normSubj(b));
-    if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
-    return a.localeCompare(b);
-  });
+  // Subject list rule:
+  //  - fresh class → the FULL standard list for the level + any recorded extras (arranged like the shared report card)
+  //  - after teacher edits → their list is kept, but any newly-recorded subject is appended (marks never drop silently)
   let subjects;
   if (savedList.length) {
     subjects = [...savedList];
     for (const r of recordedOrdered) {
       if (!subjects.some((s) => normSubj(s) === normSubj(r))) subjects.push(r);
     }
-  } else if (recordedOrdered.length) {
-    subjects = recordedOrdered;
   } else {
-    subjects = levelDefaults;
+    subjects = orderByRef([...levelDefaults, ...recorded.filter((r) => !levelDefaults.some((d) => normSubj(d) === normSubj(r)))], levelDefaults);
   }
 
   return {
@@ -626,11 +635,107 @@ async function loadSettings(classId, user) {
     level,
     academic_year: saved?.academic_year || `${y}-${y + 1}`,
     term: saved?.term || 'I',
+    authority_email: saved?.authority_email || '',
     subjects,
     recorded_subjects: recordedOrdered,
     logo: saved?.logo || null,
     defaults: DEFAULT_SUBJECTS,
   };
+}
+
+/** Build the single-page Word report HTML for one student. */
+function buildReportHtml({ student, teacherName, schoolName, district, level, year, term, logo, comment, subjects, scores }) {
+  let total = 0, outOf = 0;
+  const rowsHtml = subjects.map((name, i) => {
+    const sc = scores[normSubj(name)];
+    const mark = sc ? sc.score : null;
+    if (mark !== null) { total += mark; outOf += 100; }
+    const markTxt = mark === null ? '' : (Number.isInteger(mark) ? mark : mark.toFixed(1));
+    return `<tr>
+      <td class="c">${i + 1}.</td>
+      <td class="b">${escHtml(name)}</td>
+      <td class="c">100</td>
+      <td class="c">${markTxt}</td>
+      <td class="c">${mark === null ? '' : gradeFor(mark)}</td>
+    </tr>`;
+  }).join('');
+  const pct = outOf ? Math.round((total / outOf) * 1000) / 10 : 0;
+  const totalTxt = Number.isInteger(total) ? total : total.toFixed(1);
+
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Mid-Term Report</title><style>
+    @page { size: A4; margin: 1.5cm; }
+    body{font-family:'Times New Roman',Times,serif;font-size:14pt;color:#000;margin:0;}
+    .frame{border:3px double #000;padding:24px 28px;}
+    .hdr{width:100%;border-collapse:collapse;}
+    .hdr td{border:none;vertical-align:top;padding:0;}
+    .hdr .lines{font-weight:bold;font-size:14pt;line-height:1.5;text-transform:uppercase;}
+    .hdr .lines .nm{text-transform:none;font-weight:normal;}
+    .logo{width:110px;height:110px;}
+    h2{text-align:center;text-decoration:underline;font-size:15pt;margin:22px 0 14px;font-family:Arial,Helvetica,sans-serif;}
+    table.m{border-collapse:collapse;margin:0 auto;width:85%;font-size:12pt;}
+    table.m th,table.m td{border:1px solid #000;padding:6px 8px;}
+    table.m th{font-weight:bold;text-align:center;}
+    table.m td.c{text-align:center;}
+    table.m td.b{font-weight:bold;}
+    table.m tr.tot td{font-weight:bold;}
+    .cmt{margin:26px auto 0;width:85%;font-size:12pt;}
+    .cmt .box{border:1px solid #000;min-height:60px;padding:8px 10px;margin-top:6px;}
+    .sig{width:85%;margin:40px auto 0;border-collapse:collapse;font-size:11pt;}
+    .sig td{border:none;padding-top:36px;width:50%;}
+    .sig .ln{border-top:1px solid #000;width:230px;padding-top:4px;}
+  </style></head><body><div class="frame">
+    <table class="hdr"><tr>
+      <td class="lines">
+        ${district ? `${escHtml(district)} DISTRICT<br/>` : ''}
+        ${escHtml(schoolName || 'SCHOOL NAME')}<br/>
+        ${escHtml(level)} ${escHtml(year)}<br/>
+        Student Names: <span class="nm">${escHtml(student.name)}</span>
+      </td>
+      <td style="width:120px;text-align:right;">${logo ? `<img class="logo" src="${logo}" alt="logo"/>` : ''}</td>
+    </tr></table>
+    <h2>MID-TERM ${escHtml(term)} REPORT</h2>
+    <table class="m">
+      <colgroup><col style="width:6%"/><col style="width:40%"/><col style="width:18%"/><col style="width:18%"/><col style="width:18%"/></colgroup>
+      <tr><th>#</th><th>Subjects</th><th>Marks Out<br/>of 100</th><th>Marks</th><th>Grade</th></tr>
+      ${rowsHtml}
+      <tr class="tot"><td></td><td class="c">Total</td><td class="c">${outOf}</td><td class="c">${totalTxt}</td><td></td></tr>
+      <tr class="tot"><td></td><td class="c">%</td><td></td><td class="c">${pct}%</td><td class="c">${outOf ? gradeFor(pct) : ''}</td></tr>
+    </table>
+    <div class="cmt"><b>Teacher's Comment:</b><div class="box">${comment ? escHtml(comment).replace(/\n/g, '<br/>') : '&nbsp;'}</div></div>
+    <table class="sig"><tr>
+      <td><div class="ln"><b>Class Teacher</b><br/>${escHtml(teacherName)}</div></td>
+      <td style="text-align:right;"><div class="ln" style="margin-left:auto;"><b>Head Teacher &amp; Stamp</b><br/>&nbsp;</div></td>
+    </tr></table>
+  </div></body></html>`;
+}
+
+async function resolveReportParams(classId, body) {
+  const b = body || {};
+  const prev = await loadSettings(classId);
+  const level = ['Primary', 'Secondary'].includes(b.level) ? b.level : prev.level;
+  const subjects = (Array.isArray(b.subjects) ? b.subjects : prev.subjects)
+    .map((s) => String(s || '').trim()).filter(Boolean).slice(0, 30);
+  return {
+    level,
+    subjects,
+    schoolName: String(b.school_name ?? prev.school_name).trim(),
+    district: String(b.district ?? prev.district).trim(),
+    year: String(b.academic_year ?? prev.academic_year).trim(),
+    term: String(b.term ?? prev.term).trim() || 'I',
+    authorityEmail: String(b.authority_email ?? prev.authority_email).trim(),
+    logo: b.logo === null ? null : (typeof b.logo === 'string' && /^data:image\/(png|jpe?g|gif|webp);base64,/.test(b.logo) && b.logo.length < 700000 ? b.logo : prev.logo),
+    comment: String(b.teacher_comment || '').trim(),
+    className: prev.class_name,
+  };
+}
+
+async function saveSettings(classId, p) {
+  await pool.query(
+    `INSERT INTO midterm_report_settings (class_id, school_name, district, level, academic_year, term, authority_email, subjects, logo, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+     ON CONFLICT (class_id) DO UPDATE SET school_name=$2, district=$3, level=$4, academic_year=$5, term=$6, authority_email=$7, subjects=$8, logo=$9, updated_at=NOW()`,
+    [classId, p.schoolName, p.district, p.level, p.year, p.term, p.authorityEmail, JSON.stringify(p.subjects), p.logo]
+  );
 }
 
 // GET /:classId/midterm-report/prefill?student_id=  → settings + detected subject scores
@@ -639,7 +744,7 @@ router.get('/:classId/midterm-report/prefill', authenticateToken, requireRole('t
   try {
     const manage = await userCanManageClass(req.user, classId);
     if (!manage?.ok) return res.status(403).json({ error: 'Not your class.' });
-    const settings = await loadSettings(classId, req.user);
+    const settings = await loadSettings(classId);
     const studentId = parseInt(req.query.student_id, 10);
     const scores = studentId ? await subjectScores(classId, studentId) : {};
     res.json({ ...settings, scores: Object.values(scores) });
@@ -649,11 +754,10 @@ router.get('/:classId/midterm-report/prefill', authenticateToken, requireRole('t
   }
 });
 
-// POST /:classId/midterm-report → .doc download (also saves settings for next time)
+// POST /:classId/midterm-report → .doc download (or HTML preview with preview:true)
 router.post('/:classId/midterm-report', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const classId = req.params.classId;
-  const b = req.body || {};
-  const studentId = parseInt(b.student_id, 10);
+  const studentId = parseInt(req.body.student_id, 10);
   if (!studentId) return res.status(400).json({ error: 'student_id is required.' });
   try {
     const manage = await userCanManageClass(req.user, classId);
@@ -665,96 +769,71 @@ router.post('/:classId/midterm-report', authenticateToken, requireRole('teacher'
     )).rows[0];
     if (!student) return res.status(404).json({ error: 'Student not found in this class.' });
 
-    const prev = await loadSettings(classId, req.user);
-    const level = ['Primary', 'Secondary'].includes(b.level) ? b.level : prev.level;
-    const subjects = (Array.isArray(b.subjects) ? b.subjects : prev.subjects)
-      .map((s) => String(s || '').trim()).filter(Boolean).slice(0, 30);
-    const schoolName = String(b.school_name ?? prev.school_name).trim();
-    const district = String(b.district ?? prev.district).trim();
-    const year = String(b.academic_year ?? prev.academic_year).trim();
-    const term = String(b.term ?? prev.term).trim() || 'I';
-    const logo = b.logo === null ? null : (typeof b.logo === 'string' && /^data:image\/(png|jpe?g|gif|webp);base64,/.test(b.logo) && b.logo.length < 700000 ? b.logo : prev.logo);
-    const comment = String(b.teacher_comment || '').trim();
-
-    await pool.query(
-      `INSERT INTO midterm_report_settings (class_id, school_name, district, level, academic_year, term, subjects, logo, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
-       ON CONFLICT (class_id) DO UPDATE SET school_name=$2, district=$3, level=$4, academic_year=$5, term=$6, subjects=$7, logo=$8, updated_at=NOW()`,
-      [classId, schoolName, district, level, year, term, JSON.stringify(subjects), logo]
-    );
+    const p = await resolveReportParams(classId, req.body);
+    await saveSettings(classId, p);
 
     const scores = await subjectScores(classId, studentId);
-    let total = 0, outOf = 0;
-    const rowsHtml = subjects.map((name, i) => {
-      const sc = scores[normSubj(name)];
-      const mark = sc ? sc.score : null;
-      if (mark !== null) { total += mark; outOf += 100; }
-      const markTxt = mark === null ? '' : (Number.isInteger(mark) ? mark : mark.toFixed(1));
-      return `<tr>
-        <td class="c">${i + 1}.</td>
-        <td class="b">${escHtml(name)}</td>
-        <td class="c">100</td>
-        <td class="c">${markTxt}</td>
-        <td class="c">${mark === null ? '' : gradeFor(mark)}</td>
-      </tr>`;
-    }).join('');
-    const pct = outOf ? Math.round((total / outOf) * 1000) / 10 : 0;
-    const totalTxt = Number.isInteger(total) ? total : total.toFixed(1);
     const teacherName = (await pool.query('SELECT name FROM users WHERE id=$1', [req.user.id])).rows[0]?.name || '';
+    const doc = buildReportHtml({ student, teacherName, schoolName: p.schoolName, district: p.district, level: p.level, year: p.year, term: p.term, logo: p.logo, comment: p.comment, subjects: p.subjects, scores });
 
-    const doc = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Mid-Term Report</title><style>
-      @page { size: A4; margin: 1.5cm; }
-      body{font-family:'Times New Roman',Times,serif;font-size:14pt;color:#000;margin:0;}
-      .frame{border:3px double #000;padding:24px 28px;}
-      .hdr{width:100%;border-collapse:collapse;}
-      .hdr td{border:none;vertical-align:top;padding:0;}
-      .hdr .lines{font-weight:bold;font-size:14pt;line-height:1.5;text-transform:uppercase;}
-      .hdr .lines .nm{text-transform:none;font-weight:normal;}
-      .logo{width:110px;height:110px;}
-      h2{text-align:center;text-decoration:underline;font-size:15pt;margin:22px 0 14px;font-family:Arial,Helvetica,sans-serif;}
-      table.m{border-collapse:collapse;margin:0 auto;width:85%;font-size:12pt;}
-      table.m th,table.m td{border:1px solid #000;padding:6px 8px;}
-      table.m th{font-weight:bold;text-align:center;}
-      table.m td.c{text-align:center;}
-      table.m td.b{font-weight:bold;}
-      table.m tr.tot td{font-weight:bold;}
-      .cmt{margin:26px auto 0;width:85%;font-size:12pt;}
-      .cmt .box{border:1px solid #000;min-height:60px;padding:8px 10px;margin-top:6px;}
-      .sig{width:85%;margin:40px auto 0;border-collapse:collapse;font-size:11pt;}
-      .sig td{border:none;padding-top:36px;width:50%;}
-      .sig .ln{border-top:1px solid #000;width:230px;padding-top:4px;}
-    </style></head><body><div class="frame">
-      <table class="hdr"><tr>
-        <td class="lines">
-          ${district ? `${escHtml(district)} DISTRICT<br/>` : ''}
-          ${escHtml(schoolName || 'SCHOOL NAME')}<br/>
-          ${escHtml(level)} ${escHtml(year)}<br/>
-          Student Names: <span class="nm">${escHtml(student.name)}</span>
-        </td>
-        <td style="width:120px;text-align:right;">${logo ? `<img class="logo" src="${logo}" alt="logo"/>` : ''}</td>
-      </tr></table>
-      <h2>MID-TERM ${escHtml(term)} REPORT</h2>
-      <table class="m">
-        <colgroup><col style="width:6%"/><col style="width:40%"/><col style="width:18%"/><col style="width:18%"/><col style="width:18%"/></colgroup>
-        <tr><th>#</th><th>Subjects</th><th>Marks Out<br/>of 100</th><th>Marks</th><th>Grade</th></tr>
-        ${rowsHtml}
-        <tr class="tot"><td></td><td class="c">Total</td><td class="c">${outOf}</td><td class="c">${totalTxt}</td><td></td></tr>
-        <tr class="tot"><td></td><td class="c">%</td><td></td><td class="c">${pct}%</td><td class="c">${outOf ? gradeFor(pct) : ''}</td></tr>
-      </table>
-      <div class="cmt"><b>Teacher's Comment:</b><div class="box">${comment ? escHtml(comment).replace(/\n/g, '<br/>') : '&nbsp;'}</div></div>
-      <table class="sig"><tr>
-        <td><div class="ln"><b>Class Teacher</b><br/>${escHtml(teacherName)}</div></td>
-        <td style="text-align:right;"><div class="ln" style="margin-left:auto;"><b>Head Teacher &amp; Stamp</b><br/>&nbsp;</div></td>
-      </tr></table>
-    </div></body></html>`;
-
+    if (req.body.preview) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(doc);
+    }
     const safe = String(student.name || 'student').replace(/[^\w]+/g, '-').slice(0, 60);
     res.setHeader('Content-Type', 'application/msword');
-    res.setHeader('Content-Disposition', `attachment; filename="MidTerm-${term}-Report-${safe}.doc"`);
+    res.setHeader('Content-Disposition', `attachment; filename="MidTerm-${p.term}-Report-${safe}.doc"`);
     res.send('﻿' + doc);
   } catch (err) {
     console.error('[midterm report]', err.message);
     res.status(500).json({ error: 'Could not build the report right now.' });
+  }
+});
+
+// POST /:classId/midterm-report/send-all — emails every student's report to the school authority
+router.post('/:classId/midterm-report/send-all', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = req.params.classId;
+  try {
+    const manage = await userCanManageClass(req.user, classId);
+    if (!manage?.ok) return res.status(403).json({ error: 'You cannot generate reports for this class.' });
+
+    const p = await resolveReportParams(classId, req.body);
+    if (!p.authorityEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p.authorityEmail)) {
+      return res.status(400).json({ error: 'A valid school authority email is required.' });
+    }
+    await saveSettings(classId, p);
+
+    const roster = (await pool.query(
+      `SELECT u.id, u.name FROM class_members cm JOIN users u ON u.id = cm.student_id
+       WHERE cm.class_id = $1 ORDER BY u.name`, [classId]
+    )).rows;
+    if (!roster.length) return res.status(400).json({ error: 'No students in this class.' });
+
+    const teacherName = (await pool.query('SELECT name FROM users WHERE id=$1', [req.user.id])).rows[0]?.name || '';
+    const attachments = [];
+    for (const student of roster) {
+      const scores = await subjectScores(classId, student.id);
+      const doc = buildReportHtml({ student, teacherName, schoolName: p.schoolName, district: p.district, level: p.level, year: p.year, term: p.term, logo: p.logo, comment: p.comment, subjects: p.subjects, scores });
+      const safe = String(student.name || 'student').replace(/[^\w]+/g, '-').slice(0, 60);
+      attachments.push({ filename: `MidTerm-${p.term}-Report-${safe}.doc`, content: Buffer.from('﻿' + doc, 'utf8'), type: 'application/msword' });
+    }
+
+    const subject = `Mid-Term ${p.term} Reports — ${p.className} (${roster.length} students)`;
+    const html = `<div style="font-family:Arial,sans-serif;max-width:560px;">
+      <h2 style="color:#075e54;margin-bottom:6px;">Mid-Term ${escHtml(p.term)} Report Cards</h2>
+      <p style="color:#334155;">
+        <strong>${escHtml(p.schoolName || 'School')}</strong>${p.district ? ` · ${escHtml(p.district)} District` : ''}<br/>
+        Class: <strong>${escHtml(p.className)}</strong> · Academic Year: <strong>${escHtml(p.year)}</strong>
+      </p>
+      <p style="color:#334155;">Attached are <strong>${roster.length}</strong> mid-term report cards (one Word document per student), prepared by <strong>${escHtml(teacherName)}</strong>.</p>
+      <p style="color:#64748b;font-size:13px;margin-top:22px;">Sent from UClass — this is an automated delivery, please do not reply.</p>
+    </div>`;
+    const r = await sendMail({ to: p.authorityEmail, subject, html, text: `Mid-Term ${p.term} reports for ${p.className} — ${roster.length} reports attached.`, attachments });
+    if (!r?.sent) return res.status(502).json({ error: r?.reason || 'Email could not be sent. Check the school email settings.' });
+    res.json({ ok: true, sent: roster.length, to: p.authorityEmail });
+  } catch (err) {
+    console.error('[midterm send-all]', err.message);
+    res.status(500).json({ error: 'Could not email the reports right now.' });
   }
 });
 
