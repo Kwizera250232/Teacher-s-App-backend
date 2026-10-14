@@ -188,7 +188,7 @@ router.get('/groups/:id', authenticateToken, async (req, res) => {
     const group = await pool.query(`SELECT * FROM alumni_groups WHERE id=$1`, [req.params.id]);
     if (group.rows.length === 0) return res.status(404).json({ error: 'Group not found.' });
     const members = await pool.query(`
-      SELECT m.*, u.name, u.email, u.role as user_role
+      SELECT m.*, u.name, u.email, u.role as user_role, u.avatar_url, u.is_verified
       FROM alumni_group_members m
       JOIN users u ON u.id=m.user_id
       WHERE m.group_id=$1
@@ -285,7 +285,7 @@ router.get('/groups/:id/search-members', authenticateToken, async (req, res) => 
     if (membership.rows.length === 0) return res.status(403).json({ error: 'Members only.' });
     const q = `%${(req.query.q || '').trim().toLowerCase()}%`;
     const rows = await pool.query(
-      `SELECT u.id, u.name, u.email, u.avatar_url,
+      `SELECT u.id, u.name, u.email, u.avatar_url, u.is_verified,
               EXISTS(SELECT 1 FROM alumni_group_members m WHERE m.group_id=$1 AND m.user_id=u.id) AS already_member
        FROM users u
        WHERE (LOWER(u.name) LIKE $2 OR LOWER(u.email) LIKE $2)
@@ -343,7 +343,8 @@ router.get('/groups/:id/messages', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'You must join this group to view messages.' });
     }
     let query = `
-      SELECT m.*, u.name as sender_name, u.email as sender_email
+      SELECT m.*, u.name as sender_name, u.email as sender_email,
+             u.avatar_url as sender_avatar, u.is_verified as sender_verified
       FROM alumni_group_messages m
       JOIN users u ON u.id=m.sender_id
       WHERE m.group_id=$1
@@ -378,12 +379,12 @@ router.post('/groups/:id/messages', authenticateToken, async (req, res) => {
     );
     // Notify all group members except sender
     const members = await pool.query('SELECT user_id FROM alumni_group_members WHERE group_id=$1 AND user_id!=$2', [req.params.id, req.user.id]);
-    const senderName = await pool.query('SELECT name FROM users WHERE id=$1', [req.user.id]);
+    const sender = (await pool.query('SELECT name, avatar_url, is_verified FROM users WHERE id=$1', [req.user.id])).rows[0] || {};
     const groupName = await pool.query('SELECT name FROM alumni_groups WHERE id=$1', [req.params.id]);
     for (const m of members.rows) {
-      await notify(pool, m.user_id, 'group_message', `${senderName.rows[0]?.name || 'Someone'} in ${groupName.rows[0]?.name || 'a group'}`, (content || '').trim().slice(0, 100), { group_id: parseInt(req.params.id) });
+      await notify(pool, m.user_id, 'group_message', `${sender.name || 'Someone'} in ${groupName.rows[0]?.name || 'a group'}`, (content || '').trim().slice(0, 100), { group_id: parseInt(req.params.id) });
     }
-    res.status(201).json(result.rows[0]);
+    res.status(201).json({ ...result.rows[0], sender_name: sender.name, sender_avatar: sender.avatar_url, sender_verified: sender.is_verified });
   } catch (err) {
     console.error('[alumni/groups/messages/send]', err);
     res.status(500).json({ error: 'Internal server error.' });
