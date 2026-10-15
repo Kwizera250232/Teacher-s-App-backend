@@ -793,6 +793,59 @@ async function saveSettings(classId, p) {
   );
 }
 
+function buildClassSummaryHtml({ teacherName, schoolName, district, level, year, term, logo, className, subjects, students }) {
+  const outOf = subjects.length * 100;
+  const rowsHtml = students.map((s, i) => {
+    const g = s.pct === null ? '' : gradeFor(s.pct);
+    return `<tr>
+      <td class="c">${i + 1}</td>
+      <td>${escHtml(s.name)}</td>
+      <td class="c">${s.total === null ? '' : s.total}</td>
+      <td class="c">${s.pct === null ? '' : s.pct + '%'}</td>
+      <td class="c b">${g}</td>
+    </tr>`;
+  }).join('');
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+    @page { size: A4; margin: 1.2cm; }
+    body{font-family:'Times New Roman',Times,serif;font-size:12pt;color:#000;margin:0;}
+    .frame{border:3px double #000;padding:16px 22px;}
+    .hdr{width:100%;border-collapse:collapse;}
+    .hdr td{border:none;vertical-align:top;padding:0;}
+    .hdr .lines{font-weight:bold;font-size:13pt;line-height:1.4;text-transform:uppercase;}
+    h2{text-align:center;text-decoration:underline;font-size:14pt;margin:14px 0 10px;font-family:Arial,Helvetica,sans-serif;}
+    table.m{border-collapse:collapse;margin:0 auto;width:100%;font-size:11pt;table-layout:fixed;}
+    table.m th,table.m td{border:1px solid #000;padding:5px 7px;}
+    table.m th{font-weight:bold;text-align:center;}
+    table.m td.c{text-align:center;}
+    table.m td.b{font-weight:bold;}
+    .foot{width:100%;margin-top:26px;border-collapse:collapse;font-size:10.5pt;}
+    .foot td{border:none;padding-top:26px;width:50%;}
+    .foot .ln{border-top:1px solid #000;width:220px;padding-top:4px;}
+  </style></head><body>
+  <div class="frame">
+    <table class="hdr"><tr>
+      <td class="lines">
+        ${escHtml(district || '')} DISTRICT<br/>
+        ${escHtml(schoolName || '')}<br/>
+        ${escHtml(level)} ${escHtml(year)}<br/>
+        ${escHtml(className)} — CLASS MARKS LIST
+      </td>
+      <td style="width:110px;text-align:right;">${logo ? `<img src="${logo}" alt="logo" width="90" style="width:90px;max-height:110px;"/>` : ''}</td>
+    </tr></table>
+    <h2>MID-TERM ${escHtml(term)} — STUDENTS RANKED BY MARKS</h2>
+    <table class="m">
+      <colgroup><col style="width:8%"/><col/><col style="width:16%"/><col style="width:14%"/><col style="width:12%"/></colgroup>
+      <tr><th>#</th><th>Student Name</th><th>Total /${outOf}</th><th>Average</th><th>Grade</th></tr>
+      ${rowsHtml}
+    </table>
+    <table class="foot"><tr>
+      <td><div class="ln">Class Teacher<br/>${escHtml(teacherName)}</div></td>
+      <td style="text-align:right;"><div class="ln" style="margin-left:auto;">Head Teacher &amp; Stamp</div></td>
+    </tr></table>
+  </div>
+  </body></html>`;
+}
+
 // GET /:classId/midterm-report/prefill?student_id=  → settings + detected subject scores
 router.get('/:classId/midterm-report/prefill', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const classId = req.params.classId;
@@ -872,12 +925,28 @@ router.post('/:classId/midterm-report/send-all', authenticateToken, requireRole(
 
     const teacherName = (await pool.query('SELECT name FROM users WHERE id=$1', [req.user.id])).rows[0]?.name || '';
     const files = [];
+    const summary = [];
     for (const student of roster) {
       const scores = await subjectScores(classId, student.id);
       const doc = buildReportHtml({ student, teacherName, schoolName: p.schoolName, district: p.district, level: p.level, year: p.year, term: p.term, logo: p.logo, comment: p.comment, subjects: p.subjects, scores });
       const safe = String(student.name || 'student').replace(/[^\w]+/g, '-').slice(0, 60);
       files.push({ name: `MidTerm-${p.term}-Report-${safe}.doc`, data: Buffer.from('﻿' + doc, 'utf8') });
+      // totals for the class marks list
+      let total = 0; let marked = 0;
+      for (const s of p.subjects) {
+        const sc = scores[normSubj(s)];
+        if (sc) { total += sc.score; marked += 1; }
+      }
+      summary.push({ name: student.name, total: marked ? Math.round(total * 10) / 10 : null, pct: marked ? Math.round(total / (p.subjects.length * 100) * 1000) / 10 : null });
     }
+    // Class marks list doc — students ranked best → last
+    summary.sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1));
+    const summaryDoc = buildClassSummaryHtml({
+      teacherName, schoolName: p.schoolName, district: p.district, level: p.level, year: p.year,
+      term: p.term, logo: p.logo, className: p.className, subjects: p.subjects, students: summary,
+    });
+    files.unshift({ name: `00-Class-Marks-List-MidTerm-${p.term}.doc`, data: Buffer.from('﻿' + summaryDoc, 'utf8') });
+
     const zipName = `MidTerm-${p.term}-Reports-${String(p.className || 'class').replace(/[^\w]+/g, '-')}.zip`;
     const attachments = [{ filename: zipName, content: zipStore(files), type: 'application/zip' }];
 
@@ -888,7 +957,7 @@ router.post('/:classId/midterm-report/send-all', authenticateToken, requireRole(
         <strong>${escHtml(p.schoolName || 'School')}</strong>${p.district ? ` · ${escHtml(p.district)} District` : ''}<br/>
         Class: <strong>${escHtml(p.className)}</strong> · Academic Year: <strong>${escHtml(p.year)}</strong>
       </p>
-      <p style="color:#334155;">Attached is <strong>one ZIP folder</strong> containing <strong>${roster.length}</strong> mid-term report cards (one Word document per student), prepared by <strong>${escHtml(teacherName)}</strong>. Download the ZIP, then open it to see each report.</p>
+      <p style="color:#334155;">Attached is <strong>one ZIP folder</strong> containing a <strong>class marks list</strong> (students ranked by marks) plus <strong>${roster.length}</strong> mid-term report cards (one Word document per student), prepared by <strong>${escHtml(teacherName)}</strong>. Download the ZIP, then open it to see each report.</p>
       <p style="color:#64748b;font-size:13px;margin-top:22px;">Sent from UClass — this is an automated delivery, please do not reply.</p>
     </div>`;
     const r = await sendMail({ to: p.authorityEmail, subject, html, text: `Mid-Term ${p.term} reports for ${p.className} — ${roster.length} reports attached.`, attachments });
