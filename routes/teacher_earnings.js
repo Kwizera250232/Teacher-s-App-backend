@@ -7,7 +7,7 @@ const { ensureClassPaymentsSchema } = require('../lib/classPaymentsSchema');
 const router = express.Router();
 
 const TEACHER_SHARE_PCT = parseInt(process.env.TEACHER_SHARE_PCT || '70', 10);
-const WITHDRAW_MIN = parseInt(process.env.WITHDRAW_MIN || '7000', 10);
+const WITHDRAW_MIN = parseInt(process.env.WITHDRAW_MIN || '4000', 10);
 
 // Re-check PENDING withdrawals with MTN so stale rows don't block balances.
 // Demo rows (no MTN keys) are marked FAILED so they never lock money.

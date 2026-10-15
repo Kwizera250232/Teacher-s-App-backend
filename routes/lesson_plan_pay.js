@@ -48,6 +48,14 @@ async function ensureSchema() {
     )
   `);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_lpp_teacher ON lesson_plan_payments(teacher_id, status, expires_at)');
+  // Heal: every successful payment must give the full term — extend any shorter one
+  await pool.query(
+    `UPDATE lesson_plan_payments
+     SET expires_at = paid_at + ($1 || ' days')::interval
+     WHERE status='SUCCESSFUL' AND paid_at IS NOT NULL
+       AND expires_at < paid_at + ($1 || ' days')::interval`,
+    [String(TERM_DAYS)]
+  ).catch((e) => console.warn('[lesson plan term heal]', e.message.slice(0, 100)));
   await pool.query(`
     CREATE TABLE IF NOT EXISTS lesson_plans (
       id SERIAL PRIMARY KEY,
