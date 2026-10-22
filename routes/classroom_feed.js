@@ -530,7 +530,7 @@ router.post('/:classId/co-teachers', authenticateToken, requireRole('teacher', '
       type: 'co_teacher_invite',
       title: '🤝 Co-teacher invitation',
       body: `${me.name || 'A teacher'} invited you to co-manage "${cls.name}"${cls.subject ? ` (${cls.subject})` : ''}. Accept it from your dashboard.`,
-      payload: { invite_id: inv.rows[0].id, class_id: classId, url: '/staff/dashboard' },
+      payload: { invite_id: inv.rows[0].id, class_id: classId },
     }).catch(() => {});
 
     res.json({ ok: true, invited: true, teacher: { id: t.id, name: t.name, email: t.email } });
