@@ -5,6 +5,8 @@ const { userCanAccessClass, userCanManageClass, isClassMember } = require('../li
 const { feedUploadMiddleware } = require('../lib/feedUpload');
 const { ensureFeedTables } = require('../lib/feedSchema');
 const { notifyClassAudiencePush } = require('../lib/classContentNotify');
+const { insertUserNotification } = require('../lib/classMomentNotify');
+const { sendMail } = require('../lib/optionalMailer');
 
 const router = express.Router();
 
@@ -339,7 +341,15 @@ router.get('/:classId/co-teachers', authenticateToken, requireRole('teacher', 'h
        WHERE ct.class_id = $1`,
       [classId]
     );
-    res.json(result.rows);
+    const pending = await pool.query(
+      `SELECT i.id, u.id AS teacher_id, u.name, u.email, i.created_at
+       FROM class_co_teacher_invites i
+       JOIN users u ON u.id = i.teacher_id
+       WHERE i.class_id = $1 AND i.status = 'pending'
+       ORDER BY i.created_at DESC`,
+      [classId]
+    );
+    res.json({ teachers: result.rows, pending: pending.rows });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
   }
@@ -370,7 +380,113 @@ router.post('/:classId/co-teacher-link', authenticateToken, requireRole('teacher
   }
 });
 
-// Add co-teacher by email
+// ── Co-teacher invitation flow (invite → in-app notification → accept) ─────
+
+// GET my pending co-teacher invites
+router.get('/co-teacher-invites/mine', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  try {
+    const rows = await pool.query(
+      `SELECT i.id, i.class_id, i.created_at, c.name AS class_name, c.subject AS class_subject,
+              u.name AS inviter_name, u.email AS inviter_email
+       FROM class_co_teacher_invites i
+       JOIN classes c ON c.id = i.class_id
+       LEFT JOIN users u ON u.id = i.inviter_id
+       WHERE i.teacher_id = $1 AND i.status = 'pending'
+       ORDER BY i.created_at DESC`,
+      [req.user.id]
+    );
+    res.json(rows.rows);
+  } catch (err) {
+    console.error('[co-teacher-invites/mine]', err.message);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// Accept an invite → becomes co-teacher + email confirmation
+router.post('/co-teacher-invites/:inviteId/accept', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  try {
+    const inv = (await pool.query(
+      `SELECT i.*, c.name AS class_name, c.subject AS class_subject, u.name AS inviter_name, u.email AS inviter_email
+       FROM class_co_teacher_invites i
+       JOIN classes c ON c.id = i.class_id
+       LEFT JOIN users u ON u.id = i.inviter_id
+       WHERE i.id = $1 AND i.teacher_id = $2 AND i.status = 'pending'`,
+      [req.params.inviteId, req.user.id]
+    )).rows[0];
+    if (!inv) return res.status(404).json({ error: 'Invite not found or already handled.' });
+
+    await pool.query(
+      'INSERT INTO class_co_teachers (class_id, teacher_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+      [inv.class_id, req.user.id]
+    );
+    await pool.query(`UPDATE class_co_teacher_invites SET status='accepted', responded_at=NOW() WHERE id=$1`, [inv.id]);
+
+    const me = (await pool.query('SELECT name, email FROM users WHERE id=$1', [req.user.id])).rows[0] || {};
+    if (inv.inviter_id) await insertUserNotification({
+      userId: inv.inviter_id,
+      type: 'co_teacher',
+      title: '✅ Co-teacher invite accepted',
+      body: `${me.name || 'The teacher'} accepted your invite and is now a co-teacher of ${inv.class_name}.`,
+      payload: { class_id: inv.class_id },
+    }).catch(() => {});
+
+    sendMail({
+      to: me.email,
+      subject: `You are now a co-teacher of ${inv.class_name} — UClass`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:560px;">
+        <h2 style="color:#4f46e5;margin-bottom:8px;">🤝 Welcome aboard, ${me.name || 'teacher'}!</h2>
+        <p>You accepted a co-teacher invite${inv.inviter_name ? ` from <strong>${inv.inviter_name}</strong>` : ''}. You are now a co-teacher of:</p>
+        <p style="background:#eef2ff;border-radius:10px;padding:12px 16px;font-size:15px;">
+          <strong>${inv.class_name}</strong>${inv.class_subject ? ` — ${inv.class_subject}` : ''}
+        </p>
+        <p><strong>You can now:</strong></p>
+        <ul style="color:#334155;line-height:1.8;">
+          <li>View the class, its students and their profiles</li>
+          <li>Record and view CAT marks and behavior points</li>
+          <li>Create and grade quizzes, homework and notes</li>
+          <li>Post announcements and classroom moments</li>
+          <li>Generate mid-term report cards</li>
+        </ul>
+        <p style="color:#64748b;font-size:13px;margin-top:20px;">Sign in to UClass — the class now appears in your dashboard.</p>
+      </div>`,
+      text: `You are now a co-teacher of ${inv.class_name}${inv.class_subject ? ` (${inv.class_subject})` : ''} on UClass. Sign in to view and manage the class.`,
+    }).catch(() => {});
+
+    res.json({ ok: true, class_id: inv.class_id, class_name: inv.class_name });
+  } catch (err) {
+    console.error('[co-teacher-invites/accept]', err.message);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// Decline an invite
+router.post('/co-teacher-invites/:inviteId/decline', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  try {
+    const inv = (await pool.query(
+      `SELECT i.*, c.name AS class_name, u.name AS my_name FROM class_co_teacher_invites i
+       JOIN classes c ON c.id = i.class_id JOIN users u ON u.id = i.teacher_id
+       WHERE i.id = $1 AND i.teacher_id = $2 AND i.status = 'pending'`,
+      [req.params.inviteId, req.user.id]
+    )).rows[0];
+    if (!inv) return res.status(404).json({ error: 'Invite not found or already handled.' });
+    await pool.query(`UPDATE class_co_teacher_invites SET status='declined', responded_at=NOW() WHERE id=$1`, [inv.id]);
+    if (inv.inviter_id) {
+      await insertUserNotification({
+        userId: inv.inviter_id,
+        type: 'co_teacher',
+        title: 'Co-teacher invite declined',
+        body: `${inv.my_name || 'A teacher'} declined your co-teacher invite for ${inv.class_name}.`,
+        payload: { class_id: inv.class_id },
+      }).catch(() => {});
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[co-teacher-invites/decline]', err.message);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// Add co-teacher by email → sends an in-app invitation the teacher must accept
 router.post('/:classId/co-teachers', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   const email = (req.body.email || '').trim().toLowerCase();
@@ -392,12 +508,34 @@ router.post('/:classId/co-teachers', authenticateToken, requireRole('teacher', '
     if (t.id === manage.cls.teacher_id) {
       return res.status(400).json({ error: 'This teacher already owns the class.' });
     }
-    await pool.query(
-      'INSERT INTO class_co_teachers (class_id, teacher_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+    const already = await pool.query('SELECT 1 FROM class_co_teachers WHERE class_id=$1 AND teacher_id=$2', [classId, t.id]);
+    if (already.rows.length) return res.status(400).json({ error: `${t.name} is already a co-teacher of this class.` });
+    const pendingInv = await pool.query(
+      `SELECT 1 FROM class_co_teacher_invites WHERE class_id=$1 AND teacher_id=$2 AND status='pending'`,
       [classId, t.id]
     );
-    res.json({ ok: true, teacher: { id: t.id, name: t.name, email: t.email } });
+    if (pendingInv.rows.length) return res.status(400).json({ error: `An invite is already pending for ${t.name}.` });
+
+    const inv = await pool.query(
+      `INSERT INTO class_co_teacher_invites (class_id, teacher_id, inviter_id)
+       VALUES ($1,$2,$3)
+       ON CONFLICT (class_id, teacher_id) DO UPDATE SET status='pending', inviter_id=$3, created_at=NOW(), responded_at=NULL
+       RETURNING id`,
+      [classId, t.id, req.user.id]
+    );
+    const me = (await pool.query('SELECT name FROM users WHERE id=$1', [req.user.id])).rows[0] || {};
+    const cls = manage.cls;
+    await insertUserNotification({
+      userId: t.id,
+      type: 'co_teacher_invite',
+      title: '🤝 Co-teacher invitation',
+      body: `${me.name || 'A teacher'} invited you to co-manage "${cls.name}"${cls.subject ? ` (${cls.subject})` : ''}. Accept it from your dashboard.`,
+      payload: { invite_id: inv.rows[0].id, class_id: classId, url: '/staff/dashboard' },
+    }).catch(() => {});
+
+    res.json({ ok: true, invited: true, teacher: { id: t.id, name: t.name, email: t.email } });
   } catch (err) {
+    console.error('[co-teachers/add]', err.message);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });

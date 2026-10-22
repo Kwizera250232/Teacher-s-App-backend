@@ -3,14 +3,18 @@ import { api } from '../api';
 
 export default function CoTeacherInvite({ classId, token }) {
   const [coTeachers, setCoTeachers] = useState([]);
+  const [pending, setPending] = useState([]);
   const [email, setEmail] = useState('');
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
 
   const load = () => {
     api.get(`/classroom-feed/${classId}/co-teachers`, token)
-      .then((res) => setCoTeachers(Array.isArray(res) ? res : []))
-      .catch(() => setCoTeachers([]));
+      .then((res) => {
+        if (Array.isArray(res)) { setCoTeachers(res); setPending([]); }
+        else { setCoTeachers(res?.teachers || []); setPending(res?.pending || []); }
+      })
+      .catch(() => { setCoTeachers([]); setPending([]); });
   };
 
   useEffect(() => { load(); }, [classId]);
@@ -31,9 +35,11 @@ export default function CoTeacherInvite({ classId, token }) {
     setError('');
     setMsg('');
     try {
-      await api.post(`/classroom-feed/${classId}/co-teachers`, { email }, token);
+      const data = await api.post(`/classroom-feed/${classId}/co-teachers`, { email }, token);
       setEmail('');
-      setMsg('Co-teacher added to this class.');
+      setMsg(data?.invited
+        ? `Invitation sent to ${data.teacher?.name || email} — they must accept it in the app.`
+        : 'Co-teacher added to this class.');
       load();
     } catch (e) {
       setError(e.message);
@@ -44,7 +50,7 @@ export default function CoTeacherInvite({ classId, token }) {
     <div className="co-teacher-panel" style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 10, padding: '1rem', marginBottom: '1rem' }}>
       <h4 style={{ margin: '0 0 0.5rem' }}>👥 Invite Co-Teacher</h4>
       <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: '#166534' }}>
-        Add another teacher to manage this class. Use email if they already have an account, or share an invite code link.
+        Invite another teacher to manage this class. They get an in-app notification and must accept before the class appears on their dashboard.
       </p>
       {error && <p style={{ color: '#dc2626', fontSize: '0.85rem' }}>{error}</p>}
       {msg && <p style={{ color: '#166534', fontSize: '0.85rem' }}>{msg}</p>}
@@ -56,13 +62,20 @@ export default function CoTeacherInvite({ classId, token }) {
           onChange={(e) => setEmail(e.target.value)}
           style={{ flex: 1, minWidth: 200, padding: '0.5rem', borderRadius: 8, border: '1px solid #cbd5e1' }}
         />
-        <button type="submit" className="btn btn-primary btn-sm">Add by email</button>
+        <button type="submit" className="btn btn-primary btn-sm">Invite by email</button>
         <button type="button" className="btn btn-secondary btn-sm" onClick={copyLink}>Copy invite link</button>
       </form>
+      {pending.length > 0 && (
+        <ul style={{ margin: '0 0 0.5rem', paddingLeft: '1.2rem', fontSize: '0.85rem', color: '#b45309' }}>
+          {pending.map((t) => (
+            <li key={`p-${t.id}`}>⏳ {t.name} ({t.email}) — waiting for acceptance</li>
+          ))}
+        </ul>
+      )}
       {coTeachers.length > 0 && (
         <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.9rem' }}>
           {coTeachers.map((t) => (
-            <li key={t.id}>{t.name} ({t.email})</li>
+            <li key={t.id}>✅ {t.name} ({t.email})</li>
           ))}
         </ul>
       )}
