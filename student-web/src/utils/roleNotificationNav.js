@@ -25,9 +25,29 @@ export function roleNotificationPath(n, role, basePath) {
     return '/parent/dashboard?tab=school';
   }
 
+  if (role === 'alumni') {
+    const bp = basePath || '/alumni';
+    if (n.type === 'like' || n.type === 'comment') {
+      return payload.post_id ? `${bp}/post/${payload.post_id}` : `${bp}/feed`;
+    }
+    if (n.type === 'follow') {
+      return `${bp}/colleagues`;
+    }
+    if (n.type === 'message' && payload.sender_id) {
+      return `${bp}/messages/${payload.sender_id}`;
+    }
+    if (n.type === 'group_message' && payload.group_id) {
+      return `${bp}/groups/${payload.group_id}`;
+    }
+    return `${bp}/feed`;
+  }
+
   if (role === 'teacher' || role === 'head_teacher') {
     const bp = staffBasePath(role, basePath);
     const classId = payload.class_id;
+    if (n.type === 'co_teacher_invite') {
+      return `${bp}/dashboard`;
+    }
     if (n.type === 'quiz_team_report' && classId) {
       const q = payload.report_id ? `&report=${payload.report_id}` : '';
       return `${bp}/classes/${classId}?tab=${encodeURIComponent('Quiz reports')}${q}`;
