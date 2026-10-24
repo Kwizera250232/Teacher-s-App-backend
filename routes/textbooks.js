@@ -65,8 +65,8 @@ async function getBookPages(book) {
 // The assessment heading itself — the line must BE the heading (e.g. "1.5. END OF UNIT ASSESSMENT",
 // "Isuzuma risoza umutwe wa mbere"), not a sentence that merely mentions assessment.
 const END_UNIT_RE = /END\s*(OF\s*)?(THE\s*)?UNIT\s*\d*\s*ASSESSMENT|ISUZUMA\s+RISOZA\s+UMUTWE/i;
-const END_UNIT_LINE_RE = /^\s*(\d+(\.\d+)*\.?\s*)?(END\s*(OF\s*)?(THE\s*)?UNIT\s*\d*\s*ASSESSMENT|ISUZUMA\s+RISOZA\s+UMUTWE(\s+WA\s+[\wâ’']+)?)\s*[:.]?\s*$/i;
-const RW_ORDINALS = { mbere: 1, kabiri: 2, gatatu: 3, kane: 4, gatanu: 5, gatandatu: 6, karindwi: 7, umunani: 8, cyenda: 9, icumi: 10 };
+const END_UNIT_LINE_RE = /^[^A-Za-z]{0,20}(END\s*(OF\s*)?(THE\s*)?UNIT\s*\d*\s*ASSESSMENT|ISUZUMA\s+RISOZA\s+UMUTWE(\s+WA\s+[\wâ’']+)?)\s*[:.]?\s*$/i;
+const RW_ORDINALS = { mbere: 1, kabiri: 2, gatatu: 3, kane: 4, gatanu: 5, gatandatu: 6, karindwi: 7, umunani: 8, munani: 8, cyenda: 9, icyenda: 9, icumi: 10 };
 
 /** A real unit heading line → unit number (UNIT 3 / UMUTWE WA GATATU / Umutwe wa 3). */
 function unitHeadingNum(line) {
@@ -112,7 +112,13 @@ function detectUnitsExact(pages) {
   pages.forEach((t, i) => {
     if (isTocPage(t)) return;
     const page = i + 1;
-    const lines = t.split('\n');
+    // Re-join headings broken across lines: "UMUTWE WA" + "KABIRI:"
+    const lines = t.split('\n').reduce((acc, l) => {
+      const prev = acc[acc.length - 1];
+      if (prev != null && /^\s*(UMUTWE\s+WA|UNIT)\s*$/i.test(prev)) acc[acc.length - 1] = `${prev.trim()} ${l.trim()}`;
+      else acc.push(l);
+      return acc;
+    }, []);
     for (const line of lines) {
       const n = unitHeadingNum(line);
       if (n && (!cur || n > cur.num)) {
@@ -142,9 +148,17 @@ async function extractPageTexts(absPath) {
   const pages = [];
   const buf = fs.readFileSync(absPath);
   await pdfParse(buf, {
+    // Keep the page's real line breaks (new line whenever the text baseline changes)
     pagerender: (pageData) =>
       pageData.getTextContent().then((tc) => {
-        const s = tc.items.map((i) => i.str).join(' ').replace(/\s+/g, ' ').trim();
+        let lastY = null;
+        let s = '';
+        for (const it of tc.items) {
+          const y = it.transform?.[5];
+          if (lastY != null && y !== lastY) s += '\n';
+          s += it.str;
+          lastY = y;
+        }
         pages.push(s);
         return s;
       }),
