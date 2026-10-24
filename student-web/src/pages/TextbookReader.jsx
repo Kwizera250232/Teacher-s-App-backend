@@ -99,6 +99,35 @@ function QuizModal({ bookId, unitId, kind, unitTitle, token, onClose, onDone }) 
   );
 }
 
+// Render a text-mode page respecting the book's structure:
+// headings / subheadings get book-style emphasis, body text stays serif.
+function renderTextPage(text) {
+  const HEADING_RE = /^(unit\s*\d|umutwe|icyiciro|igice|isomo|lesson|activity|ibikorwa|isuzuma|ibibazo|imyitozo|end[\s-]*unit|end of unit|sub.?head|topic|vocabulary|grammar|listening|speaking|reading|writing|numbers|assessment|evaluation|revision|self.?assessment|checklist|summary|objectives|key (unit )?competence|cross.?cutting|notes? for the teacher|answer)/i;
+  const CAPS_RE = /^[A-Z0-9ÀÂÄÇÉÈÊËÎÏÔÖÙÛÜ :–—,'()/-]{4,80}$/;
+  const lines = String(text).split('\n');
+  const out = [];
+  let para = [];
+  const flush = () => {
+    if (para.length) {
+      out.push(<p key={out.length} style={{ margin: '0 0 14px' }}>{para.join(' ')}</p>);
+      para = [];
+    }
+  };
+  lines.forEach((line) => {
+    const t = line.trim();
+    if (!t) { flush(); return; }
+    const isHeading = t.length <= 90 && (HEADING_RE.test(t) || CAPS_RE.test(t) || /^(unit|umutwe|icyiciro)\s*\d+/i.test(t));
+    if (isHeading) {
+      flush();
+      out.push(<h4 key={out.length} style={{ margin: '18px 0 8px', color: '#312e81', fontFamily: 'inherit', fontSize: '1.08em' }}>{t}</h4>);
+    } else {
+      para.push(t);
+    }
+  });
+  flush();
+  return out;
+}
+
 export default function TextbookReader() {
   const { id } = useParams();
   const { token, user } = useAuth();
@@ -233,9 +262,9 @@ export default function TextbookReader() {
             minHeight: '62vh', maxHeight: '80vh', overflowY: 'auto',
             padding: 'clamp(20px, 5vw, 44px)', boxShadow: '0 10px 40px rgba(0,0,0,.5)',
             fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 'clamp(15px, 2.6vw, 17px)',
-            lineHeight: 1.85, color: '#1f2937', whiteSpace: 'pre-wrap',
+            lineHeight: 1.85, color: '#1f2937',
           }}>
-            {textPages[pageNum - 1] || ''}
+            {renderTextPage(textPages[pageNum - 1] || '')}
             <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 12, marginTop: 24 }}>— {pageNum} —</div>
           </div>
         ) : (
