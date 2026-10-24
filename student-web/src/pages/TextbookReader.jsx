@@ -99,33 +99,19 @@ function QuizModal({ bookId, unitId, kind, unitTitle, token, onClose, onDone }) 
   );
 }
 
-// Render a text-mode page respecting the book's structure:
-// headings / subheadings get book-style emphasis, body text stays serif.
+// Text-mode page: every line exactly as printed, in the same order — nothing merged or moved.
+// Only all-caps heading lines are emphasised so headings / subheadings stand out like in the book.
 function renderTextPage(text) {
-  const HEADING_RE = /^(unit\s*\d|umutwe|icyiciro|igice|isomo|lesson|activity|ibikorwa|isuzuma|ibibazo|imyitozo|end[\s-]*unit|end of unit|sub.?head|topic|vocabulary|grammar|listening|speaking|reading|writing|numbers|assessment|evaluation|revision|self.?assessment|checklist|summary|objectives|key (unit )?competence|cross.?cutting|notes? for the teacher|answer)/i;
-  const CAPS_RE = /^[A-Z0-9ÀÂÄÇÉÈÊËÎÏÔÖÙÛÜ :–—,'()/-]{4,80}$/;
-  const lines = String(text).split('\n');
-  const out = [];
-  let para = [];
-  const flush = () => {
-    if (para.length) {
-      out.push(<p key={out.length} style={{ margin: '0 0 14px' }}>{para.join(' ')}</p>);
-      para = [];
-    }
-  };
-  lines.forEach((line) => {
-    const t = line.trim();
-    if (!t) { flush(); return; }
-    const isHeading = t.length <= 90 && (HEADING_RE.test(t) || CAPS_RE.test(t) || /^(unit|umutwe|icyiciro)\s*\d+/i.test(t));
-    if (isHeading) {
-      flush();
-      out.push(<h4 key={out.length} style={{ margin: '18px 0 8px', color: '#312e81', fontFamily: 'inherit', fontSize: '1.08em' }}>{t}</h4>);
-    } else {
-      para.push(t);
-    }
+  const CAPS_RE = /^[^a-z]*[A-ZÀ-Ý]{3}[^a-z]*$/;
+  return String(text).split('\n').map((line, i) => {
+    const t = line.replace(/\s+$/, '');
+    const heading = t.trim().length > 2 && t.trim().length <= 90 && CAPS_RE.test(t.trim()) && !/\.{4,}/.test(t);
+    return (
+      <div key={i} style={heading ? { fontWeight: 700, color: '#1e1b4b', marginTop: 6 } : undefined}>
+        {t || '\u00A0'}
+      </div>
+    );
   });
-  flush();
-  return out;
 }
 
 export default function TextbookReader() {
@@ -231,7 +217,8 @@ export default function TextbookReader() {
   const prog = (unitId, kind) => progress.find((p) => p.unit_id === unitId && p.kind === kind);
   const allTestsDone = units.length > 0 && units.every((u) => prog(u.id, 'unit_test'));
   const summative = progress.find((p) => p.kind === 'summative' && p.unit_id === 0);
-  const unitFinished = unit && pageNum >= unit.end_page;
+  // Tests unlock only from the book's own "END OF UNIT ASSESSMENT" / "Isuzuma risoza umutwe" page
+  const unitFinished = unit && pageNum >= (unit.assess_page || unit.end_page);
 
   return (
     <div
@@ -262,7 +249,7 @@ export default function TextbookReader() {
             minHeight: '62vh', maxHeight: '80vh', overflowY: 'auto',
             padding: 'clamp(20px, 5vw, 44px)', boxShadow: '0 10px 40px rgba(0,0,0,.5)',
             fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 'clamp(15px, 2.6vw, 17px)',
-            lineHeight: 1.85, color: '#1f2937',
+            lineHeight: 1.6, color: '#1f2937', overflowWrap: 'anywhere',
           }}>
             {renderTextPage(textPages[pageNum - 1] || '')}
             <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 12, marginTop: 24 }}>— {pageNum} —</div>
@@ -285,7 +272,7 @@ export default function TextbookReader() {
       {unitFinished && !prog(unit.id, 'exercise') && (
         <div style={{ background: 'linear-gradient(135deg,#312e81,#4f46e5)', color: '#fff', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 160, fontSize: 14 }}>
-            ✅ You finished <strong>{unit.title}</strong> — test what you learned!
+            📝 <strong>{unit.title}</strong> — End of Unit Assessment reached. Practise first, then take the test.
           </div>
           <button type="button" className="btn btn-sm" style={{ background: '#fff', color: '#312e81', fontWeight: 700 }}
             onClick={() => setQuiz({ unitId: unit.id, kind: 'exercise', unitTitle: unit.title })}>
@@ -331,9 +318,10 @@ export default function TextbookReader() {
                     border: unit?.id === u.id ? '2px solid #6366f1' : '1.5px solid #e2e8f0',
                     borderRadius: 10, background: '#fff', cursor: 'pointer', fontSize: 14, color: '#1e293b',
                   }}>
-                  <div style={{ fontWeight: 700 }}>{test ? '🏆' : ex ? '✏️' : '🔖'} Unit {i + 1}: {u.title}</div>
+                  <div style={{ fontWeight: 700 }}>{test ? '🏆' : ex ? '✏️' : '🔖'} {u.title}</div>
                   <div style={{ fontSize: 12, color: '#94a3af', marginTop: 3 }}>
                     Pages {u.start_page}–{u.end_page}
+                    {u.assess_page && ` · End-unit assessment p.${u.assess_page}`}
                     {ex && ` · Exercises ${Math.round(ex.pct)}%`}
                     {test && ` · Test ${Math.round(test.pct)}%`}
                   </div>

@@ -126,7 +126,8 @@ function detectUnitsExact(pages) {
         const idx = lines.indexOf(line);
         const next = lines.slice(idx + 1).map((s) => s.trim()).find((s) => s && !/^key unit competence/i.test(s)) || '';
         const own = line.trim().replace(/[:.\-–\s]+$/, '');
-        cur = { num: n, start_page: page, assess_page: null, title: titles[n] || (own.length > 12 ? own : `${own}: ${next}`.trim()) };
+        const tocTitle = titles[n] && !/^UNIT[ÉE]?\s*\d+\s*[:.\-–]?\s*$/i.test(titles[n]) ? titles[n] : null;
+        cur = { num: n, start_page: page, assess_page: null, title: tocTitle || (own.length > 12 ? own : `${own}: ${next}`.trim()) };
         break;
       }
     }
