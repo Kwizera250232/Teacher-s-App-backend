@@ -215,7 +215,9 @@ const upload = multer({
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, title, subject, grade_level, book_type, file_name, created_at FROM textbooks ORDER BY grade_level, subject, book_type',
+      `SELECT id, title, subject, grade_level, book_type, file_name, created_at,
+              (file_path IS NOT NULL AND file_path <> '') AS has_file
+       FROM textbooks ORDER BY grade_level, subject, book_type`,
     );
     res.json(result.rows);
   } catch {
@@ -258,6 +260,36 @@ router.post('/', authenticateToken, requireRole('admin'), upload.single('file'),
   }
 });
 
+// Replace the PDF file of an existing book (admin) — keeps the book, restores real pages
+router.post('/:id/file', authenticateToken, requireRole('admin'), upload.single('file'), async (req, res) => {
+  try {
+    const book = (await pool.query('SELECT * FROM textbooks WHERE id=$1', [req.params.id])).rows[0];
+    if (!book) { if (req.file) fs.unlinkSync(req.file.path); return res.status(404).json({ error: 'Book not found.' }); }
+    if (!req.file) return res.status(400).json({ error: 'PDF file is required.' });
+
+    let extractedText = '';
+    try {
+      const pdfData = await pdfParse(fs.readFileSync(req.file.path));
+      extractedText = pdfData.text || '';
+    } catch { /* keep old content if extraction fails */ }
+
+    const old = bookFilePath(book);
+    await pool.query(
+      `UPDATE textbooks SET file_path=$1, file_name=$2${extractedText ? ', content=$3' : ''}, summative_quiz=NULL WHERE id=$4`,
+      extractedText
+        ? [req.file.filename, req.file.originalname, extractedText, book.id]
+        : [req.file.filename, req.file.originalname, book.id]
+    );
+    // Units were page-mapped to old text — clear so they re-detect against real pages
+    await pool.query('DELETE FROM textbook_units WHERE textbook_id=$1', [book.id]);
+    if (old && old !== path.join(__dirname, '../uploads/textbooks', req.file.filename) && fs.existsSync(old)) fs.unlinkSync(old);
+    res.json({ ok: true, file_name: req.file.originalname });
+  } catch (err) {
+    console.error('[textbooks/replace-file]', err.message);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // DELETE textbook (admin only)
 router.delete('/:id', authenticateToken, requireRole('admin'), async (req, res) => {
   try {
@@ -266,8 +298,10 @@ router.delete('/:id', authenticateToken, requireRole('admin'), async (req, res) 
       [req.params.id],
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Not found.' });
-    const filePath = path.join(__dirname, '../uploads/textbooks', result.rows[0].file_path);
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    if (result.rows[0].file_path) {
+      const filePath = path.join(__dirname, '../uploads/textbooks', result.rows[0].file_path);
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    }
     res.json({ message: 'Deleted.' });
   } catch {
     res.status(500).json({ error: 'Internal server error.' });
