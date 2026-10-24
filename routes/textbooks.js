@@ -43,7 +43,34 @@ pool.query(`
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function bookFilePath(book) {
+  if (!book.file_path) return null;
   return path.join(__dirname, '../uploads/textbooks', book.file_path);
+}
+
+/**
+ * Page texts for a book, unified across two storage modes:
+ *  - has PDF file on disk → real page texts via pdf-parse
+ *  - legacy books (text only) → content sliced into ~1800-char "pages"
+ * pages[0] = page 1. Unit start_page/end_page indexes this array in BOTH modes.
+ */
+async function getBookPages(book) {
+  const abs = bookFilePath(book);
+  if (abs && pdfParse && fs.existsSync(abs)) return extractPageTexts(abs);
+  const text = book.content || '';
+  const pages = [];
+  const size = 1800;
+  for (let i = 0; i < text.length; i += size) {
+    let end = i + size;
+    if (end < text.length) {
+      const nl = text.lastIndexOf('\n', end);
+      const sp = text.lastIndexOf('. ', end);
+      if (nl > i + size * 0.6) end = nl;
+      else if (sp > i + size * 0.6) end = sp + 1;
+    }
+    pages.push(text.slice(i, end).trim());
+    i = end - size; // eslint-disable-line
+  }
+  return pages.filter((p) => p.length > 0);
 }
 
 /** Extract per-page text from a textbook PDF. pages[0] = page 1. */
@@ -116,14 +143,13 @@ async function detectUnitsAI(book, pages) {
 async function generateQuiz(book, unit, kind) {
   let text;
   let count;
+  const pages = await getBookPages(book);
   if (kind === 'summative') {
-    const pages = await extractPageTexts(bookFilePath(book));
     const units = (await pool.query('SELECT title, start_page, end_page FROM textbook_units WHERE textbook_id=$1 ORDER BY position', [book.id])).rows;
     const sampled = units.map((u) => `UNIT: ${u.title}\n${pages.slice(u.start_page - 1, u.end_page).join(' ').slice(0, 3500)}`).join('\n\n');
     text = sampled || (book.content || '').slice(0, 20000);
     count = 12;
   } else {
-    const pages = await extractPageTexts(bookFilePath(book));
     text = pages.slice(unit.start_page - 1, unit.end_page).join(' ').slice(0, 15000);
     count = kind === 'unit_test' ? 10 : 8;
   }
@@ -150,14 +176,9 @@ async function ensureUnits(book) {
   const existing = await pool.query('SELECT * FROM textbook_units WHERE textbook_id=$1 ORDER BY position', [book.id]);
   if (existing.rows.length) return existing.rows;
 
-  const absPath = bookFilePath(book);
-  if (!pdfParse || !fs.existsSync(absPath)) {
-    await pool.query('INSERT INTO textbook_units (textbook_id,title,start_page,end_page,position) VALUES ($1,$2,1,1,0)', [book.id, book.title]);
-    return (await pool.query('SELECT * FROM textbook_units WHERE textbook_id=$1 ORDER BY position', [book.id])).rows;
-  }
   try {
-    const pages = await extractPageTexts(absPath);
-    let units = await detectUnitsAI(book, pages);
+    const pages = await getBookPages(book);
+    let units = pages.length ? await detectUnitsAI(book, pages) : [];
     if (!units.length) units = [{ title: 'Whole book', start_page: 1, end_page: pages.length || 1, position: 0 }];
     for (const u of units) {
       await pool.query('INSERT INTO textbook_units (textbook_id,title,start_page,end_page,position) VALUES ($1,$2,$3,$4,$5)', [book.id, u.title, u.start_page, u.end_page, u.position]);
@@ -274,10 +295,23 @@ router.get('/:id/file', authenticateToken, async (req, res) => {
     const book = (await pool.query('SELECT * FROM textbooks WHERE id=$1', [req.params.id])).rows[0];
     if (!book) return res.status(404).json({ error: 'Book not found.' });
     const abs = bookFilePath(book);
-    if (!fs.existsSync(abs)) return res.status(404).json({ error: 'File missing.' });
+    if (!abs || !fs.existsSync(abs)) return res.status(404).json({ error: 'File missing.' });
     res.setHeader('Content-Type', 'application/pdf');
     res.sendFile(abs);
   } catch {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// Text-mode pages for books without a stored PDF file
+router.get('/:id/textpages', authenticateToken, async (req, res) => {
+  try {
+    const book = (await pool.query('SELECT * FROM textbooks WHERE id=$1', [req.params.id])).rows[0];
+    if (!book) return res.status(404).json({ error: 'Book not found.' });
+    const pages = await getBookPages(book);
+    res.json({ pages });
+  } catch (err) {
+    console.error('[textbooks/textpages]', err.message);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
@@ -286,7 +320,7 @@ router.get('/:id/file', authenticateToken, async (req, res) => {
 router.get('/:id/learn', authenticateToken, async (req, res) => {
   try {
     const book = (await pool.query(
-      'SELECT id, title, subject, grade_level, book_type, file_name, file_path FROM textbooks WHERE id=$1',
+      'SELECT id, title, subject, grade_level, book_type, file_name, file_path, content FROM textbooks WHERE id=$1',
       [req.params.id]
     )).rows[0];
     if (!book) return res.status(404).json({ error: 'Book not found.' });
@@ -295,8 +329,12 @@ router.get('/:id/learn', authenticateToken, async (req, res) => {
       'SELECT unit_id, kind, score, total, pct FROM student_textbook_progress WHERE student_id=$1 AND textbook_id=$2',
       [req.user.id, book.id]
     )).rows;
+    const hasFile = Boolean(book.file_path) && fs.existsSync(bookFilePath(book));
+    const pageCount = hasFile ? null : Math.max(...units.map((u) => u.end_page), 1);
     res.json({
       book: { id: book.id, title: book.title, subject: book.subject, grade_level: book.grade_level, book_type: book.book_type },
+      has_file: hasFile,
+      page_count: pageCount,
       units: units.map((u) => ({ id: u.id, title: u.title, start_page: u.start_page, end_page: u.end_page, position: u.position })),
       progress,
     });
@@ -311,9 +349,8 @@ router.post('/:id/detect-units', authenticateToken, requireRole('admin'), async 
   try {
     const book = (await pool.query('SELECT * FROM textbooks WHERE id=$1', [req.params.id])).rows[0];
     if (!book) return res.status(404).json({ error: 'Book not found.' });
-    const abs = bookFilePath(book);
-    if (!fs.existsSync(abs)) return res.status(404).json({ error: 'File missing.' });
-    const pages = await extractPageTexts(abs);
+    const pages = await getBookPages(book);
+    if (!pages.length) return res.status(422).json({ error: 'No readable content in this book.' });
     const units = await detectUnitsAI(book, pages);
     if (!units.length) return res.status(422).json({ error: 'AI could not detect units in this book.' });
     await pool.query('DELETE FROM textbook_units WHERE textbook_id=$1', [book.id]);
