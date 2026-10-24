@@ -308,14 +308,18 @@ export default function TextbookReader() {
   // Render current PDF page fitted to the screen (mobile-responsive)
   useEffect(() => {
     if (!pdf || !canvasRef.current) return;
+    window.scrollTo({ top: 0 });
     const tk = ++renderToken.current;
     (async () => {
       const page = await pdf.getPage(pageNum);
       if (tk !== renderToken.current) return;
       const canvas = canvasRef.current;
-      const maxW = Math.min(window.innerWidth - 12, 860);
-      const maxH = window.innerHeight - 150;
       const vp = page.getViewport({ scale: 1 });
+      const desktop = window.innerWidth >= 900;
+      // Desktop: bigger page (fit a comfortable reading width, scroll down the page).
+      // Mobile: whole page fits the screen.
+      const maxW = desktop ? Math.min(window.innerWidth - 150, 1000) : Math.min(window.innerWidth - 12, 860);
+      const maxH = desktop ? Infinity : window.innerHeight - 150;
       const scale = Math.min(maxW / vp.width, maxH / vp.height);
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const viewport = page.getViewport({ scale: scale * dpr });
@@ -371,7 +375,7 @@ export default function TextbookReader() {
       </header>
 
       {/* Page — rendered exactly like the real book */}
-      <main style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 4px', position: 'relative', overflow: 'hidden' }}>
+      <main style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 4px', position: 'relative', overflowX: 'hidden' }}>
         {!pdf && !textPages ? (
           <div style={{ color: '#94a3b8', textAlign: 'center' }}>
             <div style={{ fontSize: 40, marginBottom: 10 }}>📖</div>
@@ -379,10 +383,10 @@ export default function TextbookReader() {
           </div>
         ) : textPages ? (
           <div style={{
-            background: '#fff', borderRadius: 10, width: '100%', maxWidth: 760,
+            background: '#fff', borderRadius: 10, width: '100%', maxWidth: 'min(940px, 100%)',
             minHeight: '62vh', maxHeight: '80vh', overflowY: 'auto',
             padding: 'clamp(20px, 5vw, 44px)', boxShadow: '0 10px 40px rgba(0,0,0,.5)',
-            fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 'clamp(15px, 2.6vw, 17px)',
+            fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 'clamp(15px, 1.6vw, 19px)',
             lineHeight: 1.6, color: '#1f2937', overflowWrap: 'anywhere',
           }}>
             {renderTextPage(textPages[pageNum - 1] || '')}
@@ -394,11 +398,11 @@ export default function TextbookReader() {
 
         {(pdf || textPages) && pageNum > 1 && (
           <button type="button" onClick={() => setPageNum(p => p - 1)} aria-label="Previous page"
-            style={{ position: 'absolute', left: 6, top: '50%', transform: 'translateY(-50%)', background: 'rgba(99,102,241,.92)', color: '#fff', border: 'none', borderRadius: '50%', width: 48, height: 48, fontSize: 22, cursor: 'pointer', boxShadow: '0 4px 14px rgba(0,0,0,.4)' }}>‹</button>
+            style={{ position: 'fixed', left: 10, top: '50%', zIndex: 20, transform: 'translateY(-50%)', background: 'rgba(99,102,241,.92)', color: '#fff', border: 'none', borderRadius: '50%', width: 48, height: 48, fontSize: 22, cursor: 'pointer', boxShadow: '0 4px 14px rgba(0,0,0,.4)' }}>‹</button>
         )}
         {(pdf || textPages) && pageNum < pageCount && (
           <button type="button" onClick={() => setPageNum(p => p + 1)} aria-label="Next page"
-            style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'rgba(99,102,241,.92)', color: '#fff', border: 'none', borderRadius: '50%', width: 48, height: 48, fontSize: 22, cursor: 'pointer', boxShadow: '0 4px 14px rgba(0,0,0,.4)' }}>›</button>
+            style={{ position: 'fixed', right: 10, top: '50%', zIndex: 20, transform: 'translateY(-50%)', background: 'rgba(99,102,241,.92)', color: '#fff', border: 'none', borderRadius: '50%', width: 48, height: 48, fontSize: 22, cursor: 'pointer', boxShadow: '0 4px 14px rgba(0,0,0,.4)' }}>›</button>
         )}
       </main>
 

@@ -50,8 +50,23 @@ export default function RecordCatMarks() {
     navigate(`${basePath}/classes/${nextId}/record-marks`, { replace: true });
   };
 
+  const deleteMark = async (studentId, testNumber) => {
+    if (!window.confirm(`Delete CAT ${testNumber} mark?`)) return;
+    try {
+      await api.delete(`/catmarks/${classId}/entry/${studentId}/${testNumber}`, token);
+      setError('');
+      loadData();
+    } catch (err) { setError(err.message); }
+  };
+
   const saveCellMark = async (studentId, testNumber, marksRaw) => {
-    if (marksRaw === '' || marksRaw === '—') return;
+    if (marksRaw === '' || marksRaw === '—') {
+      // Clearing a recorded mark deletes it
+      const had = (stats?.students || []).find((r) => r.student_id === studentId)?.cat?.[testNumber] != null;
+      setEditing(null);
+      if (had) deleteMark(studentId, testNumber);
+      return;
+    }
     const marks = parseInt(marksRaw, 10);
     if (Number.isNaN(marks) || marks < 0 || marks > 100) {
       setError('Marks must be 0–100.');
@@ -216,7 +231,7 @@ export default function RecordCatMarks() {
                           <td
                             key={num}
                             className={!isEdit ? 'cat-cell-clickable' : ''}
-                            title="Click to enter mark"
+                            title="Click to edit · 🗑 to delete"
                             onClick={() => !isEdit && setEditing({ studentId: s.student_id, num, value: val != null ? String(val) : '' })}
                           >
                             {isEdit ? (
@@ -236,7 +251,21 @@ export default function RecordCatMarks() {
                                 onClick={(e) => e.stopPropagation()}
                               />
                             ) : (
-                              val != null ? val : '—'
+                              val != null ? (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                  <strong>{val}</strong>
+                                  <button
+                                    type="button"
+                                    title="Delete this mark"
+                                    aria-label={`Delete CAT ${num} mark for ${s.name}`}
+                                    onClick={(e) => { e.stopPropagation(); deleteMark(s.student_id, num); }}
+                                    style={{
+                                      border: 'none', background: '#fee2e2', color: '#dc2626', borderRadius: 6,
+                                      width: 22, height: 22, padding: 0, fontSize: 12, lineHeight: '22px', cursor: 'pointer',
+                                    }}
+                                  >🗑</button>
+                                </span>
+                              ) : '—'
                             )}
                           </td>
                         );
