@@ -223,9 +223,16 @@ async function detectUnitsAI(book, pages) {
  *  "END OF UNIT ASSESSMENT" / "Isuzuma risoza umutwe" heading to the unit's end. */
 function endUnitSection(pages, u) {
   if (!u.assess_page) return null;
-  const text = pages.slice(u.assess_page - 1, u.end_page).join('\n');
-  const m = text.match(END_UNIT_RE);
-  return m ? text.slice(m.index, m.index + 9000) : null;
+  // Keep page labels so every question can point back to its exact page
+  const all = labelPages(pages, u.assess_page, u.end_page);
+  const m = all.match(END_UNIT_RE);
+  if (!m) return null;
+  return `[Page ${u.assess_page}]\n${all.slice(m.index, m.index + 9000)}`;
+}
+
+/** Book pages from..to (1-based, inclusive), each prefixed with its real page number. */
+function labelPages(pages, from, to) {
+  return pages.slice(from - 1, to).map((p, i) => `[Page ${from + i}]\n${p}`).join('\n');
 }
 
 /** Generate (and cache) an MCQ quiz for a unit or whole book.
@@ -235,7 +242,11 @@ async function generateQuiz(book, unit, kind) {
   let count;
   let promptBody;
   const pages = await getBookPages(book);
-  const unitText = (u) => pages.slice(u.start_page - 1, u.end_page).join('\n');
+  const unitText = (u) => labelPages(pages, u.start_page, u.end_page);
+  // Allowed source pages — questions citing anything else are rejected
+  let minPage = 1;
+  let maxPage = pages.length;
+  if (unit) { minPage = unit.start_page; maxPage = unit.end_page; }
 
   if (kind === 'summative') {
     const units = (await pool.query('SELECT title, start_page, end_page, assess_page FROM textbook_units WHERE textbook_id=$1 ORDER BY position', [book.id])).rows;
@@ -255,9 +266,9 @@ Create a ${count}-question summative assessment by COMBINING the book's own end-
     text = unitText(unit).slice(0, 16000);
     count = kind === 'unit_test' ? 10 : 8;
     const endSection = endUnitSection(pages, unit);
-    if (kind === 'exercise' && unit.assess_page) {
+    if (kind === 'exercise' && unit.assess_page && unit.assess_page > unit.start_page) {
       // Exercises come from the lessons BEFORE the end-unit assessment
-      text = pages.slice(unit.start_page - 1, unit.assess_page - 1).join('\n').slice(0, 16000) || text;
+      text = labelPages(pages, unit.start_page, unit.assess_page - 1).slice(0, 16000) || text;
     }
     if (kind === 'unit_test' && endSection) {
       promptBody = `This is the END-OF-UNIT assessment section printed inside the unit "${unit.title}" of the book "${book.title}" (${book.subject}, ${book.grade_level}):
@@ -285,15 +296,32 @@ TEXT:
     { role: 'system', content: 'You turn REAL textbook questions into multiple-choice questions for Rwandan CBC students. You reuse the book\'s own printed questions verbatim whenever they exist — you never invent unrelated questions. Return ONLY a JSON array, no prose.' },
     {
       role: 'user',
-      content: `${promptBody}\n\nReturn JSON: [{"question":"...","options":["A","B","C","D"],"answer":0}] where answer is the 0-based index of the correct option.`,
+      content: `${promptBody}
+
+The text is labelled with the book's real page numbers like "[Page 23]". Use ONLY those pages (${minPage}–${maxPage}). For EVERY question give:
+- "page": the page number where the answer is taught/found in the text above
+- "topic": the exact lesson/section heading from the book where the learner should revise it (e.g. "1.2 Introducing myself", "Inyunguramagambo")
+
+Return JSON: [{"question":"...","options":["A","B","C","D"],"answer":0,"page":23,"topic":"..."}] where answer is the 0-based index of the correct option.`,
     },
-  ], 7000, 0.35);
+  ], 8000, 0.3);
   const arr = extractJsonArray(raw);
   const questions = arr
     .filter((q) => q && q.question && Array.isArray(q.options) && q.options.length === 4)
-    .map((q) => ({ question: String(q.question), options: q.options.map(String), answer: Math.max(0, Math.min(3, parseInt(q.answer, 10) || 0)) }));
+    .map((q) => {
+      const page = parseInt(q.page, 10);
+      return {
+        question: String(q.question),
+        options: q.options.map(String),
+        answer: Math.max(0, Math.min(3, parseInt(q.answer, 10) || 0)),
+        page: Number.isFinite(page) ? page : null,
+        topic: q.topic ? String(q.topic).slice(0, 160) : '',
+      };
+    })
+    // Questions must come from THIS unit's pages only
+    .filter((q) => q.page == null || (q.page >= minPage && q.page <= maxPage));
   if (!questions.length) throw new Error('AI returned no questions');
-  return { v: 3, questions, generated_at: new Date().toISOString() };
+  return { v: 4, questions, generated_at: new Date().toISOString() };
 }
 
 /** Detect (exact first, AI fallback) and persist units for a book. */
@@ -539,7 +567,7 @@ router.get('/:id/units/:unitId/quiz', authenticateToken, async (req, res) => {
     const col = kind === 'exercise' ? 'exercise_quiz' : kind === 'unit_test' ? 'unit_test_quiz' : null;
 
     if (kind === 'summative') {
-      if (book.summative_quiz?.v === 3 && book.summative_quiz.questions?.length) return res.json({ kind, questions: book.summative_quiz.questions, cached: true });
+      if (book.summative_quiz?.v === 4 && book.summative_quiz.questions?.length) return res.json({ kind, questions: book.summative_quiz.questions, cached: true });
       const quiz = await generateQuiz(book, null, 'summative');
       await pool.query('UPDATE textbooks SET summative_quiz=$1 WHERE id=$2', [JSON.stringify(quiz), book.id]);
       return res.json({ kind, questions: quiz.questions });
@@ -549,7 +577,7 @@ router.get('/:id/units/:unitId/quiz', authenticateToken, async (req, res) => {
     if (!unit) return res.status(404).json({ error: 'Unit not found.' });
 
     const cached = unit[col];
-    if (cached?.v === 3 && cached.questions?.length) return res.json({ kind, questions: cached.questions, cached: true });
+    if (cached?.v === 4 && cached.questions?.length) return res.json({ kind, questions: cached.questions, cached: true });
     const quiz = await generateQuiz(book, unit, kind);
     await pool.query(`UPDATE textbook_units SET ${col}=$1 WHERE id=$2`, [JSON.stringify(quiz), unit.id]);
     res.json({ kind, questions: quiz.questions });
