@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
@@ -17,6 +17,35 @@ export default function AdminTextbooks({ token }) {
   const [uploading, setUploading] = useState(false);
   const [detecting, setDetecting] = useState(null);
   const [unitsFor, setUnitsFor] = useState({}); // bookId -> units array
+  const replaceInputRef = useRef(null);
+  const [replaceFor, setReplaceFor] = useState(null);
+  const [replacing, setReplacing] = useState(false);
+
+  const startReplace = (id) => { setReplaceFor(id); replaceInputRef.current?.click(); };
+
+  const doReplace = async (f) => {
+    if (!f || !replaceFor) return;
+    setReplacing(true);
+    setError('');
+    const fd = new FormData();
+    fd.append('file', f);
+    try {
+      const res = await fetch(`${API_BASE}/textbooks/${replaceFor}/file`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Upload failed');
+      setSuccess('Book file updated — real pages restored. Units will re-detect.');
+      setTimeout(() => setSuccess(''), 4000);
+      loadBooks();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setReplacing(false);
+      setReplaceFor(null);
+      if (replaceInputRef.current) replaceInputRef.current.value = '';
+    }
+  };
 
   const detectUnits = async (id) => {
     setDetecting(id);
@@ -109,6 +138,13 @@ export default function AdminTextbooks({ token }) {
 
       {error && <div className="alert alert-error" style={{ marginBottom: 12 }}>{error}</div>}
       {success && <div className="alert alert-success" style={{ marginBottom: 12 }}>{success}</div>}
+      <input
+        ref={replaceInputRef}
+        type="file"
+        accept=".pdf,application/pdf"
+        style={{ display: 'none' }}
+        onChange={(e) => doReplace(e.target.files?.[0])}
+      />
 
       {/* Upload form */}
       {showForm && (
@@ -208,9 +244,18 @@ export default function AdminTextbooks({ token }) {
                     </div>
                     <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 3 }}>
                       {new Date(b.created_at).toLocaleDateString()}
+                      {b.has_file === false && (
+                        <span style={{ marginLeft: 6, color: '#d97706', fontWeight: 600 }}>⚠️ no PDF — 📄 to restore pages</span>
+                      )}
                     </div>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
+                    <button
+                      onClick={() => startReplace(b.id)}
+                      disabled={replacing}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 15, padding: 0 }}
+                      title="Upload/replace the real PDF file (restores original pages)"
+                    >📄</button>
                     <button
                       onClick={() => detectUnits(b.id)}
                       disabled={detecting === b.id}
