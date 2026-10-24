@@ -9,19 +9,66 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 
 const KIND_LABEL = { exercise: '✏️ Unit Exercises', unit_test: '🏁 End-Unit Test', summative: '🎓 Summative Assessment' };
 
-function QuizModal({ bookId, unitId, kind, unitTitle, token, onClose, onDone }) {
+const PASS_PCT = 70;
+const FLOWERS = ['🌸', '🌺', '🌷', '🌼', '🌻', '💐', '🌹'];
+
+function FlowerShower() {
+  const [petals] = useState(() => Array.from({ length: 28 }, (_, i) => ({
+    f: FLOWERS[i % FLOWERS.length],
+    left: Math.round(Math.random() * 100),
+    delay: (Math.random() * 2.2).toFixed(2),
+    dur: (3 + Math.random() * 2.5).toFixed(2),
+    size: 22 + Math.round(Math.random() * 18),
+  })));
+  return (
+    <div aria-hidden="true" style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 1001 }}>
+      <style>{'@keyframes tbFlowerFall{0%{transform:translateY(-12vh) rotate(0deg);opacity:0}10%{opacity:1}100%{transform:translateY(110vh) rotate(540deg);opacity:.9}}'}</style>
+      {petals.map((p, i) => (
+        <span key={i} style={{
+          position: 'absolute', top: 0, left: `${p.left}%`, fontSize: p.size,
+          animation: `tbFlowerFall ${p.dur}s ease-in ${p.delay}s 2 both`,
+        }}>{p.f}</span>
+      ))}
+    </div>
+  );
+}
+
+function QuizModal({ bookId, unitId, kind, unitTitle, token, onClose, onDone, onGoToPage }) {
   const [state, setState] = useState('loading');
   const [questions, setQuestions] = useState([]);
   const [idx, setIdx] = useState(0);
   const [answers, setAnswers] = useState({});
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+  // Scroll guard — a finger lifted after scrolling must never change the learner's answer
+  const scrollingRef = useRef(false);
 
   useEffect(() => {
     api.get(`/textbooks/${bookId}/units/${unitId || 0}/quiz?kind=${kind}`, token)
       .then((d) => { setQuestions(d.questions || []); setState('quiz'); })
       .catch((e) => { setError(e.message || 'Could not load questions.'); setState('error'); });
   }, [bookId, unitId, kind, token]);
+
+  useEffect(() => {
+    let t;
+    const onMove = () => {
+      scrollingRef.current = true;
+      clearTimeout(t);
+      t = setTimeout(() => { scrollingRef.current = false; }, 180);
+    };
+    window.addEventListener('touchmove', onMove, { passive: true });
+    window.addEventListener('scroll', onMove, { passive: true, capture: true });
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('scroll', onMove, { capture: true });
+    };
+  }, []);
+
+  const pick = (oi) => {
+    if (scrollingRef.current) return;
+    setAnswers((a) => ({ ...a, [idx]: oi }));
+  };
 
   const submit = async () => {
     const score = questions.reduce((s, q, i) => s + (answers[i] === q.answer ? 1 : 0), 0);
@@ -35,10 +82,25 @@ function QuizModal({ bookId, unitId, kind, unitTitle, token, onClose, onDone }) 
 
   const q = questions[idx];
   const pct = result ? Math.round((result.score / result.total) * 100) : 0;
+  const passed = pct >= PASS_PCT;
+  const wrong = result ? questions.map((qq, i) => ({ ...qq, i, given: answers[i] })).filter((qq) => qq.given !== qq.answer) : [];
+  // Weak points grouped by the book section to revise
+  const weakTopics = Object.values(wrong.reduce((acc, w) => {
+    const key = `${w.topic || 'This unit'}|${w.page || ''}`;
+    if (!acc[key]) acc[key] = { topic: w.topic || 'This unit', page: w.page, count: 0 };
+    acc[key].count += 1;
+    return acc;
+  }, {})).sort((a, b) => (a.page || 0) - (b.page || 0));
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 10 }}>
-      <div style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 620, maxHeight: '92vh', overflow: 'auto', padding: '18px 18px' }}>
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 10 }}
+      // Keep touches inside the quiz — they must never turn the book's pages behind it
+      onTouchStart={(e) => e.stopPropagation()}
+      onTouchEnd={(e) => e.stopPropagation()}
+    >
+      {state === 'result' && passed && <FlowerShower />}
+      <div style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 620, maxHeight: '92vh', overflow: 'auto', padding: '18px 18px', overscrollBehavior: 'contain' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 8 }}>
           <h3 style={{ margin: 0, fontSize: 16, color: '#312e81' }}>{KIND_LABEL[kind]}{unitTitle ? ` — ${unitTitle}` : ''}</h3>
           <button type="button" onClick={onClose} style={{ border: 'none', background: '#f1f5f9', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', flexShrink: 0 }}>✕</button>
@@ -60,20 +122,32 @@ function QuizModal({ bookId, unitId, kind, unitTitle, token, onClose, onDone }) 
             </div>
             <p style={{ fontWeight: 600, fontSize: 16, color: '#0f172a', lineHeight: 1.5 }}>{q.question}</p>
             <div style={{ display: 'grid', gap: 10, margin: '16px 0' }}>
-              {q.options.map((opt, oi) => (
-                <button
-                  key={oi}
-                  type="button"
-                  onClick={() => setAnswers((a) => ({ ...a, [idx]: oi }))}
-                  style={{
-                    textAlign: 'left', padding: '13px 14px', borderRadius: 10, fontSize: 15, cursor: 'pointer',
-                    border: answers[idx] === oi ? '2px solid #6366f1' : '1.5px solid #e2e8f0',
-                    background: answers[idx] === oi ? '#eef2ff' : '#fff', color: '#1e293b',
-                  }}
-                >
-                  <strong style={{ marginRight: 8 }}>{'ABCD'[oi]}.</strong>{opt}
-                </button>
-              ))}
+              {q.options.map((opt, oi) => {
+                const chosen = answers[idx] === oi;
+                return (
+                  <button
+                    key={oi}
+                    type="button"
+                    onClick={() => pick(oi)}
+                    aria-pressed={chosen}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      textAlign: 'left', padding: '13px 14px', borderRadius: 10, fontSize: 15, cursor: 'pointer',
+                      border: chosen ? '2px solid #6366f1' : '1.5px solid #e2e8f0',
+                      background: chosen ? '#eef2ff' : '#fff', color: '#1e293b',
+                      touchAction: 'manipulation', userSelect: 'none',
+                    }}
+                  >
+                    <span style={{
+                      flexShrink: 0, width: 24, height: 24, borderRadius: '50%',
+                      border: chosen ? 'none' : '2px solid #cbd5e1',
+                      background: chosen ? '#6366f1' : '#fff', color: '#fff',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800,
+                    }}>{chosen ? '✓' : ''}</span>
+                    <span><strong style={{ marginRight: 8 }}>{'ABCD'[oi]}.</strong>{opt}</span>
+                  </button>
+                );
+              })}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <button type="button" disabled={idx === 0} onClick={() => setIdx(i => i - 1)} className="btn btn-secondary btn-sm">← Prev</button>
@@ -86,12 +160,72 @@ function QuizModal({ bookId, unitId, kind, unitTitle, token, onClose, onDone }) 
           </>
         )}
 
-        {state === 'result' && result && (
-          <div style={{ textAlign: 'center', padding: '30px 0' }}>
-            <div style={{ fontSize: 56 }}>{pct >= 50 ? '🎉' : '💪'}</div>
-            <h2 style={{ color: '#312e81', margin: '10px 0 4px' }}>{result.score} / {result.total} — {pct}%</h2>
-            <p style={{ color: '#64748b' }}>{pct >= 50 ? 'Well done! Your best score is saved.' : 'Score saved. You can read again and retry anytime.'}</p>
+        {state === 'result' && result && passed && (
+          <div style={{ textAlign: 'center', padding: '24px 0 10px' }}>
+            <div style={{ fontSize: 60 }}>💐</div>
+            <h2 style={{ color: '#15803d', margin: '8px 0 4px' }}>Congratulations! 🌸</h2>
+            <h3 style={{ color: '#312e81', margin: '0 0 8px' }}>{result.score} / {result.total} — {pct}%</h3>
+            <p style={{ color: '#475569', margin: '0 0 16px' }}>
+              Excellent work — you mastered <strong>{unitTitle}</strong>. These flowers are for you! Your best score is saved.
+            </p>
+            {wrong.length > 0 && (
+              <p style={{ color: '#64748b', fontSize: 13, margin: '0 0 14px' }}>
+                Small thing to polish: {weakTopics.map((w) => `${w.topic}${w.page ? ` (p.${w.page})` : ''}`).join(', ')}
+              </p>
+            )}
             <button type="button" className="btn btn-primary" onClick={onClose}>Continue reading</button>
+          </div>
+        )}
+
+        {state === 'result' && result && !passed && (
+          <div style={{ padding: '14px 0 4px' }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 50 }}>💪</div>
+              <h3 style={{ color: '#b45309', margin: '6px 0 2px' }}>{result.score} / {result.total} — {pct}%</h3>
+              <p style={{ color: '#64748b', margin: '0 0 14px', fontSize: 14 }}>
+                You need {PASS_PCT}% to pass. Don’t worry — revise these parts of the book and try again.
+              </p>
+            </div>
+
+            <div style={{ background: '#fffbeb', border: '1.5px solid #fcd34d', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
+              <div style={{ fontWeight: 700, color: '#92400e', marginBottom: 8 }}>📌 Your weak points — where to revise</div>
+              {weakTopics.map((w, k) => (
+                <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: k ? '1px solid #fde68a' : 'none' }}>
+                  <div style={{ flex: 1, minWidth: 0, fontSize: 14, color: '#1e293b' }}>
+                    <strong>{w.topic}</strong>
+                    <div style={{ fontSize: 12, color: '#78716c' }}>
+                      {w.page ? `Page ${w.page}` : 'In this unit'} · {w.count} question{w.count > 1 ? 's' : ''} missed
+                    </div>
+                  </div>
+                  {w.page && onGoToPage && (
+                    <button type="button" className="btn btn-sm" style={{ background: '#f59e0b', color: '#fff', flexShrink: 0 }}
+                      onClick={() => { onGoToPage(w.page); onClose(); }}>
+                      📖 Revise p.{w.page}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div style={{ fontWeight: 700, color: '#334155', marginBottom: 8, fontSize: 14 }}>Questions you missed</div>
+            {wrong.map((w) => (
+              <div key={w.i} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 12px', marginBottom: 8, fontSize: 14 }}>
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>{w.i + 1}. {w.question}</div>
+                {w.given !== undefined && (
+                  <div style={{ color: '#dc2626' }}>✗ Your answer: {'ABCD'[w.given]}. {w.options[w.given]}</div>
+                )}
+                <div style={{ color: '#15803d' }}>✓ Correct: {'ABCD'[w.answer]}. {w.options[w.answer]}</div>
+                {(w.topic || w.page) && (
+                  <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>
+                    Revise: {w.topic || 'this unit'}{w.page ? ` — page ${w.page}` : ''}
+                  </div>
+                )}
+              </div>
+            ))}
+
+            <div style={{ textAlign: 'center', marginTop: 12 }}>
+              <button type="button" className="btn btn-primary" onClick={onClose}>Back to the book</button>
+            </div>
           </div>
         )}
       </div>
@@ -195,9 +329,9 @@ export default function TextbookReader() {
   }, [pdf, pageNum]);
 
   // Swipe to turn pages (mobile)
-  const onTouchStart = (e) => { touch.current = e.touches[0].clientX; };
+  const onTouchStart = (e) => { touch.current = quiz || showContents ? null : e.touches[0].clientX; };
   const onTouchEnd = (e) => {
-    if (touch.current == null) return;
+    if (touch.current == null || quiz || showContents) return;
     const dx = e.changedTouches[0].clientX - touch.current;
     touch.current = null;
     if (dx < -50 && pageNum < pageCount) setPageNum((p) => p + 1);
@@ -353,6 +487,7 @@ export default function TextbookReader() {
           token={token}
           onClose={() => setQuiz(null)}
           onDone={loadData}
+          onGoToPage={(p) => setPageNum(Math.max(1, Math.min(pageCount || p, p)))}
         />
       )}
     </div>

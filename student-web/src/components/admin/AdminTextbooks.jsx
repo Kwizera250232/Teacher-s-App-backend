@@ -189,7 +189,7 @@ export default function AdminTextbooks({ token }) {
           </div>
           <div style={{ marginBottom: 16 }}>
             <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>
-              📄 Shyiraho PDF (max 50MB)
+              📄 Shyiraho PDF (nta mupaka w'ingano)
             </label>
             <input
               type="file"
