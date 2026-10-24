@@ -64,15 +64,15 @@ async function getBookPages(book) {
 // ── Exact unit detection from the book's own structure ──────────────────────
 // The assessment heading itself — the line must BE the heading (e.g. "1.5. END OF UNIT ASSESSMENT",
 // "Isuzuma risoza umutwe wa mbere"), not a sentence that merely mentions assessment.
-const END_UNIT_RE = /END\s*(OF\s*)?(THE\s*)?UNIT\s*\d*\s*ASSESSMENT|ISUZUMA\s+RISOZA\s+UMUTWE/i;
-const END_UNIT_LINE_RE = /^[^A-Za-z]{0,20}(END\s*(OF\s*)?(THE\s*)?UNIT\s*\d*\s*ASSESSMENT|ISUZUMA\s+RISOZA\s+UMUTWE(\s+WA\s+[\wâ’']+)?)\s*[:.]?\s*$/i;
+const END_UNIT_RE = /END\s*(OF\s*)?(THE\s*)?UNIT\s*\d*\s*ASSESSMENT|ISUZUMA\s+RISOZA\s+UMUTWE|[ÉE]VALUATION\s+(DE\s+)?FIN\s+(D['’]\s*)?UNIT[ÉE]/i;
+const END_UNIT_LINE_RE = /^[^A-Za-z]{0,20}(END\s*(OF\s*)?(THE\s*)?UNIT\s*\d*\s*ASSESSMENT|ISUZUMA\s+RISOZA\s+UMUTWE(\s+WA\s+[\wâ’']+)?|[ÉE]VALUATION\s+(DE\s+)?FIN\s+(D['’]\s*)?UNIT[ÉE](\s*\d+)?)\s*[:.]?\s*$/i;
 const RW_ORDINALS = { mbere: 1, kabiri: 2, gatatu: 3, kane: 4, gatanu: 5, gatandatu: 6, karindwi: 7, umunani: 8, munani: 8, cyenda: 9, icyenda: 9, icumi: 10 };
 
 /** A real unit heading line → unit number (UNIT 3 / UMUTWE WA GATATU / Umutwe wa 3). */
 function unitHeadingNum(line) {
   const t = line.trim();
   if (t.length > 80) return null;
-  let m = t.match(/^UNIT[ \t]*(\d{1,2})\b[ \t]*([:.\-–][^\n]*)?$/i);
+  let m = t.match(/^UNIT[ÉE]?[ \t]*(\d{1,2})\b[ \t]*([:.\-–][^\n]*)?$/i);
   if (m) return parseInt(m[1], 10);
   m = t.match(/^UMUTWE[ \t]+WA[ \t]+([A-Za-z\d]+)[ \t]*[:.\-–]?[^\n]*$/i);
   if (m) return /^\d+$/.test(m[1]) ? parseInt(m[1], 10) : RW_ORDINALS[m[1].toLowerCase()] || null;
@@ -90,7 +90,7 @@ function tocUnitTitles(pages) {
   pages.forEach((t) => {
     if (!isTocPage(t)) return;
     // TOC lines can be joined — split before every UNIT / UMUTWE entry
-    t.replace(/\n/g, ' ').split(/(?=\bUNIT[ \t]*\d{1,2}\b|\bUMUTWE[ \t]+WA\b)/i).forEach((chunk) => {
+    t.replace(/\n/g, ' ').split(/(?=\bUNIT[ÉE]?[ \t]*\d{1,2}\b|\bUMUTWE[ \t]+WA\b)/i).forEach((chunk) => {
       const head = chunk.split(/\.{3,}/)[0].replace(/\s+/g, ' ').trim();
       const n = unitHeadingNum(head.split(/\s+(?=\d+\.\d)/)[0]);
       if (n && !titles[n]) titles[n] = head.split(/\s+(?=\d+\.\d)/)[0].slice(0, 200);
@@ -133,8 +133,9 @@ function detectUnitsExact(pages) {
     if (cur && lines.some((l) => END_UNIT_LINE_RE.test(l))) cur.assess_page = page;
   });
   if (cur) units.push(cur);
-  const real = units.filter((u) => u.assess_page);
-  if (!real.length) return [];
+  // Need the book's own assessment structure somewhere; keep every real unit heading in order
+  if (!units.some((u) => u.assess_page)) return [];
+  const real = units;
   real.forEach((u, i) => {
     u.position = i;
     u.title = u.title.slice(0, 290);
