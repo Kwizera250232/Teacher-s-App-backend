@@ -124,7 +124,7 @@ async function detectUnitsAI(book, pages) {
     { role: 'system', content: 'You analyze Rwandan CBC school textbooks. Return ONLY a JSON array, no prose.' },
     {
       role: 'user',
-      content: `Here is the first ~90 characters of each page of the textbook "${book.title}" (${book.subject}, ${book.grade_level}). The book has ${pages.length} pages.\n\n${snippets}\n\nIdentify the UNIT boundaries. Return a JSON array like [{"title":"Unit 1 — Numbers","start_page":9,"end_page":30},...] covering the units in order. Use the real unit titles found in the text. Ignore cover/front-matter pages (start units at the first real unit). Cover all content pages so every unit page belongs to a unit.`,
+      content: `Here is the first ~90 characters of each page of the textbook "${book.title}" (${book.subject}, ${book.grade_level}). The book has ${pages.length} pages.\n\n${snippets}\n\nIdentify the UNIT boundaries. Return a JSON array like [{"title":"Unit 1 — Numbers","start_page":9,"end_page":30},...] covering the units in order. Use the real unit titles found in the text (e.g. "UNIT 1: ...", "UMUTWE WA 1", "Umutwe wa..."). IMPORTANT: a unit ENDS on the page that contains its assessment section — the one titled "End of unit assessment" / "End unit assessment" (English) or "Isuzuma risoza umutwe" / "Isuzuma" (Kinyarwanda); the next unit starts on the following page. Ignore cover/front-matter pages (start units at the first real unit). Cover all content pages so every unit page belongs to a unit.`,
     },
   ], 4000, 0.2);
   const arr = extractJsonArray(raw);
@@ -139,36 +139,92 @@ async function detectUnitsAI(book, pages) {
     .filter((u) => u.end_page >= u.start_page);
 }
 
-/** Generate (and cache) an MCQ quiz for a unit or whole book. */
+/** Locate the book's OWN end-of-unit assessment section inside unit text.
+ *  English books: "End of unit assessment" / "End unit assessment" / "Unit X assessment".
+ *  Kinyarwanda books: "Isuzuma risoza umutwe" / "Isuzuma risoza icyiciro" / "Isuzuma". */
+const END_UNIT_MARKERS = [
+  /end[\s-]*(of[\s-]*)?unit\s*(assessment|evaluation|revision|review|test|exercise|questions?)/i,
+  /end[\s-]*unit\s*(assessment|evaluation|test)/i,
+  /(assessment|evaluation|revision|test)\s*(of|for|at the end of)?\s*unit\s*\d+/i,
+  /isuzuma\s+risoza\s+(umutwe|icyiciro|igice|isomo|unit)?/i,
+  /isuzuma\s+(risoza|ryo|rya|ry'umutwe)/i,
+  /isuzuma\b/i,
+];
+
+function findEndUnitSection(text) {
+  let best = null;
+  for (const re of END_UNIT_MARKERS) {
+    const m = text.match(re);
+    if (m && m.index != null) {
+      const idx = m.index;
+      if (best === null || idx > best) best = idx; // take the LAST marker — the real end-of-unit section
+    }
+  }
+  return best === null ? null : text.slice(best, best + 9000);
+}
+
+/** Generate (and cache) an MCQ quiz for a unit or whole book.
+ *  End-Unit tests use the book's OWN printed assessment questions verbatim where they exist. */
 async function generateQuiz(book, unit, kind) {
   let text;
   let count;
+  let promptBody;
   const pages = await getBookPages(book);
+  const unitText = (u) => pages.slice(u.start_page - 1, u.end_page).join('\n');
+
   if (kind === 'summative') {
     const units = (await pool.query('SELECT title, start_page, end_page FROM textbook_units WHERE textbook_id=$1 ORDER BY position', [book.id])).rows;
-    const sampled = units.map((u) => `UNIT: ${u.title}\n${pages.slice(u.start_page - 1, u.end_page).join(' ').slice(0, 3500)}`).join('\n\n');
-    text = sampled || (book.content || '').slice(0, 20000);
+    // Prefer each unit's OWN end-of-unit assessment section, verbatim
+    const sections = units.map((u) => {
+      const sec = findEndUnitSection(unitText(u));
+      return `UNIT "${u.title}":\n${(sec || unitText(u).slice(0, 2500)).slice(0, 4000)}`;
+    }).join('\n\n===\n\n');
+    text = sections;
     count = 12;
+    promptBody = `Below are the END-OF-UNIT assessment sections (or unit text where a section is missing) from each unit of the book "${book.title}" (${book.subject}, ${book.grade_level}).
+
+${sections}
+
+Create a ${count}-question summative assessment by COMBINING the book's own end-of-unit questions from across ALL the units. Wherever the text shows real assessment questions (e.g. after "End of unit assessment" or "Isuzuma risoza umutwe"), reuse those questions VERBATIM — keep the book's exact wording, only convert each into 4-option multiple choice (answer key from the unit content). Do not invent unrelated questions. Cover every unit fairly.`;
   } else {
-    text = pages.slice(unit.start_page - 1, unit.end_page).join(' ').slice(0, 15000);
+    text = unitText(unit).slice(0, 16000);
     count = kind === 'unit_test' ? 10 : 8;
+    const endSection = findEndUnitSection(text);
+    if (kind === 'unit_test' && endSection) {
+      promptBody = `This is the END-OF-UNIT assessment section printed inside the unit "${unit.title}" of the book "${book.title}" (${book.subject}, ${book.grade_level}):
+
+"""${endSection}"""
+
+(Full unit text for answer keys: """${text.slice(0, 8000)}""")
+
+The END-UNIT TEST must use the book's OWN questions from that section — reuse each printed question VERBATIM (keep its exact wording in English or Kinyarwanda as printed) and convert it into 4-option multiple choice, deriving the correct answer from the unit text. If the section has fewer than ${count} questions, include all of them first, then add extra questions from the unit text to reach ${count}. Never replace the book's questions with unrelated ones.`;
+    } else if (kind === 'unit_test') {
+      promptBody = `Create a ${count}-question END-OF-UNIT test for the unit "${unit.title}" of the book "${book.title}" (${book.subject}, ${book.grade_level}). This book does not print its own end-of-unit questions, so write questions strictly from the unit text below — match the unit's language (English or Kinyarwanda).
+
+TEXT:
+"""${text}"""`;
+    } else {
+      promptBody = `Create ${count} multiple-choice practice exercises for the unit "${unit.title}" of the book "${book.title}" (${book.subject}, ${book.grade_level}). Where the unit text itself contains questions/activities (Activities, Imyitozo, Ibibazo), prefer adapting THOSE questions first, then add questions from the unit text. Match the book's language (English or Kinyarwanda). Everything must come from this exact text — nothing generic.
+
+TEXT:
+"""${text}"""`;
+    }
   }
   if (!text.trim()) throw new Error('This book has no readable text (scanned PDF).');
 
-  const kindLabel = kind === 'exercise' ? 'practice exercises' : kind === 'unit_test' ? 'an end-of-unit test' : 'a summative assessment covering ALL units';
   const raw = await callGroq([
-    { role: 'system', content: 'You write fair multiple-choice questions strictly from the provided textbook text for Rwandan CBC students. Return ONLY a JSON array, no prose.' },
+    { role: 'system', content: 'You turn REAL textbook questions into multiple-choice questions for Rwandan CBC students. You reuse the book\'s own printed questions verbatim whenever they exist — you never invent unrelated questions. Return ONLY a JSON array, no prose.' },
     {
       role: 'user',
-      content: `Create ${count} multiple-choice questions for ${kindLabel} of ${unit ? `the unit "${unit.title}" in ` : ''}the book "${book.title}" (${book.subject}, ${book.grade_level}). Each question must be answerable ONLY from the text below — test real understanding, not generic knowledge.\n\nTEXT:\n${text}\n\nReturn JSON: [{"question":"...","options":["A","B","C","D"],"answer":0}] where answer is the 0-based index of the correct option.`,
+      content: `${promptBody}\n\nReturn JSON: [{"question":"...","options":["A","B","C","D"],"answer":0}] where answer is the 0-based index of the correct option.`,
     },
-  ], 6000, 0.5);
+  ], 7000, 0.35);
   const arr = extractJsonArray(raw);
   const questions = arr
     .filter((q) => q && q.question && Array.isArray(q.options) && q.options.length === 4)
     .map((q) => ({ question: String(q.question), options: q.options.map(String), answer: Math.max(0, Math.min(3, parseInt(q.answer, 10) || 0)) }));
   if (!questions.length) throw new Error('AI returned no questions');
-  return { questions, generated_at: new Date().toISOString() };
+  return { v: 2, questions, generated_at: new Date().toISOString() };
 }
 
 /** Ensure a book has units; lazily AI-detect them on first open. */
@@ -409,7 +465,7 @@ router.get('/:id/units/:unitId/quiz', authenticateToken, async (req, res) => {
     const col = kind === 'exercise' ? 'exercise_quiz' : kind === 'unit_test' ? 'unit_test_quiz' : null;
 
     if (kind === 'summative') {
-      if (book.summative_quiz?.questions?.length) return res.json({ kind, questions: book.summative_quiz.questions, cached: true });
+      if (book.summative_quiz?.v === 2 && book.summative_quiz.questions?.length) return res.json({ kind, questions: book.summative_quiz.questions, cached: true });
       const quiz = await generateQuiz(book, null, 'summative');
       await pool.query('UPDATE textbooks SET summative_quiz=$1 WHERE id=$2', [JSON.stringify(quiz), book.id]);
       return res.json({ kind, questions: quiz.questions });
@@ -419,7 +475,7 @@ router.get('/:id/units/:unitId/quiz', authenticateToken, async (req, res) => {
     if (!unit) return res.status(404).json({ error: 'Unit not found.' });
 
     const cached = unit[col];
-    if (cached?.questions?.length) return res.json({ kind, questions: cached.questions, cached: true });
+    if (cached?.v === 2 && cached.questions?.length) return res.json({ kind, questions: cached.questions, cached: true });
     const quiz = await generateQuiz(book, unit, kind);
     await pool.query(`UPDATE textbook_units SET ${col}=$1 WHERE id=$2`, [JSON.stringify(quiz), unit.id]);
     res.json({ kind, questions: quiz.questions });
