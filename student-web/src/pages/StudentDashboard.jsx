@@ -169,6 +169,7 @@ export default function StudentDashboard() {
             <button type="button" className="btn btn-secondary" onClick={() => setShowParentInvite(true)}>👪 Invite parent</button>
             <button type="button" className="btn btn-secondary" onClick={openStatus}>✍️ C. Status</button>
             <Link to="/student/notes" className="btn btn-secondary">📝 My Notes</Link>
+            <Link to="/student/textbooks" className="btn btn-secondary">📖 AI Textbooks</Link>
           </div>
         </div>
 

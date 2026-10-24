@@ -15,6 +15,28 @@ export default function AdminTextbooks({ token }) {
   const [form, setForm] = useState({ title: '', subject: 'Mathematics', grade_level: 'P1', book_type: 'PB' });
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [detecting, setDetecting] = useState(null);
+  const [unitsFor, setUnitsFor] = useState({}); // bookId -> units array
+
+  const detectUnits = async (id) => {
+    setDetecting(id);
+    setError('');
+    try {
+      const res = await fetch(`${API_BASE}/textbooks/${id}/detect-units`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Detection failed');
+      setUnitsFor((u) => ({ ...u, [id]: data.units }));
+      setSuccess(`AI detected ${data.units.length} unit(s).`);
+      setTimeout(() => setSuccess(''), 4000);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDetecting(null);
+    }
+  };
 
   const load = () => {
     fetch(`${API_BASE}/textbooks`, { headers: { Authorization: `Bearer ${token}` } })
@@ -170,7 +192,7 @@ export default function AdminTextbooks({ token }) {
                   background: b.book_type === 'PB' ? '#eff6ff' : '#f0fdf4',
                   border: `1.5px solid ${b.book_type === 'PB' ? '#bfdbfe' : '#bbf7d0'}`,
                   borderRadius: 10, padding: '10px 14px',
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap',
                 }}>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 13, color: '#1f2937', marginBottom: 2 }}>
@@ -188,11 +210,29 @@ export default function AdminTextbooks({ token }) {
                       {new Date(b.created_at).toLocaleDateString()}
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleDelete(b.id, b.title)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 16, padding: 0, flexShrink: 0 }}
-                    title="Siba igitabo"
-                  >🗑️</button>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
+                    <button
+                      onClick={() => detectUnits(b.id)}
+                      disabled={detecting === b.id}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 15, padding: 0 }}
+                      title="AI: detect units"
+                    >{detecting === b.id ? '⏳' : '🤖'}</button>
+                    <button
+                      onClick={() => handleDelete(b.id, b.title)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 16, padding: 0 }}
+                      title="Siba igitabo"
+                    >🗑️</button>
+                  </div>
+                  {unitsFor[b.id] && (
+                    <div style={{ width: '100%', marginTop: 8, fontSize: 11, color: '#334155' }}>
+                      <strong>Units:</strong>
+                      <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
+                        {unitsFor[b.id].map((u) => (
+                          <li key={u.id}>{u.title} <span style={{ color: '#94a3af' }}>(p.{u.start_page}–{u.end_page})</span></li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

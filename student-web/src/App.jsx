@@ -16,6 +16,8 @@ import StudentClassPage from './pages/StudentClassPage';
 import TakeQuiz from './pages/TakeQuiz';
 import TakeGroupQuiz from './pages/TakeGroupQuiz';
 import StudentQuizReportsPage from './pages/StudentQuizReportsPage';
+import StudentTextbooks from './pages/StudentTextbooks';
+import TextbookReader from './pages/TextbookReader';
 import QuizResults from './pages/QuizResults';
 import AdminDashboard from './pages/AdminDashboard';
 import JoinClass from './pages/JoinClass';
@@ -161,6 +163,12 @@ function AppShell() {
                 } />
                 <Route path="/student/quiz-reports" element={
                   <ProtectedRoute role="student"><StudentQuizReportsPage /></ProtectedRoute>
+                } />
+                <Route path="/student/textbooks" element={
+                  <ProtectedRoute role="student"><StudentTextbooks /></ProtectedRoute>
+                } />
+                <Route path="/student/textbooks/:id" element={
+                  <ProtectedRoute role="student"><TextbookReader /></ProtectedRoute>
                 } />
                 <Route path="/student/class-moments" element={
                   <ProtectedRoute role="student"><ClassMomentsPage backPath="/student/dashboard" /></ProtectedRoute>
