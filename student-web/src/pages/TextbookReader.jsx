@@ -101,25 +101,43 @@ function QuizModal({ bookId, unitId, kind, unitTitle, token, onClose, onDone }) 
 
 export default function TextbookReader() {
   const { id } = useParams();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const navigate = useNavigate();
+  const libraryPath = user?.role === 'student' ? '/student/textbooks'
+    : user?.role === 'head_teacher' ? '/head-teacher/textbooks' : '/teacher/textbooks';
   const canvasRef = useRef(null);
   const renderToken = useRef(0);
 
   const [pdf, setPdf] = useState(null);
+  const [textPages, setTextPages] = useState(null); // text-mode books (no PDF file)
   const [pageNum, setPageNum] = useState(1);
   const [pageCount, setPageCount] = useState(0);
   const [data, setData] = useState(null);
   const [loadMsg, setLoadMsg] = useState('Opening book…');
   const [quiz, setQuiz] = useState(null); // {unitId, kind, unitTitle}
 
-  const loadData = useCallback(() => {
-    api.get(`/textbooks/${id}/learn`, token).then(setData).catch(() => setData({ error: true }));
+  const loadData = useCallback(async () => {
+    try {
+      const d = await api.get(`/textbooks/${id}/learn`, token);
+      setData(d);
+      if (d && d.has_file === false) {
+        const tp = await api.get(`/textbooks/${id}/textpages`, token);
+        const pages = tp?.pages || [];
+        setTextPages(pages);
+        setPageCount(pages.length);
+      }
+      return d;
+    } catch {
+      setData({ error: true });
+      return null;
+    }
   }, [id, token]);
 
   useEffect(() => {
-    loadData();
+    let cancelled = false;
     (async () => {
+      const d = await loadData();
+      if (cancelled || !d || d.error || d.has_file === false) return;
       try {
         const res = await fetch(`${API_BASE}/textbooks/${id}/file`, { headers: { Authorization: `Bearer ${token}` } });
         if (!res.ok) throw new Error('Could not load the book file.');
@@ -132,6 +150,7 @@ export default function TextbookReader() {
         setLoadMsg(`⚠️ ${e.message || 'Failed to open book.'}`);
       }
     })();
+    return () => { cancelled = true; };
   }, [id, token, loadData]);
 
   useEffect(() => {
@@ -173,7 +192,7 @@ export default function TextbookReader() {
     <div style={{ minHeight: '100vh', background: '#0f172a', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
       <header style={{ background: '#1e293b', color: '#fff', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <button type="button" onClick={() => navigate('/student/textbooks')} style={{ background: 'rgba(255,255,255,.12)', border: 'none', color: '#fff', borderRadius: 8, padding: '6px 12px', cursor: 'pointer' }}>← Library</button>
+        <button type="button" onClick={() => navigate(libraryPath)} style={{ background: 'rgba(255,255,255,.12)', border: 'none', color: '#fff', borderRadius: 8, padding: '6px 12px', cursor: 'pointer' }}>← Library</button>
         <div style={{ flex: 1, minWidth: 160 }}>
           <div style={{ fontWeight: 700, fontSize: 15 }}>📖 {book.title}</div>
           <div style={{ fontSize: 11, opacity: 0.75 }}>{book.grade_level} · {book.subject} · Page {pageNum} / {pageCount || '…'}</div>
@@ -213,28 +232,39 @@ export default function TextbookReader() {
         </span>
       </div>
 
-      {/* Page canvas */}
+      {/* Page canvas / text page */}
       <main style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '14px 8px', position: 'relative' }}>
-        {!pdf ? (
+        {!pdf && !textPages ? (
           <div style={{ color: '#94a3b8', textAlign: 'center' }}>
             <div style={{ fontSize: 40, marginBottom: 10 }}>📖</div>
             <p>{loadMsg}</p>
           </div>
+        ) : textPages ? (
+          <div style={{
+            background: '#fff', borderRadius: 10, maxWidth: 760, width: '100%',
+            minHeight: '60vh', maxHeight: '78vh', overflowY: 'auto',
+            padding: '34px 40px', boxShadow: '0 10px 40px rgba(0,0,0,.5)',
+            fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 16.5,
+            lineHeight: 1.85, color: '#1f2937', whiteSpace: 'pre-wrap',
+          }}>
+            {textPages[pageNum - 1] || ''}
+            <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 12, marginTop: 22 }}>— {pageNum} —</div>
+          </div>
         ) : (
           <canvas ref={canvasRef} style={{ borderRadius: 8, boxShadow: '0 10px 40px rgba(0,0,0,.5)', background: '#fff', maxWidth: '100%' }} />
         )}
-        {pdf && pageNum > 1 && (
+        {(pdf || textPages) && pageNum > 1 && (
           <button type="button" onClick={() => setPageNum(p => p - 1)} aria-label="Previous page"
             style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', background: 'rgba(99,102,241,.9)', color: '#fff', border: 'none', borderRadius: '50%', width: 46, height: 46, fontSize: 20, cursor: 'pointer' }}>‹</button>
         )}
-        {pdf && pageNum < pageCount && (
+        {(pdf || textPages) && pageNum < pageCount && (
           <button type="button" onClick={() => setPageNum(p => p + 1)} aria-label="Next page"
             style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'rgba(99,102,241,.9)', color: '#fff', border: 'none', borderRadius: '50%', width: 46, height: 46, fontSize: 20, cursor: 'pointer' }}>›</button>
         )}
       </main>
 
       {/* Unit action bar */}
-      {pdf && unit && (
+      {(pdf || textPages) && unit && (
         <div style={{ background: '#1e293b', padding: '10px 14px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ color: '#cbd5e1', fontSize: 13, flex: 1, minWidth: 140 }}>
             {unit.title} · pages {unit.start_page}–{unit.end_page}

@@ -46,7 +46,7 @@ function ProtectedRoute({ children, role }) {
   const { user, loading } = useAuth();
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>Loading...</div>;
   if (!user) return <Navigate to="/login" replace />;
-  if (role && user.role !== role) return <Navigate to="/" replace />;
+  if (role && ![].concat(role).includes(user.role)) return <Navigate to="/" replace />;
   return children;
 }
 
@@ -169,6 +169,18 @@ function AppShell() {
                 } />
                 <Route path="/student/textbooks/:id" element={
                   <ProtectedRoute role="student"><TextbookReader /></ProtectedRoute>
+                } />
+                <Route path="/teacher/textbooks" element={
+                  <ProtectedRoute role={['teacher', 'head_teacher']}><StudentTextbooks /></ProtectedRoute>
+                } />
+                <Route path="/teacher/textbooks/:id" element={
+                  <ProtectedRoute role={['teacher', 'head_teacher']}><TextbookReader /></ProtectedRoute>
+                } />
+                <Route path="/head-teacher/textbooks" element={
+                  <ProtectedRoute role={['teacher', 'head_teacher']}><StudentTextbooks /></ProtectedRoute>
+                } />
+                <Route path="/head-teacher/textbooks/:id" element={
+                  <ProtectedRoute role={['teacher', 'head_teacher']}><TextbookReader /></ProtectedRoute>
                 } />
                 <Route path="/student/class-moments" element={
                   <ProtectedRoute role="student"><ClassMomentsPage backPath="/student/dashboard" /></ProtectedRoute>

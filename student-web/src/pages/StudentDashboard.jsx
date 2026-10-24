@@ -23,6 +23,7 @@ const QUICK_NAV = (handlers) => [
   { id: 'classes', icon: '📚', label: 'Classes', onClick: handlers.scrollClasses, active: true },
   { id: 'classnow', icon: '📸', label: 'Class Now', onClick: handlers.scrollClassNow },
   { id: 'status', icon: '✍️', label: 'C. Status', onClick: handlers.openStatus },
+  { id: 'textbooks', icon: '📖', label: 'AI Books', to: '/student/textbooks' },
   { id: 'notes', icon: '📝', label: 'Notes', to: '/student/notes' },
   { id: 'reports', icon: '📋', label: 'Quiz reports', to: '/student/quiz-reports' },
   { id: 'parent', icon: '👪', label: 'Parent', onClick: handlers.openParent },
