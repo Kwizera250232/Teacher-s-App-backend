@@ -38,6 +38,7 @@ pool.query(`
     UNIQUE (student_id, textbook_id, unit_id, kind)
   );
   ALTER TABLE textbooks ADD COLUMN IF NOT EXISTS summative_quiz JSONB;
+  ALTER TABLE textbook_units ADD COLUMN IF NOT EXISTS assess_page INTEGER;
 `).catch((e) => console.error('[textbooks] schema:', e.message));
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -56,21 +57,56 @@ function bookFilePath(book) {
 async function getBookPages(book) {
   const abs = bookFilePath(book);
   if (abs && pdfParse && fs.existsSync(abs)) return extractPageTexts(abs);
-  const text = book.content || '';
-  const pages = [];
-  const size = 1800;
-  for (let i = 0; i < text.length; i += size) {
-    let end = i + size;
-    if (end < text.length) {
-      const nl = text.lastIndexOf('\n', end);
-      const sp = text.lastIndexOf('. ', end);
-      if (nl > i + size * 0.6) end = nl;
-      else if (sp > i + size * 0.6) end = sp + 1;
+  // pdf-parse separates the book's real pages with a blank line — split there, verbatim
+  return (book.content || '').split(/\n\s*\n/).map((p) => p.replace(/\s+$/, '')).filter((p) => p.trim().length > 0);
+}
+
+// ── Exact unit detection from the book's own structure ──────────────────────
+const END_UNIT_RE = /END\s*(OF\s*)?(THE\s*)?UNIT\s*\d*\s*ASSESSMENT|ISUZUMA\s+RISOZA\s+UMUTWE/i;
+const UNIT_HEAD_RE = /^\s*(UNIT\s*(\d+)\b[^\n]*|UMUTWE\s+WA\s+[^\n]+)$/im;
+
+/** Table-of-contents pages: many dot leaders ("......  12"). */
+function isTocPage(t) {
+  return (t.match(/\.{6,}/g) || []).length >= 3 || /^(TABLE OF CONTENTS|CONTENTS|ISHAKIRO|IBIRIMO)\b/im.test(t) && /\.{6,}/.test(t);
+}
+
+/**
+ * Units = the book's real "END OF UNIT ASSESSMENT" / "Isuzuma risoza umutwe" headings
+ * on content pages (TOC pages ignored). Unit i ends right before unit i+1 starts.
+ */
+function detectUnitsExact(pages) {
+  const assessPages = [];
+  pages.forEach((t, i) => {
+    if (isTocPage(t)) return;
+    const lines = t.split('\n').map((l) => l.trim());
+    if (lines.some((l) => l.length < 90 && END_UNIT_RE.test(l))) assessPages.push(i + 1);
+  });
+  if (!assessPages.length) return [];
+  const lastToc = pages.reduce((acc, t, i) => (isTocPage(t) ? i + 1 : acc), 0);
+
+  const units = [];
+  let prevAssess = lastToc;
+  assessPages.forEach((ap, idx) => {
+    // Unit start: first unit heading after the previous assessment, else page after it
+    let start = prevAssess + 1;
+    let title = '';
+    for (let p = prevAssess + 1; p <= ap; p++) {
+      const m = pages[p - 1].match(UNIT_HEAD_RE);
+      if (m) {
+        start = p;
+        title = m[1].trim();
+        if (/^UNIT\s*\d+\s*[:.\-–]?\s*$/i.test(title)) {
+          const after = pages[p - 1].split(m[1])[1]?.split('\n').map((s) => s.trim()).find(Boolean);
+          if (after) title = `${title.replace(/[:.\-–\s]+$/, '')}: ${after}`;
+        }
+        break;
+      }
     }
-    pages.push(text.slice(i, end).trim());
-    i = end - size; // eslint-disable-line
-  }
-  return pages.filter((p) => p.length > 0);
+    units.push({ title: (title || `Unit ${idx + 1}`).slice(0, 290), start_page: start, assess_page: ap, position: idx });
+    prevAssess = ap;
+  });
+  units.forEach((u, i) => { u.end_page = i < units.length - 1 ? units[i + 1].start_page - 1 : pages.length; });
+  return units.filter((u) => u.end_page >= u.start_page);
 }
 
 /** Extract per-page text from a textbook PDF. pages[0] = page 1. */
@@ -139,28 +175,13 @@ async function detectUnitsAI(book, pages) {
     .filter((u) => u.end_page >= u.start_page);
 }
 
-/** Locate the book's OWN end-of-unit assessment section inside unit text.
- *  English books: "End of unit assessment" / "End unit assessment" / "Unit X assessment".
- *  Kinyarwanda books: "Isuzuma risoza umutwe" / "Isuzuma risoza icyiciro" / "Isuzuma". */
-const END_UNIT_MARKERS = [
-  /end[\s-]*(of[\s-]*)?unit\s*(assessment|evaluation|revision|review|test|exercise|questions?)/i,
-  /end[\s-]*unit\s*(assessment|evaluation|test)/i,
-  /(assessment|evaluation|revision|test)\s*(of|for|at the end of)?\s*unit\s*\d+/i,
-  /isuzuma\s+risoza\s+(umutwe|icyiciro|igice|isomo|unit)?/i,
-  /isuzuma\s+(risoza|ryo|rya|ry'umutwe)/i,
-  /isuzuma\b/i,
-];
-
-function findEndUnitSection(text) {
-  let best = null;
-  for (const re of END_UNIT_MARKERS) {
-    const m = text.match(re);
-    if (m && m.index != null) {
-      const idx = m.index;
-      if (best === null || idx > best) best = idx; // take the LAST marker — the real end-of-unit section
-    }
-  }
-  return best === null ? null : text.slice(best, best + 9000);
+/** The book's OWN end-of-unit assessment: text from the exact
+ *  "END OF UNIT ASSESSMENT" / "Isuzuma risoza umutwe" heading to the unit's end. */
+function endUnitSection(pages, u) {
+  if (!u.assess_page) return null;
+  const text = pages.slice(u.assess_page - 1, u.end_page).join('\n');
+  const m = text.match(END_UNIT_RE);
+  return m ? text.slice(m.index, m.index + 9000) : null;
 }
 
 /** Generate (and cache) an MCQ quiz for a unit or whole book.
@@ -173,10 +194,10 @@ async function generateQuiz(book, unit, kind) {
   const unitText = (u) => pages.slice(u.start_page - 1, u.end_page).join('\n');
 
   if (kind === 'summative') {
-    const units = (await pool.query('SELECT title, start_page, end_page FROM textbook_units WHERE textbook_id=$1 ORDER BY position', [book.id])).rows;
+    const units = (await pool.query('SELECT title, start_page, end_page, assess_page FROM textbook_units WHERE textbook_id=$1 ORDER BY position', [book.id])).rows;
     // Prefer each unit's OWN end-of-unit assessment section, verbatim
     const sections = units.map((u) => {
-      const sec = findEndUnitSection(unitText(u));
+      const sec = endUnitSection(pages, u);
       return `UNIT "${u.title}":\n${(sec || unitText(u).slice(0, 2500)).slice(0, 4000)}`;
     }).join('\n\n===\n\n');
     text = sections;
@@ -189,7 +210,11 @@ Create a ${count}-question summative assessment by COMBINING the book's own end-
   } else {
     text = unitText(unit).slice(0, 16000);
     count = kind === 'unit_test' ? 10 : 8;
-    const endSection = findEndUnitSection(text);
+    const endSection = endUnitSection(pages, unit);
+    if (kind === 'exercise' && unit.assess_page) {
+      // Exercises come from the lessons BEFORE the end-unit assessment
+      text = pages.slice(unit.start_page - 1, unit.assess_page - 1).join('\n').slice(0, 16000) || text;
+    }
     if (kind === 'unit_test' && endSection) {
       promptBody = `This is the END-OF-UNIT assessment section printed inside the unit "${unit.title}" of the book "${book.title}" (${book.subject}, ${book.grade_level}):
 
@@ -224,21 +249,31 @@ TEXT:
     .filter((q) => q && q.question && Array.isArray(q.options) && q.options.length === 4)
     .map((q) => ({ question: String(q.question), options: q.options.map(String), answer: Math.max(0, Math.min(3, parseInt(q.answer, 10) || 0)) }));
   if (!questions.length) throw new Error('AI returned no questions');
-  return { v: 2, questions, generated_at: new Date().toISOString() };
+  return { v: 3, questions, generated_at: new Date().toISOString() };
 }
 
-/** Ensure a book has units; lazily AI-detect them on first open. */
+/** Detect (exact first, AI fallback) and persist units for a book. */
+async function saveUnits(book, pages) {
+  let units = detectUnitsExact(pages);
+  if (!units.length && pages.length) units = await detectUnitsAI(book, pages);
+  if (!units.length) units = [{ title: 'Whole book', start_page: 1, end_page: pages.length || 1, position: 0 }];
+  await pool.query('DELETE FROM textbook_units WHERE textbook_id=$1', [book.id]);
+  for (const u of units) {
+    await pool.query(
+      'INSERT INTO textbook_units (textbook_id,title,start_page,end_page,assess_page,position) VALUES ($1,$2,$3,$4,$5,$6)',
+      [book.id, u.title, u.start_page, u.end_page, u.assess_page || null, u.position]
+    );
+  }
+  return units;
+}
+
+/** Ensure a book has units; lazily detect them on first open. */
 async function ensureUnits(book) {
   const existing = await pool.query('SELECT * FROM textbook_units WHERE textbook_id=$1 ORDER BY position', [book.id]);
   if (existing.rows.length) return existing.rows;
 
   try {
-    const pages = await getBookPages(book);
-    let units = pages.length ? await detectUnitsAI(book, pages) : [];
-    if (!units.length) units = [{ title: 'Whole book', start_page: 1, end_page: pages.length || 1, position: 0 }];
-    for (const u of units) {
-      await pool.query('INSERT INTO textbook_units (textbook_id,title,start_page,end_page,position) VALUES ($1,$2,$3,$4,$5)', [book.id, u.title, u.start_page, u.end_page, u.position]);
-    }
+    await saveUnits(book, await getBookPages(book));
   } catch (e) {
     console.error('[textbooks] detect-units failed:', e.message);
     await pool.query('INSERT INTO textbook_units (textbook_id,title,start_page,end_page,position) VALUES ($1,$2,1,1,0)', [book.id, book.title]);
@@ -425,7 +460,7 @@ router.get('/:id/learn', authenticateToken, async (req, res) => {
       book: { id: book.id, title: book.title, subject: book.subject, grade_level: book.grade_level, book_type: book.book_type },
       has_file: hasFile,
       page_count: pageCount,
-      units: units.map((u) => ({ id: u.id, title: u.title, start_page: u.start_page, end_page: u.end_page, position: u.position })),
+      units: units.map((u) => ({ id: u.id, title: u.title, start_page: u.start_page, end_page: u.end_page, assess_page: u.assess_page, position: u.position })),
       progress,
     });
   } catch (err) {
@@ -441,13 +476,9 @@ router.post('/:id/detect-units', authenticateToken, requireRole('admin'), async 
     if (!book) return res.status(404).json({ error: 'Book not found.' });
     const pages = await getBookPages(book);
     if (!pages.length) return res.status(422).json({ error: 'No readable content in this book.' });
-    const units = await detectUnitsAI(book, pages);
-    if (!units.length) return res.status(422).json({ error: 'AI could not detect units in this book.' });
-    await pool.query('DELETE FROM textbook_units WHERE textbook_id=$1', [book.id]);
-    for (const u of units) {
-      await pool.query('INSERT INTO textbook_units (textbook_id,title,start_page,end_page,position) VALUES ($1,$2,$3,$4,$5)', [book.id, u.title, u.start_page, u.end_page, u.position]);
-    }
-    const saved = await pool.query('SELECT id,title,start_page,end_page,position FROM textbook_units WHERE textbook_id=$1 ORDER BY position', [book.id]);
+    await saveUnits(book, pages);
+    await pool.query('UPDATE textbooks SET summative_quiz=NULL WHERE id=$1', [book.id]);
+    const saved = await pool.query('SELECT id,title,start_page,end_page,assess_page,position FROM textbook_units WHERE textbook_id=$1 ORDER BY position', [book.id]);
     res.json({ units: saved.rows });
   } catch (err) {
     console.error('[textbooks/detect-units]', err.message);
@@ -465,7 +496,7 @@ router.get('/:id/units/:unitId/quiz', authenticateToken, async (req, res) => {
     const col = kind === 'exercise' ? 'exercise_quiz' : kind === 'unit_test' ? 'unit_test_quiz' : null;
 
     if (kind === 'summative') {
-      if (book.summative_quiz?.v === 2 && book.summative_quiz.questions?.length) return res.json({ kind, questions: book.summative_quiz.questions, cached: true });
+      if (book.summative_quiz?.v === 3 && book.summative_quiz.questions?.length) return res.json({ kind, questions: book.summative_quiz.questions, cached: true });
       const quiz = await generateQuiz(book, null, 'summative');
       await pool.query('UPDATE textbooks SET summative_quiz=$1 WHERE id=$2', [JSON.stringify(quiz), book.id]);
       return res.json({ kind, questions: quiz.questions });
@@ -475,7 +506,7 @@ router.get('/:id/units/:unitId/quiz', authenticateToken, async (req, res) => {
     if (!unit) return res.status(404).json({ error: 'Unit not found.' });
 
     const cached = unit[col];
-    if (cached?.v === 2 && cached.questions?.length) return res.json({ kind, questions: cached.questions, cached: true });
+    if (cached?.v === 3 && cached.questions?.length) return res.json({ kind, questions: cached.questions, cached: true });
     const quiz = await generateQuiz(book, unit, kind);
     await pool.query(`UPDATE textbook_units SET ${col}=$1 WHERE id=$2`, [JSON.stringify(quiz), unit.id]);
     res.json({ kind, questions: quiz.questions });
