@@ -2,6 +2,13 @@ import { useState, useEffect } from 'react';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { signupEmailDomain } from '../utils/schoolDomain';
+import { formatSchoolEmailError } from '../utils/formatSchoolEmailError';
+
+function sanitizeSchoolRow(school) {
+  if (!school) return school;
+  const loginDomain = signupEmailDomain(school);
+  return loginDomain ? { ...school, email_domain: loginDomain } : school;
+}
 
 export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
   const { user, updateUser } = useAuth();
@@ -57,7 +64,7 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
       try {
         const data = await api.get('/auth/schools', token);
         if (cancelled) return;
-        setSchools(Array.isArray(data) ? data : []);
+        setSchools(Array.isArray(data) ? data.map(sanitizeSchoolRow) : []);
         if (activeSchoolId) {
           const mySchool = data.find((s) => String(s.id) === activeSchoolId);
           if (mySchool) setLinkedSchoolName(mySchool.name);
@@ -75,7 +82,7 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
     setError('');
     try {
       const created = await api.post('/auth/schools', { name: newSchoolName.trim() }, token);
-      setSchools(prev => [...prev, created]);
+      setSchools(prev => [...prev, sanitizeSchoolRow(created)]);
       const newId = String(created.id);
       setSchoolId(newId);
       if (!linkedSchoolId) setLinkedSchoolName(created.name || newSchoolName.trim());
@@ -116,7 +123,7 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
       setEmail('');
       setPassword('');
     } catch (e) {
-      setError(e.message);
+      setError(formatSchoolEmailError(e.message, studentEmailDomain));
     } finally {
       setLoading(false);
     }
