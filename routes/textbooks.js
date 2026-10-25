@@ -227,7 +227,7 @@ function endUnitSection(pages, u) {
   const all = labelPages(pages, u.assess_page, u.end_page);
   const m = all.match(END_UNIT_RE);
   if (!m) return null;
-  return `[Page ${u.assess_page}]\n${all.slice(m.index, m.index + 9000)}`;
+  return `[Page ${u.assess_page}]\n${all.slice(m.index, m.index + 16000)}`;
 }
 
 /** Book pages from..to (1-based, inclusive), each prefixed with its real page number. */
@@ -275,9 +275,14 @@ Create a ${count}-question summative assessment by COMBINING the book's own end-
 
 """${endSection}"""
 
-(Full unit text for answer keys: """${text.slice(0, 8000)}""")
+(The rest of the unit text, for answer keys only — do NOT take questions from it: """${text.slice(0, 9000)}""")
 
-The END-UNIT TEST must use the book's OWN questions from that section — reuse each printed question VERBATIM (keep its exact wording in English or Kinyarwanda as printed) and convert it into 4-option multiple choice, deriving the correct answer from the unit text. If the section has fewer than ${count} questions, include all of them first, then add extra questions from the unit text to reach ${count}. Never replace the book's questions with unrelated ones.`;
+RULES — follow them exactly:
+- The END-UNIT TEST contains ONLY the questions printed in that assessment section — every single one of them, in the book's order. Do not add any question of your own. Do not skip any.
+- Reuse each printed question VERBATIM — keep its exact wording in English or Kinyarwanda as printed — and convert it to 4-option multiple choice, deriving the correct answer from the text.
+- IMPORTANT: if a question refers to a reading passage, dialogue, text, table, picture description, sentence or verse printed in the book ("Read the text and answer", "Soma umuwandiko", "Using the passage", question about a story), INCLUDE that passage INSIDE the "question" field first, like: "Text: <the passage verbatim>\\n\\n<the printed question>". The learner must be able to answer without guessing.
+- If a printed item has sub-parts (a, b, c) that cannot become one MCQ, turn each sub-part into its own question — keep the book's wording.
+- If a question truly cannot be answered as multiple choice (e.g. "draw a lever"), turn it into a recall question about the same topic from the section instead of dropping it.`;
     } else if (kind === 'unit_test') {
       promptBody = `Create a ${count}-question END-OF-UNIT test for the unit "${unit.title}" of the book "${book.title}" (${book.subject}, ${book.grade_level}). This book does not print its own end-of-unit questions, so write questions strictly from the unit text below — match the unit's language (English or Kinyarwanda).
 
@@ -321,7 +326,7 @@ Return JSON: [{"question":"...","options":["A","B","C","D"],"answer":0,"page":23
     // Questions must come from THIS unit's pages only
     .filter((q) => q.page == null || (q.page >= minPage && q.page <= maxPage));
   if (!questions.length) throw new Error('AI returned no questions');
-  return { v: 4, questions, generated_at: new Date().toISOString() };
+  return { v: 5, questions, generated_at: new Date().toISOString() };
 }
 
 /** Detect (exact first, AI fallback) and persist units for a book. */
@@ -567,7 +572,7 @@ router.get('/:id/units/:unitId/quiz', authenticateToken, async (req, res) => {
     const col = kind === 'exercise' ? 'exercise_quiz' : kind === 'unit_test' ? 'unit_test_quiz' : null;
 
     if (kind === 'summative') {
-      if (book.summative_quiz?.v === 4 && book.summative_quiz.questions?.length) return res.json({ kind, questions: book.summative_quiz.questions, cached: true });
+      if (book.summative_quiz?.v === 5 && book.summative_quiz.questions?.length) return res.json({ kind, questions: book.summative_quiz.questions, cached: true });
       const quiz = await generateQuiz(book, null, 'summative');
       await pool.query('UPDATE textbooks SET summative_quiz=$1 WHERE id=$2', [JSON.stringify(quiz), book.id]);
       return res.json({ kind, questions: quiz.questions });
@@ -577,7 +582,7 @@ router.get('/:id/units/:unitId/quiz', authenticateToken, async (req, res) => {
     if (!unit) return res.status(404).json({ error: 'Unit not found.' });
 
     const cached = unit[col];
-    if (cached?.v === 4 && cached.questions?.length) return res.json({ kind, questions: cached.questions, cached: true });
+    if (cached?.v === 5 && cached.questions?.length) return res.json({ kind, questions: cached.questions, cached: true });
     const quiz = await generateQuiz(book, unit, kind);
     await pool.query(`UPDATE textbook_units SET ${col}=$1 WHERE id=$2`, [JSON.stringify(quiz), unit.id]);
     res.json({ kind, questions: quiz.questions });
