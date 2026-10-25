@@ -420,7 +420,7 @@ router.get('/directory', authenticateToken, async (req, res) => {
 
 // ── Wallet ───────────────────────────────────────────────────────────────────
 
-router.get('/wallet', authenticateToken, requireRole('alumni', 'admin'), async (req, res) => {
+router.get('/wallet', authenticateToken, requireRole('alumni', 'admin', 'teacher', 'head_teacher'), async (req, res) => {
   try {
     const w = await pool.query(`SELECT * FROM alumni_wallets WHERE user_id=$1`, [req.user.id]);
     const tx = await pool.query(`SELECT t.* FROM alumni_wallet_transactions t JOIN alumni_wallets w ON w.id = t.wallet_id WHERE w.user_id=$1 ORDER BY t.created_at DESC LIMIT 50`, [req.user.id]);

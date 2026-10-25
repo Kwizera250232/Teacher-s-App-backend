@@ -41,6 +41,8 @@ function userPayload(row) {
     sector: row.sector || null,
     school_name_text: row.school_name_text || null,
     is_external: row.is_external === true,
+    avatar_url: row.avatar_url || null,
+    avatar_path: row.avatar_path || null,
   };
   if (row.school_name) payload.school_name = row.school_name;
   return payload;

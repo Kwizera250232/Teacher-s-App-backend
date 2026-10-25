@@ -421,7 +421,7 @@ router.get('/stories', authenticateToken, async (req, res) => {
   }
 });
 
-router.post('/stories', authenticateToken, requireRole('alumni', 'admin', 'head_teacher', 'student'), async (req, res) => {
+router.post('/stories', authenticateToken, requireRole('alumni', 'admin', 'head_teacher', 'student', 'teacher'), async (req, res) => {
   const { content, media_url, background_color } = req.body;
   if (!content && !media_url) return res.status(400).json({ error: 'Content or media required.' });
   try {
