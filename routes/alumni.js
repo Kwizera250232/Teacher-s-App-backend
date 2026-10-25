@@ -301,7 +301,7 @@ router.get('/verify-info/:userId', authenticateToken, async (req, res) => {
 });
 
 // ── Upload avatar ───────────────────────────────────────────────────────────
-router.post('/profile/avatar', authenticateToken, requireRole('alumni', 'admin', 'head_teacher'), fileUpload.single('file'), async (req, res) => {
+router.post('/profile/avatar', authenticateToken, requireRole('alumni', 'admin', 'head_teacher', 'teacher'), fileUpload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
   try {
     const url = `/uploads/files/${req.file.filename}`;
