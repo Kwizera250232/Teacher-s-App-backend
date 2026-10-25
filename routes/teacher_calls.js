@@ -6,7 +6,7 @@ const { sendPushToUser } = require('../lib/pushNotify');
 const router = express.Router();
 const auth = [authenticateToken, requireRole('teacher', 'head_teacher', 'admin')];
 const STAFF = ['teacher', 'head_teacher', 'admin'];
-const RING_TTL_S = 60;
+const RING_TTL_S = 150;
 
 let schemaDone = false;
 async function ensureSchema() {
@@ -76,6 +76,7 @@ router.post('/', auth, async (req, res) => {
       body: `${me?.name || 'A teacher'} is calling you. Tap to answer.`,
       url: `/messages?to=${req.user.id}`,
       tag: `call-${call.id}`,
+      call: true,
     }).catch(() => {});
 
     res.status(201).json(call);
