@@ -53,7 +53,7 @@ export default function IncomingCallWatcher() {
       if (!mine) setIncoming((cur) => (cur ? (seenRef.current.delete(cur.id), ring.stop(), null) : cur));
     };
     poll();
-    const iv = setInterval(poll, 3000);
+    const iv = setInterval(poll, 1500);
     return () => { clearInterval(iv); ring.stop(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [staff, token, activeCall]);

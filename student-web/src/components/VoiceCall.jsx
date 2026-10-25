@@ -81,7 +81,7 @@ export default function VoiceCall({ callId, role, peerName, peerAvatar, onClose 
       }
 
       // Signaling poll — peer answer / ICE candidates / hangup
-      pollTimer = setInterval(async () => {
+      const poll = async () => {
         if (cancelled || doneRef.current) return;
         const c = await api.get(`/teacher-calls/${callId}`, token).catch(() => null);
         if (!c || cancelled || doneRef.current) return;
@@ -101,16 +101,19 @@ export default function VoiceCall({ callId, role, peerName, peerAvatar, onClose 
           setStatus(c.status === 'declined' ? 'Declined' : c.status === 'missed' ? 'No answer' : 'Call ended');
           setTimeout(() => onClose?.(), 1400);
         }
-      }, 1200);
+      };
+      poll();
+      pollTimer = setInterval(poll, 400);
     })();
 
     return () => {
       cancelled = true;
       clearInterval(pollTimer);
+      const wasDone = doneRef.current;
       doneRef.current = true;
       streamRef.current?.getTracks().forEach((t) => t.stop());
       pc.close();
-      if (!doneRef.current) api.post(`/teacher-calls/${callId}/hangup`, {}, token).catch(() => {});
+      if (!wasDone) api.post(`/teacher-calls/${callId}/hangup`, {}, token).catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [callId]);
