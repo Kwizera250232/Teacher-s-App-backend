@@ -3,6 +3,7 @@ const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { sendPushToUser } = require('../lib/pushNotify');
 const { sendMail } = require('../lib/optionalMailer');
+const { ensureClassMomentsSchema } = require('../lib/classMomentsSchema');
 
 const router = express.Router();
 const auth = [authenticateToken, requireRole('teacher', 'head_teacher', 'admin')];
@@ -37,11 +38,20 @@ const touch = () => { ensureSchema().catch((e) => console.error('[calls] schema:
 touch();
 router.use(async (req, res, next) => { await ensureSchema().catch(() => {}); next(); });
 
-// Expire stale rings
+// Expire stale rings — a missed call still lands in the callee's 🔔 notification centre
 async function reap(c) {
   if (c.status === 'ringing' && (Date.now() - new Date(c.created_at).getTime()) / 1000 > RING_TTL_S) {
-    await pool.query(`UPDATE teacher_calls SET status='missed' WHERE id=$1 AND status='ringing'`, [c.id]);
+    const u = await pool.query(`UPDATE teacher_calls SET status='missed' WHERE id=$1 AND status='ringing' RETURNING caller_id`, [c.id]);
     c.status = 'missed';
+    if (u.rowCount) {
+      ensureClassMomentsSchema().then(async () => {
+        const caller = (await pool.query('SELECT name FROM users WHERE id=$1', [c.caller_id])).rows[0];
+        await pool.query(
+          `INSERT INTO user_notifications (user_id, type, title, body, payload) VALUES ($1,'call',$2,$3,$4)`,
+          [c.callee_id, '📞 Missed call — UClass', `Teacher: ${caller?.name || 'A teacher'} called you.`, JSON.stringify({ url: `/messages?to=${c.caller_id}` })]
+        );
+      }).catch(() => {});
+    }
   }
   return c;
 }
@@ -83,6 +93,12 @@ router.post('/', auth, async (req, res) => {
       tag: `call-${call.id}`,
       call: true,
     }).catch(() => {});
+
+    // 🔔 In-app notification centre row — visible even if the push was missed
+    ensureClassMomentsSchema().then(() => pool.query(
+      `INSERT INTO user_notifications (user_id, type, title, body, payload) VALUES ($1,'call',$2,$3,$4)`,
+      [calleeId, '📞 Incoming call — UClass', `${callerLabel} is calling you. Tap to answer.`, JSON.stringify({ url: `/messages?to=${req.user.id}`, call_id: call.id })]
+    )).catch(() => {});
 
     // Email too — "pick up a call from Teacher X"
     (async () => {
