@@ -36,6 +36,7 @@ import Profile from './pages/Profile';
 import Messages from './pages/Messages';
 import Footer from './components/Footer';
 import OfflineBanner from './components/OfflineBanner';
+import IncomingCallWatcher from './components/IncomingCallWatcher';
 import { InstallProvider } from './components/InstallPrompt';
 import { usePushNotifications } from './hooks/usePushNotifications';
 import './components/Footer.css';
@@ -80,6 +81,7 @@ function AppShell() {
   return (
     <div className={`app-wa-shell${chatFullscreen ? ' app-wa-shell--chat-fullscreen' : ''}`} style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       <OfflineBanner />
+      <IncomingCallWatcher />
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         <Routes>
                 <Route path="/" element={<HomeRedirect />} />

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, UPLOADS_BASE } from '../api';
 import { useAuth } from '../context/AuthContext';
-import CallModal, { callRoom, CALL_MSG } from '../components/CallModal';
+import VoiceCall from '../components/VoiceCall';
 
 const AV = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%23667eea'/%3E%3Ctext y='.9em' font-size='50' x='25' fill='white'%3E%F0%9F%91%A4%3C/text%3E%3C/svg%3E";
 
@@ -30,14 +30,13 @@ export default function TeacherConnect() {
   }, [teachers, q]);
 
   const startCall = async (t) => {
-    const room = callRoom(user.id, t.id);
-    setCall({ room, title: `Calling ${t.name}…` });
     setToast('');
     try {
-      // Send the call invite as a message — the other teacher taps "Join the call" in the chat
-      await api.post('/messages', { receiver_id: t.id, content: CALL_MSG(room) }, token);
-    } catch {
-      setToast('Call started — invite could not be sent, but they can still call you back.');
+      // Real in-app call — server rings their phone (push) and they answer in UClass
+      const call = await api.post('/teacher-calls', { callee_id: t.id }, token);
+      setCall({ id: call.id, peerName: t.name, peerAvatar: t.avatar_path });
+    } catch (e) {
+      setToast(e.message || 'Could not start the call.');
     }
   };
 
@@ -96,7 +95,15 @@ export default function TeacherConnect() {
         </div>
       </div>
 
-      {call && <CallModal room={call.room} title={call.title} onClose={() => setCall(null)} />}
+      {call && (
+        <VoiceCall
+          callId={call.id}
+          role="caller"
+          peerName={call.peerName}
+          peerAvatar={call.peerAvatar}
+          onClose={() => setCall(null)}
+        />
+      )}
     </div>
   );
 }
