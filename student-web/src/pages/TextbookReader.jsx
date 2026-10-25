@@ -252,8 +252,8 @@ export default function TextbookReader() {
   const { id } = useParams();
   const { token, user } = useAuth();
   const navigate = useNavigate();
-  const libraryPath = user?.role === 'student' ? '/student/textbooks'
-    : user?.role === 'head_teacher' ? '/head-teacher/textbooks' : '/teacher/textbooks';
+  const libraryPath = user?.role === 'head_teacher' ? '/head-teacher/textbooks'
+    : user?.role === 'teacher' ? '/teacher/textbooks' : '/student/textbooks';
 
   const canvasRef = useRef(null);
   const renderToken = useRef(0);

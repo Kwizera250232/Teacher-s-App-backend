@@ -4,8 +4,13 @@ import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 
 export default function StudentTextbooks() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const navigate = useNavigate();
+  // Books open under the viewer's own route prefix — teachers/head teachers have their own
+  const roleBase = user?.role === 'head_teacher' ? '/head-teacher'
+    : user?.role === 'student' ? '/student' : '/teacher';
+  const homePath = user?.role === 'head_teacher' ? '/head-teacher/dashboard'
+    : user?.role === 'student' ? '/student/dashboard' : '/teacher/dashboard';
   const [books, setBooks] = useState([]);
   const [progress, setProgress] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -37,7 +42,7 @@ export default function StudentTextbooks() {
   return (
     <div style={{ minHeight: '100vh', background: '#f1f5f9' }}>
       <header style={{ background: 'linear-gradient(135deg,#4f46e5,#7c3aed)', color: '#fff', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <button type="button" onClick={() => navigate(-1)} style={{ background: 'rgba(255,255,255,.18)', border: 'none', color: '#fff', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 15 }}>← Back</button>
+        <button type="button" onClick={() => navigate(homePath)} style={{ background: 'rgba(255,255,255,.18)', border: 'none', color: '#fff', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 15 }}>← Back</button>
         <div>
           <h1 style={{ margin: 0, fontSize: 19 }}>📖 AI Textbooks</h1>
           <p style={{ margin: 0, fontSize: 12, opacity: 0.85 }}>Open a real book — read unit by unit, take exercises, pass the End-Unit test, then the Summative Assessment.</p>
@@ -60,7 +65,7 @@ export default function StudentTextbooks() {
                 {byGrade[grade].map((b) => {
                   const pr = bookProgress(b.id);
                   return (
-                    <Link key={b.id} to={`/student/textbooks/${b.id}`} style={{ textDecoration: 'none' }}>
+                    <Link key={b.id} to={`${roleBase}/textbooks/${b.id}`} style={{ textDecoration: 'none' }}>
                       <div style={{
                         background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 14,
                         padding: '14px 16px', transition: 'transform .12s, box-shadow .12s',
