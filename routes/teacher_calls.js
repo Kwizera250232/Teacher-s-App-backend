@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { sendPushToUser } = require('../lib/pushNotify');
+const { sendMail } = require('../lib/optionalMailer');
 
 const router = express.Router();
 const auth = [authenticateToken, requireRole('teacher', 'head_teacher', 'admin')];
@@ -60,7 +61,11 @@ router.post('/', auth, async (req, res) => {
     );
     if (live.rows.length) return res.status(409).json({ error: 'A call is already in progress.', call_id: live.rows[0].id });
 
-    const me = (await pool.query(`SELECT name FROM users WHERE id=$1`, [req.user.id])).rows[0];
+    const me = (await pool.query(
+      `SELECT u.name, s.name AS school_name FROM users u LEFT JOIN schools s ON s.id=u.school_id WHERE u.id=$1`,
+      [req.user.id]
+    )).rows[0];
+    const callerLabel = `Teacher: ${me?.name || 'A teacher'}${me?.school_name ? ` from ${me.school_name}` : ''}`;
     const r = await pool.query(
       `INSERT INTO teacher_calls (caller_id, callee_id) VALUES ($1,$2) RETURNING *`, [req.user.id, calleeId]
     );
@@ -73,11 +78,28 @@ router.post('/', auth, async (req, res) => {
     ).catch(() => {});
     sendPushToUser(calleeId, {
       title: '📞 Incoming call — UClass',
-      body: `${me?.name || 'A teacher'} is calling you. Tap to answer.`,
+      body: `${callerLabel} is calling you. Tap to answer.`,
       url: `/messages?to=${req.user.id}`,
       tag: `call-${call.id}`,
       call: true,
     }).catch(() => {});
+
+    // Email too — "pick up a call from Teacher X"
+    (async () => {
+      const recv = await pool.query(
+        `SELECT email, name FROM users WHERE id=$1 AND email ~* '^[^@]+@[^@]+\\.[a-z]{2,}$' AND email NOT LIKE '%@mail.umunsi.com'`,
+        [calleeId]
+      );
+      const to = recv.rows[0]?.email;
+      if (!to) return;
+      const link = `${process.env.FRONTEND_URL || 'https://student.umunsi.com'}/messages?to=${req.user.id}`;
+      await sendMail({
+        to,
+        subject: `📞 Pickup a call — ${me?.name || 'A teacher'} is calling you on UClass`,
+        text: `Hi ${recv.rows[0]?.name || 'teacher'},\n\n${callerLabel} is calling you right now on UClass.\n\nOpen the app to answer: ${link}`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto"><h3 style="color:#0e7490">📞 Incoming call on UClass</h3><p><strong>${callerLabel}</strong> is calling you right now.</p><a href="${link}" style="display:inline-block;background:#16a34a;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700">Open UClass &amp; Answer</a><p style="color:#64748b;font-size:12px;margin-top:14px">The call rings for about 2 minutes. You can also call them back from Teacher Connect.</p></div>`,
+      }).catch(() => {});
+    })().catch(() => {});
 
     res.status(201).json(call);
   } catch (err) {
