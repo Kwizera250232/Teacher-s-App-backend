@@ -240,7 +240,11 @@ export default function Messages() {
                 className="msg-chat-avatar"
               />
               <div>
-                <div className="msg-chat-name">
+                <div
+                  className="msg-chat-name"
+                  onClick={() => ['teacher','head_teacher','admin'].includes(activeContact?.role) && navigate(`/teacher-profile/${activeId}`)}
+                  style={['teacher','head_teacher','admin'].includes(activeContact?.role) ? { cursor: 'pointer' } : undefined}
+                >
                   {activeContact?.name}
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginLeft: 4, verticalAlign: 'middle' }}>
                     <circle cx="12" cy="12" r="12" fill="#1d9bf0"/>

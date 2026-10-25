@@ -44,10 +44,11 @@ export default function TeacherConnect() {
     <div style={{ minHeight: '100vh', background: '#f1f5f9' }}>
       <header style={{ background: 'linear-gradient(135deg,#0e7490,#0891b2)', color: '#fff', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
         <button type="button" onClick={() => navigate(-1)} style={{ background: 'rgba(255,255,255,.18)', border: 'none', color: '#fff', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 15 }}>← Back</button>
-        <div>
+        <div style={{ flex: 1 }}>
           <h1 style={{ margin: 0, fontSize: 19 }}>📞 Teacher Connect</h1>
           <p style={{ margin: 0, fontSize: 12, opacity: 0.85 }}>Call or message any teacher on UClass — your schoolmates are first.</p>
         </div>
+        <button type="button" onClick={() => navigate('/teacher-profile/me')} style={{ background: 'rgba(255,255,255,.18)', border: 'none', color: '#fff', borderRadius: 8, padding: '7px 13px', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>👤 My Profile</button>
       </header>
 
       <div style={{ maxWidth: 760, margin: '0 auto', padding: 14 }}>
@@ -65,9 +66,9 @@ export default function TeacherConnect() {
         <div style={{ display: 'grid', gap: 10 }}>
           {list.map((t) => (
             <div key={t.id} style={{ background: '#fff', borderRadius: 14, padding: '12px 14px', display: 'flex', gap: 12, alignItems: 'center', boxShadow: '0 1px 4px rgba(0,0,0,.06)', flexWrap: 'wrap' }}>
-              <img src={t.avatar_path ? `${UPLOADS_BASE}${t.avatar_path}` : AV} alt="" style={{ width: 52, height: 52, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+              <img src={t.avatar_path ? `${UPLOADS_BASE}${t.avatar_path}` : AV} alt="" style={{ width: 52, height: 52, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, cursor: 'pointer' }} onClick={() => navigate(`/teacher-profile/${t.id}`)} />
               <div style={{ flex: 1, minWidth: 190 }}>
-                <div style={{ fontWeight: 800, color: '#0f172a' }}>
+                <div style={{ fontWeight: 800, color: '#0f172a', cursor: 'pointer' }} onClick={() => navigate(`/teacher-profile/${t.id}`)}>
                   {t.name} {t.same_school && <span style={{ fontSize: 10, background: '#dcfce7', color: '#15803d', borderRadius: 6, padding: '1px 6px', marginLeft: 4, verticalAlign: 'middle' }}>SAME SCHOOL</span>}
                 </div>
                 <div style={{ fontSize: 12, color: '#64748b' }}>{t.role === 'head_teacher' ? '🏫 Head Teacher' : '👩‍🏫 Teacher'}{t.school_name ? ` · ${t.school_name}` : ''}</div>
