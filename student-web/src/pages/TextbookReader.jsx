@@ -267,6 +267,14 @@ export default function TextbookReader() {
   const [loadMsg, setLoadMsg] = useState('Opening book…');
   const [quiz, setQuiz] = useState(null);
   const [showContents, setShowContents] = useState(false);
+  const [viewport, setViewport] = useState(() => `${window.innerWidth}x${window.innerHeight}`);
+
+  useEffect(() => {
+    let t;
+    const onResize = () => { clearTimeout(t); t = setTimeout(() => setViewport(`${window.innerWidth}x${window.innerHeight}`), 150); };
+    window.addEventListener('resize', onResize);
+    return () => { clearTimeout(t); window.removeEventListener('resize', onResize); };
+  }, []);
 
   const loadData = useCallback(async () => {
     try {
@@ -316,10 +324,11 @@ export default function TextbookReader() {
       const canvas = canvasRef.current;
       const vp = page.getViewport({ scale: 1 });
       const desktop = window.innerWidth >= 900;
-      // Desktop: bigger page (fit a comfortable reading width, scroll down the page).
-      // Mobile: whole page fits the screen.
-      const maxW = desktop ? Math.min(window.innerWidth - 150, 1000) : Math.min(window.innerWidth - 12, 860);
-      const maxH = desktop ? Infinity : window.innerHeight - 150;
+      // Whole page always fits the screen — on desktop it uses the full available height
+      // (only the slim header above), so it is as big as possible without scrolling.
+      const headerH = document.querySelector('[data-tb-header]')?.offsetHeight || 60;
+      const maxW = desktop ? window.innerWidth - 150 : Math.min(window.innerWidth - 12, 860);
+      const maxH = window.innerHeight - headerH - (desktop ? 20 : 90);
       const scale = Math.min(maxW / vp.width, maxH / vp.height);
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const viewport = page.getViewport({ scale: scale * dpr });
@@ -330,7 +339,7 @@ export default function TextbookReader() {
       canvas.style.height = `${vp.height * scale}px`;
       await page.render({ canvasContext: ctx, viewport }).promise;
     })();
-  }, [pdf, pageNum]);
+  }, [pdf, pageNum, viewport]);
 
   // Swipe to turn pages (mobile)
   const onTouchStart = (e) => { touch.current = quiz || showContents ? null : e.touches[0].clientX; };
@@ -365,7 +374,7 @@ export default function TextbookReader() {
       onTouchEnd={onTouchEnd}
     >
       {/* Slim header */}
-      <header style={{ background: '#1e293b', color: '#fff', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+      <header data-tb-header style={{ background: '#1e293b', color: '#fff', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
         <button type="button" onClick={() => navigate(libraryPath)} style={{ background: 'rgba(255,255,255,.12)', border: 'none', color: '#fff', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', flexShrink: 0 }}>← Library</button>
         <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
           <div style={{ fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>📖 {book.title}</div>
@@ -375,7 +384,7 @@ export default function TextbookReader() {
       </header>
 
       {/* Page — rendered exactly like the real book */}
-      <main style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 4px', position: 'relative', overflowX: 'hidden' }}>
+      <main style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px 4px', position: 'relative', overflow: 'hidden' }}>
         {!pdf && !textPages ? (
           <div style={{ color: '#94a3b8', textAlign: 'center' }}>
             <div style={{ fontSize: 40, marginBottom: 10 }}>📖</div>
