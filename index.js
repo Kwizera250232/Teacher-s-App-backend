@@ -126,6 +126,7 @@ app.use('/api/parent', parentHubRoutes);
 app.use('/api/staff', require('./routes/staff_notifications'));
 app.use('/api/donate', donateRoutes);
 app.use('/api/teacher', require('./routes/teacher_earnings'));
+app.use('/api/teachers', require('./routes/teacher_directory'));
 app.use('/api/hooks', require('./routes/hooks'));
 app.use('/api/mail', require('./routes/mail'));
 app.use('/api/alumni', require('./routes/alumni'));

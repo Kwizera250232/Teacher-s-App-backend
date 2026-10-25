@@ -7,6 +7,34 @@ const { canUsersMessage } = require('../lib/messagingAccess');
 
 const router = express.Router();
 const auth = [authenticateToken];
+const { sendMail } = require('../lib/optionalMailer');
+
+/** Email the receiver once per unread conversation — "X messaged you, open UClass to reply". */
+async function notifyMessageEmail(senderId, receiverId, preview) {
+  try {
+    const prior = await pool.query(
+      'SELECT COUNT(*)::int AS c FROM messages WHERE sender_id=$1 AND receiver_id=$2 AND is_read=FALSE AND created_at < NOW() - INTERVAL \'1 minute\'',
+      [senderId, receiverId]
+    );
+    if (prior.rows[0].c > 0) return; // already unread + notified
+    const recv = await pool.query(
+      `SELECT u.email, u.name FROM users u WHERE u.id=$1 AND u.email ~* '^[^@]+@[^@]+\\.[a-z]{2,}$' AND u.email NOT LIKE '%@mail.umunsi.com'`,
+      [receiverId]
+    );
+    const sender = await pool.query('SELECT name FROM users WHERE id=$1', [senderId]);
+    const to = recv.rows[0]?.email;
+    if (!to) return;
+    const link = `${process.env.FRONTEND_URL || 'https://student.umunsi.com'}/messages?to=${senderId}`;
+    await sendMail({
+      to,
+      subject: `💬 New message from ${sender.rows[0]?.name || 'a teacher'} — UClass`,
+      text: `Hi ${recv.rows[0]?.name || 'teacher'},\n\n${sender.rows[0]?.name || 'Someone'} sent you a message on UClass:\n"${String(preview).slice(0, 200)}"\n\nReply here: ${link}`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto"><h3 style="color:#4f46e5">💬 New message on UClass</h3><p><strong>${sender.rows[0]?.name || 'Someone'}</strong> messaged you:</p><blockquote style="background:#f1f5f9;padding:12px;border-radius:8px;margin:10px 0">${String(preview).slice(0, 300)}</blockquote><a href="${link}" style="display:inline-block;background:#4f46e5;color:#fff;padding:11px 22px;border-radius:8px;text-decoration:none;font-weight:700">Open UClass to reply</a></div>`,
+    });
+  } catch (e) {
+    console.error('[messages] notify email failed:', e.message);
+  }
+}
 
 // Multer for message images
 const msgImageStorage = multer.diskStorage({
@@ -48,6 +76,7 @@ router.post('/', auth, async (req, res) => {
       `INSERT INTO messages (sender_id, receiver_id, content) VALUES ($1,$2,$3) RETURNING *`,
       [req.user.id, rid, content.trim().slice(0, 2000)]
     );
+    notifyMessageEmail(req.user.id, rid, content.trim()); // fire and forget
     res.status(201).json(result.rows[0]);
   } catch {
     res.status(500).json({ error: 'Internal server error.' });
