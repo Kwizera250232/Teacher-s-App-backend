@@ -108,6 +108,7 @@ export default function StaffDashboard({ roleLabel, basePath }) {
     { id: 'classes', label: '📚 Classes' },
     ...(isHeadTeacher ? [{ id: 'school', label: '🏫 School' }] : []),
     ...(hasSchool ? [{ id: 'chats', label: '💬 Chats' }] : []),
+    { id: 'connect', label: '📞 Teacher Connect', path: `${basePath}/connect` },
     { id: 'classnow', label: '📸 Class Now' },
     { id: 'textbooks', label: '📖 AI Textbooks', path: `${basePath}/textbooks` },
     { id: 'inyandiko', label: '✍️ Inyandiko' },

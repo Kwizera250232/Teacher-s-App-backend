@@ -17,6 +17,7 @@ import TakeQuiz from './pages/TakeQuiz';
 import TakeGroupQuiz from './pages/TakeGroupQuiz';
 import StudentQuizReportsPage from './pages/StudentQuizReportsPage';
 import StudentTextbooks from './pages/StudentTextbooks';
+import TeacherConnect from './pages/TeacherConnect';
 import TextbookReader from './pages/TextbookReader';
 import QuizResults from './pages/QuizResults';
 import AdminDashboard from './pages/AdminDashboard';
@@ -169,6 +170,12 @@ function AppShell() {
                 } />
                 <Route path="/student/textbooks/:id" element={
                   <ProtectedRoute role="student"><TextbookReader /></ProtectedRoute>
+                } />
+                <Route path="/teacher/connect" element={
+                  <ProtectedRoute role={['teacher', 'head_teacher']}><TeacherConnect /></ProtectedRoute>
+                } />
+                <Route path="/head-teacher/connect" element={
+                  <ProtectedRoute role={['teacher', 'head_teacher']}><TeacherConnect /></ProtectedRoute>
                 } />
                 <Route path="/teacher/textbooks" element={
                   <ProtectedRoute role={['teacher', 'head_teacher']}><StudentTextbooks /></ProtectedRoute>

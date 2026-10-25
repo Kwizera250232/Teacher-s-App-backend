@@ -4,6 +4,7 @@ import { api, uploadFile, UPLOADS_BASE } from '../api';
 import { useAuth } from '../context/AuthContext';
 import ClassmateProfileModal from '../components/ClassmateProfileModal';
 import ShareCompositionModal from '../components/ShareCompositionModal';
+import CallModal, { parseCallRoom } from '../components/CallModal';
 import '../styles/WaChatShell.css';
 import './Messages.css';
 
@@ -34,6 +35,7 @@ export default function Messages() {
   const [profilePerson, setProfilePerson] = useState(null);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [showShareComposition, setShowShareComposition] = useState(false);
+  const [callRoom, setCallRoom] = useState(null);
   const bottomRef = useRef();
   const threadRef = useRef();
   const fileRef = useRef();
@@ -252,7 +254,9 @@ export default function Messages() {
             <div className="wa-chat-body">
               <div className="msg-thread" ref={threadRef}>
                 {thread.length === 0 && <div className="msg-empty msg-thread-empty">Start the conversation!</div>}
-                {thread.map(m => (
+                {thread.map(m => {
+                  const room = parseCallRoom(m.content);
+                  return (
                   <div key={m.id} className={`msg-bubble-wrap ${m.sender_id === user?.id ? 'mine' : 'theirs'}`}>
                     <div className={`msg-bubble ${m.message_type && m.message_type !== 'chat' ? 'msg-bubble-announce' : ''}`}>
                       {m.message_type && m.message_type !== 'chat' && (
@@ -266,11 +270,19 @@ export default function Messages() {
                           onClick={() => window.open(`${UPLOADS_BASE}${m.image_path}`, '_blank')}
                         />
                       )}
-                      {m.content && <p>{m.content}</p>}
+                      {m.content && <p>{m.content.replace(/\s*\[uclass\.call:[a-z0-9-]+\]/i, '')}</p>}
+                      {room && (
+                        <button
+                          type="button"
+                          onClick={() => setCallRoom(room)}
+                          style={{ display: 'block', width: '100%', margin: '6px 0', padding: '10px', border: 'none', borderRadius: 10, background: '#15803d', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
+                        >📞 Join the call</button>
+                      )}
                       <span className="msg-time">{new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
                 <div ref={bottomRef} />
               </div>
 
@@ -355,6 +367,7 @@ export default function Messages() {
         onMessage={(uid) => { setProfilePerson(null); setActiveId(uid); setMobilePanel('chat'); }}
       />
     )}
+    {callRoom && <CallModal room={callRoom} title="Call" onClose={() => setCallRoom(null)} />}
     </>
   );
 }
