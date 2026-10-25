@@ -15,6 +15,7 @@ export default function TeacherPublicProfile() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [call, setCall] = useState(null);
+  const [bioOpen, setBioOpen] = useState(false);
   const [form, setForm] = useState({ bio: '', current_occupation: '', personal_motto: '', skills: '', favorite_subject: '' });
   const fileRef = useRef(null);
 
@@ -77,17 +78,21 @@ export default function TeacherPublicProfile() {
       {/* Cover */}
       <div style={{ height: 220, background: 'linear-gradient(135deg,#0e7490,#6366f1)', position: 'relative' }}>
         <button type="button" onClick={() => navigate(-1)} style={{ position: 'absolute', top: 14, left: 14, background: 'rgba(0,0,0,.3)', border: 'none', color: '#fff', borderRadius: 8, padding: '7px 13px', cursor: 'pointer' }}>← Back</button>
-        {isMe && (
-          <button type="button" onClick={() => fileRef.current?.click()} style={{ position: 'absolute', top: 14, right: 14, background: 'rgba(0,0,0,.35)', border: 'none', color: '#fff', borderRadius: 8, padding: '7px 13px', cursor: 'pointer' }}>📸 Photo</button>
-        )}
         <input ref={fileRef} type="file" accept="image/*" hidden onChange={uploadAvatar} />
       </div>
 
       <div style={{ maxWidth: 680, margin: '-70px auto 0', padding: '0 14px' }}>
         <div style={{ background: '#fff', borderRadius: 18, padding: '76px 20px 24px', boxShadow: '0 4px 20px rgba(0,0,0,.08)', position: 'relative' }}>
-          {/* Avatar */}
-          <div style={{ position: 'absolute', top: -56, left: '50%', transform: 'translateX(-50%)', width: 112, height: 112, borderRadius: '50%', border: '5px solid #fff', background: `hsl(${(p.user_id || p.id) * 137 % 360},55%,45%)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 40, fontWeight: 800, color: '#fff', overflow: 'hidden' }}>
+          {/* Avatar — on your own profile, tap the circle to upload your photo */}
+          <div
+            onClick={() => isMe && fileRef.current?.click()}
+            title={isMe ? 'Tap to upload your photo' : undefined}
+            style={{ position: 'absolute', top: -56, left: '50%', transform: 'translateX(-50%)', width: 112, height: 112, borderRadius: '50%', border: '5px solid #fff', background: `hsl(${(p.user_id || p.id) * 137 % 360},55%,45%)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 40, fontWeight: 800, color: '#fff', overflow: 'hidden', cursor: isMe ? 'pointer' : 'default' }}
+          >
             {avatar ? <img src={avatar.startsWith('http') ? avatar : `${UPLOADS_BASE}${avatar}`} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : initials}
+            {isMe && (
+              <span style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,.45)', fontSize: 15, padding: '2px 0', textAlign: 'center' }}>📷</span>
+            )}
           </div>
 
           <div style={{ textAlign: 'center' }}>
@@ -114,8 +119,26 @@ export default function TeacherPublicProfile() {
             )}
           </div>
 
-          {/* Bio + details */}
-          {p.bio && <p style={{ margin: '18px 0 0', lineHeight: 1.7, color: '#334155', fontSize: 15, textAlign: 'center' }}>{p.bio}</p>}
+          {/* Bio — paragraphs respected; collapsed to the first paragraph until "Read full Bio" */}
+          {p.bio && (() => {
+            const paras = String(p.bio).split(/\n{2,}|\r?\n/).map((s) => s.trim()).filter(Boolean);
+            const first = paras[0] || '';
+            const more = paras.length > 1;
+            return (
+              <div style={{ margin: '18px 0 0', lineHeight: 1.7, color: '#334155', fontSize: 15, textAlign: 'center', whiteSpace: 'pre-line' }}>
+                {bioOpen ? paras.join('\n\n') : first}
+                {more && (
+                  <button
+                    type="button"
+                    onClick={() => setBioOpen((v) => !v)}
+                    style={{ display: 'block', margin: '10px auto 0', padding: '8px 20px', borderRadius: 20, border: '1.5px solid #6366f1', background: bioOpen ? '#eef2ff' : '#fff', color: '#4f46e5', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+                  >
+                    {bioOpen ? '▲ Show less' : '📖 Read full Bio'}
+                  </button>
+                )}
+              </div>
+            );
+          })()}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center', marginTop: 16 }}>
             {p.favorite_subject && <span style={{ background: '#eef2ff', color: '#4f46e5', borderRadius: 16, padding: '5px 12px', fontSize: 13 }}>📚 {p.favorite_subject}</span>}
             {p.current_occupation && <span style={{ background: '#ecfeff', color: '#0e7490', borderRadius: 16, padding: '5px 12px', fontSize: 13 }}>💼 {p.current_occupation}</span>}
