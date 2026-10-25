@@ -44,7 +44,7 @@ export default function IncomingCallWatcher() {
     if (!staff || !token) return;
     const poll = async () => {
       const calls = await api.get('/teacher-calls/active', token).catch(() => []);
-      const mine = calls.find((c) => c.status === 'ringing' && c.callee_id === user.id);
+      const mine = calls.find((c) => c.status === 'ringing' && Number(c.callee_id) === Number(user.id));
       if (mine && !seenRef.current.has(mine.id) && !activeCall) {
         seenRef.current.add(mine.id);
         setIncoming(mine);
@@ -74,14 +74,21 @@ export default function IncomingCallWatcher() {
       {incoming && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.92)', zIndex: 2900, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
           <div style={{ textAlign: 'center' }}>
+            <style>{'@keyframes ringPulse{0%{transform:scale(.9);opacity:.8}100%{transform:scale(1.5);opacity:0}}'}</style>
             <img src={incoming.caller_avatar ? `${UPLOADS_BASE}${incoming.caller_avatar}` : AV} alt="" style={{ width: 100, height: 100, borderRadius: '50%', objectFit: 'cover', border: '3px solid #4ade80' }} />
             <div style={{ fontSize: 20, fontWeight: 800, marginTop: 14 }}>{incoming.caller_name}</div>
-            <div style={{ fontSize: 14, opacity: .8, marginTop: 4 }}>📞 UClass call…</div>
+            <div style={{ fontSize: 14, opacity: .8, marginTop: 4 }}>📞 Incoming UClass call…</div>
             <div style={{ display: 'flex', gap: 40, justifyContent: 'center', marginTop: 36 }}>
-              <button type="button" onClick={decline}
-                style={{ width: 64, height: 64, borderRadius: '50%', border: 'none', background: '#dc2626', color: '#fff', fontSize: 26, cursor: 'pointer', transform: 'rotate(135deg)' }}>📞</button>
-              <button type="button" onClick={accept}
-                style={{ width: 64, height: 64, borderRadius: '50%', border: 'none', background: '#16a34a', color: '#fff', fontSize: 26, cursor: 'pointer', animation: 'ringPulse 1.4s ease-out infinite' }}>📞</button>
+              <div style={{ textAlign: 'center' }}>
+                <button type="button" onClick={decline} aria-label="Decline"
+                  style={{ width: 64, height: 64, borderRadius: '50%', border: 'none', background: '#dc2626', color: '#fff', fontSize: 26, cursor: 'pointer', transform: 'rotate(135deg)' }}>📞</button>
+                <div style={{ fontSize: 12, marginTop: 6, opacity: .85 }}>Decline</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <button type="button" onClick={accept} aria-label="Answer"
+                  style={{ width: 64, height: 64, borderRadius: '50%', border: 'none', background: '#16a34a', color: '#fff', fontSize: 26, cursor: 'pointer', animation: 'ringPulse 1.4s ease-out infinite' }}>📞</button>
+                <div style={{ fontSize: 12, marginTop: 6, opacity: .85, fontWeight: 700, color: '#4ade80' }}>Answer</div>
+              </div>
             </div>
           </div>
         </div>

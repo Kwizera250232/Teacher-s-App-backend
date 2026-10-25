@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'uclass-v52';
+const CACHE_VERSION = 'uclass-v53';
 const API_CACHE = 'uclass-api-v2';
 const STATIC_ASSETS = ['/', '/index.html', '/manifest.json', '/icon.svg'];
 
@@ -231,6 +231,10 @@ self.addEventListener('push', (event) => {
       tag: data.tag || 'uclass',
       icon: '/icon.svg',
       badge: '/icon.svg',
+      // Incoming calls ring persistently like a phone call, not a one-shot banner
+      requireInteraction: !!data.call,
+      renotify: !!data.call,
+      vibrate: data.call ? [400, 200, 400, 200, 400, 400, 400, 200, 400] : undefined,
       data: { url: data.url || '/' },
     })
   );
