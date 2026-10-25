@@ -55,7 +55,9 @@ export default function TeacherPublicProfile() {
     const f = e.target.files[0];
     if (!f) return;
     try {
-      const r = await uploadFile('/alumni/profile/avatar', f, token);
+      const fd = new FormData();
+      fd.append('file', f);
+      const r = await uploadFile('/alumni/profile/avatar', fd, token);
       await api.put('/alumni/profile/me', { avatar_url: r.url }, token);
       load();
     } catch (err) { alert(err.message); }
@@ -119,8 +121,35 @@ export default function TeacherPublicProfile() {
             )}
           </div>
 
+          {/* Edit form — opens right here inside the card, no scrolling needed */}
+          {editing && (
+            <div style={{ marginTop: 18, textAlign: 'left' }}>
+              <h3 style={{ margin: '0 0 14px', fontSize: 17 }}>✏️ Edit Profile</h3>
+              {[
+                { k: 'current_occupation', label: 'What I do', ph: 'e.g. P4 English & Kinyarwanda teacher' },
+                { k: 'favorite_subject', label: 'Subject I teach', ph: 'e.g. English, Mathematics' },
+                { k: 'personal_motto', label: 'My motto', ph: 'A line that inspires your teaching' },
+                { k: 'skills', label: 'Skills (comma separated)', ph: 'e.g. lesson planning, Kinyarwanda, CBC' },
+              ].map((f) => (
+                <div key={f.k} style={{ marginBottom: 12 }}>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 700, marginBottom: 5, color: '#334155' }}>{f.label}</label>
+                  <input value={form[f.k]} onChange={(e) => setForm({ ...form, [f.k]: e.target.value })} placeholder={f.ph}
+                    style={{ width: '100%', padding: '10px 13px', borderRadius: 10, border: '1.5px solid #e2e8f0', fontSize: 14, boxSizing: 'border-box' }} />
+                </div>
+              ))}
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 700, marginBottom: 5, color: '#334155' }}>Bio</label>
+                <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} rows={8}
+                  style={{ width: '100%', padding: '10px 13px', borderRadius: 10, border: '1.5px solid #e2e8f0', fontSize: 14, resize: 'vertical', boxSizing: 'border-box' }} />
+              </div>
+              <button type="button" onClick={save} disabled={saving} style={{ width: '100%', padding: '12px', borderRadius: 10, border: 'none', background: '#6366f1', color: '#fff', fontWeight: 800, cursor: 'pointer' }}>
+                {saving ? 'Saving…' : '💾 Save Profile'}
+              </button>
+            </div>
+          )}
+
           {/* Bio — paragraphs respected; collapsed to the first paragraph until "Read full Bio" */}
-          {p.bio && (() => {
+          {!editing && p.bio && (() => {
             const paras = String(p.bio).split(/\n{2,}|\r?\n/).map((s) => s.trim()).filter(Boolean);
             const first = paras[0] || '';
             const more = paras.length > 1;
@@ -139,41 +168,15 @@ export default function TeacherPublicProfile() {
               </div>
             );
           })()}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center', marginTop: 16 }}>
+          <div style={{ display: editing ? 'none' : 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center', marginTop: 16 }}>
             {p.favorite_subject && <span style={{ background: '#eef2ff', color: '#4f46e5', borderRadius: 16, padding: '5px 12px', fontSize: 13 }}>📚 {p.favorite_subject}</span>}
             {p.current_occupation && <span style={{ background: '#ecfeff', color: '#0e7490', borderRadius: 16, padding: '5px 12px', fontSize: 13 }}>💼 {p.current_occupation}</span>}
             {(p.skills || []).map((s) => <span key={s} style={{ background: '#f0fdf4', color: '#15803d', borderRadius: 16, padding: '5px 12px', fontSize: 13 }}>⭐ {s}</span>)}
             {p.personal_motto && <span style={{ background: '#fdf4ff', color: '#a21caf', borderRadius: 16, padding: '5px 12px', fontSize: 13 }}>💭 “{p.personal_motto}”</span>}
           </div>
-          {!p.bio && !isMe && <p style={{ textAlign: 'center', color: '#94a3b8', marginTop: 18 }}>No bio yet.</p>}
+          {!editing && !p.bio && !isMe && <p style={{ textAlign: 'center', color: '#94a3b8', marginTop: 18 }}>No bio yet.</p>}
+          {!editing && !p.bio && isMe && <p style={{ textAlign: 'center', color: '#94a3b8', marginTop: 18 }}>Tell teachers about yourself — tap ✏️ Edit Profile.</p>}
         </div>
-
-        {/* Edit form */}
-        {editing && (
-          <div style={{ background: '#fff', borderRadius: 18, padding: 20, marginTop: 14, boxShadow: '0 4px 20px rgba(0,0,0,.06)' }}>
-            <h3 style={{ margin: '0 0 14px', fontSize: 18 }}>Edit Profile</h3>
-            {[
-              { k: 'current_occupation', label: 'What I do', ph: 'e.g. P4 English & Kinyarwanda teacher' },
-              { k: 'favorite_subject', label: 'Subject I teach', ph: 'e.g. English, Mathematics' },
-              { k: 'personal_motto', label: 'My motto', ph: 'A line that inspires your teaching' },
-              { k: 'skills', label: 'Skills (comma separated)', ph: 'e.g. lesson planning, Kinyarwanda, CBC' },
-            ].map((f) => (
-              <div key={f.k} style={{ marginBottom: 12 }}>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 700, marginBottom: 5, color: '#334155' }}>{f.label}</label>
-                <input value={form[f.k]} onChange={(e) => setForm({ ...form, [f.k]: e.target.value })} placeholder={f.ph}
-                  style={{ width: '100%', padding: '10px 13px', borderRadius: 10, border: '1.5px solid #e2e8f0', fontSize: 14, boxSizing: 'border-box' }} />
-              </div>
-            ))}
-            <div style={{ marginBottom: 14 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 700, marginBottom: 5, color: '#334155' }}>Bio</label>
-              <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} rows={4}
-                style={{ width: '100%', padding: '10px 13px', borderRadius: 10, border: '1.5px solid #e2e8f0', fontSize: 14, resize: 'vertical', boxSizing: 'border-box' }} />
-            </div>
-            <button type="button" onClick={save} disabled={saving} style={{ width: '100%', padding: '12px', borderRadius: 10, border: 'none', background: '#6366f1', color: '#fff', fontWeight: 800, cursor: 'pointer' }}>
-              {saving ? 'Saving…' : '💾 Save Profile'}
-            </button>
-          </div>
-        )}
       </div>
 
       {call && <VoiceCall callId={call.id} role="caller" peerName={p.name} peerAvatar={avatar} onClose={() => setCall(null)} />}
