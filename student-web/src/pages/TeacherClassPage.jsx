@@ -510,7 +510,7 @@ export default function TeacherClassPage() {
                       </span>
                     </div>
                   )}
-                  {n.file_name ? (
+                  {n.file_name && (
                     <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                       <button
                         className="btn btn-secondary btn-sm"
@@ -529,29 +529,6 @@ export default function TeacherClassPage() {
                           role: 'teacher',
                         }))}
                       >📱 Social Media</button>
-                    </div>
-                  ) : (
-                    <div style={{ marginTop: 8 }}>
-                      <label className="btn btn-primary btn-sm" style={{ cursor: 'pointer' }}>
-                        📎 Attach file
-                        <input
-                          type="file"
-                          hidden
-                          accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.jpg,.jpeg,.png"
-                          onChange={async (e) => {
-                            const f = e.target.files?.[0];
-                            if (!f) return;
-                            try {
-                              const fd = new FormData();
-                              fd.append('file', f);
-                              await uploadFile(`/classes/${id}/notes/${n.id}/file`, fd, token);
-                              showSuccess(`File attached to "${n.title}".`);
-                              fetchData();
-                            } catch (err) { setError(err.message); }
-                          }}
-                        />
-                      </label>
-                      <span style={{ fontSize: 12, color: '#b45309', marginLeft: 8 }}>no file — attach it to view/download</span>
                     </div>
                   )}
                   <div className="meta" style={{ marginTop: 6 }}>{new Date(n.created_at).toLocaleDateString()}</div>
