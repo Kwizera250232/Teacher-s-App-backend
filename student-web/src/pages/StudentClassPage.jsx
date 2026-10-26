@@ -558,19 +558,33 @@ export default function StudentClassPage() {
           ) : !data.length ? (
             <p style={{ color: '#888', textAlign: 'center', padding: 40 }}>No quizzes yet.</p>
           ) : (
-            data.map((q) => (
+            data.map((q) => {
+              const locked = q.scheduled_for && !q.released_at;
+              return (
               <div key={q.id} className="item-card">
                 <div className="item-card-body">
                   <h3>❓ {q.title}</h3>
                   <SharedQuizAttribution quiz={q} />
                   {q.description && <p>{q.description}</p>}
                   <div className="meta">{new Date(q.created_at).toLocaleDateString()}</div>
+                  {locked && (
+                    <p style={{ margin: '6px 0 0', fontSize: 13, fontWeight: 700, color: '#b45309' }}>
+                      🔒 Scheduled for {new Date(q.scheduled_for).toLocaleString()} — wait for your teacher to release it
+                    </p>
+                  )}
                 </div>
-                <button type="button" className="btn btn-primary btn-sm" onClick={() => navigate(`/student/classes/${id}/quizzes/${q.id}`)}>
-                  Take Quiz
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  disabled={locked}
+                  style={locked ? { opacity: 0.55, cursor: 'not-allowed' } : undefined}
+                  onClick={() => navigate(`/student/classes/${id}/quizzes/${q.id}`)}
+                >
+                  {locked ? '🔒 Not open yet' : 'Take Quiz'}
                 </button>
               </div>
-            ))
+              );
+            })
           )
         )}
 

@@ -25,6 +25,7 @@ import GuestMarksPanel from '../components/GuestMarksPanel';
 import ClassPointsPanel from '../components/ClassPointsPanel';
 import MidTermReportModal from '../components/MidTermReportModal';
 import AssignWorkToGroupModal from '../components/AssignWorkToGroupModal';
+import AssignQuizToGroupModal from '../components/AssignQuizToGroupModal';
 import TeacherQuizReportsPanel from '../components/quizReflection/TeacherQuizReportsPanel';
 import AppNotificationsBell from '../components/AppNotificationsBell';
 import RecordedLessons from '../components/RecordedLessons';
@@ -103,6 +104,10 @@ export default function TeacherClassPage() {
   const [showWeeklyDigest, setShowWeeklyDigest] = useState(false);
   const [parentInviteFor, setParentInviteFor] = useState(null);
   const [assignQuizToClass, setAssignQuizToClass] = useState(null); // null | { quiz? }
+  const [assignQuizToGroup, setAssignQuizToGroup] = useState(null); // null | { quiz? }
+  const [scheduleQuiz, setScheduleQuiz] = useState(null); // null | { quiz }
+  const [scheduleWhen, setScheduleWhen] = useState('');
+  const [scheduleBusy, setScheduleBusy] = useState(false);
 
   useEffect(() => {
     const urlTab = searchParams.get('tab');
@@ -805,6 +810,9 @@ export default function TeacherClassPage() {
                 <button type="button" className="btn btn-secondary" onClick={() => setAssignQuizToClass({})}>
                   📋 Assign to class
                 </button>
+                <button type="button" className="btn btn-secondary" onClick={() => setAssignQuizToGroup({})}>
+                  👥 Assign to group
+                </button>
                 <button type="button" className="btn btn-primary" onClick={() => setShowQuizModal(true)}>+ Create Quiz</button>
               </div>
             </div>
@@ -830,6 +838,16 @@ export default function TeacherClassPage() {
                       <span style={{ color: '#f59e0b', fontWeight: 600 }}>👁 {q.attempt_count} attempt{q.attempt_count > 1 ? 's' : ''} — locked</span>
                     ) : (
                       <span style={{ color: '#22c55e', fontWeight: 600 }}>✏️ Editable</span>
+                    )}
+                    {q.scheduled_for && !q.released_at && (
+                      <span style={{ color: '#b45309', fontWeight: 700, background: '#fef3c7', borderRadius: 8, padding: '2px 8px' }}>
+                        🔒 Scheduled {new Date(q.scheduled_for).toLocaleString()} — students wait for release
+                      </span>
+                    )}
+                    {q.scheduled_for && q.released_at && (
+                      <span style={{ color: '#15803d', fontWeight: 700, background: '#dcfce7', borderRadius: 8, padding: '2px 8px' }}>
+                        ✅ Released {new Date(q.released_at).toLocaleString()}
+                      </span>
                     )}
                   </div>
                 </div>
@@ -881,6 +899,35 @@ export default function TeacherClassPage() {
                   >
                     Assign to class
                   </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setAssignQuizToGroup({ quiz: { id: q.id, title: q.title } })}
+                    title="Assign to class groups — they take it together as a team"
+                  >
+                    👥 Groups
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => { setScheduleQuiz(q); setScheduleWhen(q.scheduled_for ? new Date(new Date(q.scheduled_for).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''); }}
+                    title="Schedule a date/time — students see it but can't take it until you release it"
+                  >
+                    🗓 Schedule
+                  </button>
+                  {q.scheduled_for && !q.released_at && (
+                    <button
+                      className="btn btn-primary btn-sm"
+                      style={{ background: '#16a34a', borderColor: '#16a34a' }}
+                      onClick={async () => {
+                        try {
+                          await api.post(`/classes/${id}/quizzes/${q.id}/release`, {}, token);
+                          showSuccess('Quiz released — students can take it now.');
+                          fetchData();
+                        } catch (e) { setError(e.message); }
+                      }}
+                    >
+                      🔓 Release
+                    </button>
+                  )}
                   <button className="btn btn-danger btn-sm" onClick={() => deleteItem(`/classes/${id}/quizzes/${q.id}`)}>Delete</button>
                     </>
                   )}
@@ -1216,6 +1263,80 @@ export default function TeacherClassPage() {
             showSuccess('Quiz assigned to class — every student can see it on their Quizzes tab.');
           }}
         />
+      )}
+
+      {assignQuizToGroup && (
+        <AssignQuizToGroupModal
+          classId={id}
+          token={token}
+          quiz={assignQuizToGroup.quiz}
+          onClose={() => setAssignQuizToGroup(null)}
+          onAssigned={() => {
+            showSuccess('Quiz assigned to the selected group(s) — members can take it together in their team.');
+            if (tab !== 'Quizzes') setTab('Quizzes'); else loadTab();
+          }}
+        />
+      )}
+
+      {scheduleQuiz && (
+        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setScheduleQuiz(null)}>
+          <div className="modal" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>🗓 Schedule quiz</h2>
+              <button type="button" className="modal-close" onClick={() => setScheduleQuiz(null)}>×</button>
+            </div>
+            <p style={{ margin: '0 0 14px', fontSize: 14, color: '#475569' }}>
+              <strong>{scheduleQuiz.title}</strong> — students will <em>see</em> it on their Quizzes tab but
+              can’t take it until you press <strong>🔓 Release</strong>.
+            </p>
+            <label style={{ display: 'block', fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Date &amp; time</label>
+            <input
+              type="datetime-local"
+              value={scheduleWhen}
+              onChange={(e) => setScheduleWhen(e.target.value)}
+              style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #e2e8f0', fontSize: 15, boxSizing: 'border-box' }}
+            />
+            <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ flex: 1 }}
+                disabled={!scheduleWhen || scheduleBusy}
+                onClick={async () => {
+                  setScheduleBusy(true);
+                  try {
+                    await api.put(`/classes/${id}/quizzes/${scheduleQuiz.id}/schedule`, { scheduled_for: new Date(scheduleWhen).toISOString() }, token);
+                    setScheduleQuiz(null);
+                    showSuccess('Quiz scheduled — students can see it but it stays locked until you release it.');
+                    fetchData();
+                  } catch (e) { setError(e.message); }
+                  setScheduleBusy(false);
+                }}
+              >
+                {scheduleBusy ? 'Saving…' : '🗓 Set schedule'}
+              </button>
+              {scheduleQuiz.scheduled_for && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={scheduleBusy}
+                  onClick={async () => {
+                    setScheduleBusy(true);
+                    try {
+                      await api.put(`/classes/${id}/quizzes/${scheduleQuiz.id}/schedule`, { scheduled_for: null }, token);
+                      setScheduleQuiz(null);
+                      showSuccess('Schedule cleared — quiz is open to students.');
+                      fetchData();
+                    } catch (e) { setError(e.message); }
+                    setScheduleBusy(false);
+                  }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {colleagueShareQuiz && (
