@@ -227,8 +227,8 @@ router.put(
       const manage = await userCanManageClass(req.user, classId);
       if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
       const r = await pool.query(
-        `UPDATE quizzes SET scheduled_for = $1,
-           released_at = CASE WHEN $1 IS NULL THEN released_at ELSE NULL END
+        `UPDATE quizzes SET scheduled_for = $1::timestamptz,
+           released_at = CASE WHEN $1::timestamptz IS NULL THEN released_at ELSE NULL END
          WHERE id = $2 AND class_id = $3 RETURNING id, scheduled_for, released_at`,
         [when, quizId, classId]
       );
