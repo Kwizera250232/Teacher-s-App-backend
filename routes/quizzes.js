@@ -90,6 +90,8 @@ pool.query(`
   ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS question_type VARCHAR(20) DEFAULT 'multiple_choice';
   ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS passage TEXT;
   ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS grade_level VARCHAR(20);
+  ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMPTZ;
+  ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS released_at TIMESTAMPTZ;
 `).catch(e => console.error('[quizzes] migration error:', e.message));
 
 // GET quizzes for a class
@@ -202,6 +204,72 @@ router.post(
       res.json({ ok: true, quiz_id: quizId, solo_released: true });
     } catch (err) {
       console.error('[quizzes/release-solo]', err);
+      res.status(500).json({ error: 'Internal server error.' });
+    }
+  }
+);
+
+// PUT schedule a quiz (teacher) — students see it but can't take it until released.
+// Setting a new schedule locks it again until the teacher releases.
+router.put(
+  '/:classId/quizzes/:quizId/schedule',
+  authenticateToken,
+  requireRole('teacher', 'head_teacher'),
+  async (req, res) => {
+    const classId = parseInt(req.params.classId, 10);
+    const quizId = parseInt(req.params.quizId, 10);
+    const when = req.body?.scheduled_for ? new Date(req.body.scheduled_for) : null;
+    if (req.body?.scheduled_for && Number.isNaN(when?.getTime())) {
+      return res.status(400).json({ error: 'Invalid date/time.' });
+    }
+    try {
+      const { userCanManageClass } = require('../lib/classAccess');
+      const manage = await userCanManageClass(req.user, classId);
+      if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
+      const r = await pool.query(
+        `UPDATE quizzes SET scheduled_for = $1,
+           released_at = CASE WHEN $1 IS NULL THEN released_at ELSE NULL END
+         WHERE id = $2 AND class_id = $3 RETURNING id, scheduled_for, released_at`,
+        [when, quizId, classId]
+      );
+      if (!r.rows.length) return res.status(404).json({ error: 'Quiz not found in this class.' });
+      res.json(r.rows[0]);
+    } catch (err) {
+      console.error('[quizzes/schedule]', err);
+      res.status(500).json({ error: 'Internal server error.' });
+    }
+  }
+);
+
+// POST release a scheduled quiz (teacher) — students can now take it.
+router.post(
+  '/:classId/quizzes/:quizId/release',
+  authenticateToken,
+  requireRole('teacher', 'head_teacher'),
+  async (req, res) => {
+    const classId = parseInt(req.params.classId, 10);
+    const quizId = parseInt(req.params.quizId, 10);
+    try {
+      const { userCanManageClass } = require('../lib/classAccess');
+      const manage = await userCanManageClass(req.user, classId);
+      if (!manage.ok) return res.status(403).json({ error: 'Forbidden.' });
+      const r = await pool.query(
+        `UPDATE quizzes SET released_at = COALESCE(released_at, NOW())
+         WHERE id = $1 AND class_id = $2 RETURNING id, title, scheduled_for, released_at`,
+        [quizId, classId]
+      );
+      if (!r.rows.length) return res.status(404).json({ error: 'Quiz not found in this class.' });
+      notifyClassAudiencePush({
+        classId,
+        excludeUserId: req.user.id,
+        title: '🔓 Quiz open',
+        body: `"${r.rows[0].title}" is now open — take it on your Quizzes tab.`,
+        contentType: 'quiz',
+        tag: `quiz-open-${quizId}`,
+      }).catch(() => {});
+      res.json(r.rows[0]);
+    } catch (err) {
+      console.error('[quizzes/release]', err);
       res.status(500).json({ error: 'Internal server error.' });
     }
   }
