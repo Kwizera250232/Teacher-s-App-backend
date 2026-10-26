@@ -114,6 +114,32 @@ router.post('/:classId/notes', authenticateToken, requireRole('teacher', 'head_t
   }
 });
 
+// PUT attach/replace the file on a note that was saved without one (teacher)
+router.put('/:classId/notes/:noteId/file', authenticateToken, requireRole('teacher', 'head_teacher'), (req, res, next) => {
+  uploadNote(req, res, (err) => {
+    if (err) return next(err);
+    next();
+  });
+}, async (req, res) => {
+  const classId = parseInt(req.params.classId, 10);
+  const noteId = parseInt(req.params.noteId, 10);
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
+  try {
+    if (!(await teacherOwnsClass(classId, req.user))) {
+      return res.status(403).json({ error: 'You do not own this class.' });
+    }
+    const r = await pool.query(
+      'UPDATE notes SET file_path=$1, file_name=$2 WHERE id=$3 AND class_id=$4 RETURNING *',
+      [req.file.filename, req.file.originalname, noteId, classId]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Note not found.' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error('[notes file PUT]', err.message);
+    res.status(500).json({ error: 'Failed to attach file.' });
+  }
+});
+
 // DELETE note (teacher)
 router.delete('/:classId/notes/:noteId', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
