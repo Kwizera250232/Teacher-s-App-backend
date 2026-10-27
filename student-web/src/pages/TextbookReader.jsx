@@ -287,8 +287,9 @@ export default function TextbookReader() {
         setPageCount(pages.length);
       }
       return d;
-    } catch {
-      setData({ error: true });
+    } catch (e) {
+      if (/premium/i.test(e.message || '')) setData({ locked: true, message: e.message });
+      else setData({ error: true });
       return null;
     }
   }, [id, token]);
@@ -351,7 +352,19 @@ export default function TextbookReader() {
     else if (dx > 50 && pageNum > 1) setPageNum((p) => p - 1);
   };
 
-  if (!data || data.error) {
+  if (!data || data.error || data.locked) {
+    if (data?.locked) {
+      return (
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f172a', padding: 24 }}>
+          <div style={{ background: '#fff', borderRadius: 18, padding: '30px 26px', maxWidth: 380, textAlign: 'center' }}>
+            <div style={{ fontSize: 42 }}>🔒</div>
+            <h2 style={{ margin: '10px 0 8px', fontSize: 20 }}>AI Textbooks is Premium</h2>
+            <p style={{ color: '#475569', fontSize: 14, lineHeight: 1.6, margin: '0 0 16px' }}>{data.message}</p>
+            <button type="button" onClick={() => navigate(-1)} style={{ padding: '10px 22px', borderRadius: 10, border: 'none', background: '#6366f1', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>← Back</button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', background: '#0f172a' }}>
         {data?.error ? 'Could not load this book.' : loadMsg}

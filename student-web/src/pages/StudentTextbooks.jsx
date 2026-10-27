@@ -13,15 +13,18 @@ export default function StudentTextbooks() {
     : user?.role === 'student' ? '/student/dashboard' : '/teacher/dashboard';
   const [books, setBooks] = useState([]);
   const [progress, setProgress] = useState([]);
+  const [locked, setLocked] = useState(null); // { class_name, class_id, amount_rwf }
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
       api.get('/textbooks', token).catch(() => []),
       api.get('/textbooks/mine/progress', token).catch(() => []),
-    ]).then(([b, p]) => {
+      api.get('/textbooks/access', token).catch(() => ({ premium_required: false })),
+    ]).then(([b, p, a]) => {
       setBooks(Array.isArray(b) ? b : []);
       setProgress(Array.isArray(p) ? p : []);
+      setLocked(a?.premium_required ? (a.classes?.[0] || {}) : null);
       setLoading(false);
     });
   }, [token]);
@@ -50,6 +53,18 @@ export default function StudentTextbooks() {
       </header>
 
       <main style={{ maxWidth: 980, margin: '0 auto', padding: '18px 14px' }}>
+        {locked && (
+          <div style={{ background: 'linear-gradient(135deg,#7c3aed,#a855f7)', color: '#fff', borderRadius: 14, padding: '16px 18px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', boxShadow: '0 6px 18px rgba(124,58,237,.3)' }}>
+            <span style={{ fontSize: 30 }}>🔒</span>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <strong style={{ fontSize: 15 }}>AI Textbooks is a Premium feature of {locked.class_name || 'your class'}</strong>
+              <div style={{ fontSize: 13, opacity: 0.9, marginTop: 3 }}>Pay for class access to open and read every book, take unit tests and the Summative.</div>
+            </div>
+            <button type="button" onClick={() => navigate(`/student/classes/${locked.class_id}`)} style={{ background: '#fbbf24', border: 'none', color: '#451a03', fontWeight: 800, borderRadius: 10, padding: '10px 16px', cursor: 'pointer', fontSize: 14 }}>
+              Pay {locked.amount_rwf ? `${Number(locked.amount_rwf).toLocaleString()} RWF` : 'for access'}
+            </button>
+          </div>
+        )}
         {loading ? (
           <p style={{ textAlign: 'center', color: '#64748b', padding: 40 }}>Loading books…</p>
         ) : books.length === 0 ? (
@@ -65,10 +80,19 @@ export default function StudentTextbooks() {
                 {byGrade[grade].map((b) => {
                   const pr = bookProgress(b.id);
                   return (
-                    <Link key={b.id} to={`${roleBase}/textbooks/${b.id}`} style={{ textDecoration: 'none' }}>
+                    <Link
+                      key={b.id}
+                      to={locked ? '#' : `${roleBase}/textbooks/${b.id}`}
+                      onClick={(e) => locked && e.preventDefault()}
+                      style={{ textDecoration: 'none', position: 'relative', display: 'block' }}
+                    >
+                      {locked && (
+                        <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 16 }} title="Premium — pay class access">🔒</span>
+                      )}
                       <div style={{
                         background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 14,
                         padding: '14px 16px', transition: 'transform .12s, box-shadow .12s',
+                        opacity: locked ? 0.65 : 1,
                       }}
                         onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 20px rgba(79,70,229,.12)'; }}
                         onMouseLeave={(e) => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}
