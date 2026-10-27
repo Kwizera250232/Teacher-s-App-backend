@@ -8,6 +8,7 @@ const { ensureClassPaymentsSchema } = require('../lib/classPaymentsSchema');
 const router = express.Router();
 
 const CLASS_BENEFITS = [
+  'AI Textbooks — read the real REB books inside UClass',
   'Full access to all class quizzes, notes, homework & announcements',
   'Join live coaching sessions with your teacher',
   'Take part in class discussions & group work',

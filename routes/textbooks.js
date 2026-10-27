@@ -12,6 +12,55 @@ const router = express.Router();
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL = 'openai/gpt-oss-120b';
 
+// ── Premium gate — students in a class with paid access must have paid to read ──
+async function unpaidPremiumClasses(studentId) {
+  const r = await pool.query(
+    `SELECT s.class_id, s.amount_rwf, c.name AS class_name
+       FROM class_payment_settings s
+       JOIN classes c ON c.id = s.class_id
+      WHERE s.enabled AND s.amount_rwf > 0
+        AND EXISTS (SELECT 1 FROM class_members m WHERE m.class_id = s.class_id AND m.student_id = $1)
+        AND NOT EXISTS (SELECT 1 FROM class_payments p WHERE p.class_id = s.class_id
+                        AND p.student_id = $1 AND p.status = 'SUCCESSFUL' AND p.expires_at > NOW())`,
+    [studentId]
+  );
+  return r.rows;
+}
+
+/** Returns true and sends 402 when the student must pay for class access first. */
+async function textbookGate(req, res) {
+  if (req.user.role !== 'student') return false;
+  try {
+    const unpaid = await unpaidPremiumClasses(req.user.id);
+    if (!unpaid.length) return false;
+    const c = unpaid[0];
+    res.status(402).json({
+      error: `📚 AI Textbooks is a premium feature of your class "${c.class_name}" — pay for class access to open books.`,
+      premium_required: true,
+      class_id: c.class_id,
+      class_name: c.class_name,
+      amount_rwf: c.amount_rwf,
+    });
+    return true;
+  } catch {
+    return false; // gate failure never blocks access
+  }
+}
+
+// Access status for the books list (lock banner + pay CTA)
+router.get('/access', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'student') return res.json({ premium_required: false });
+    const unpaid = await unpaidPremiumClasses(req.user.id);
+    res.json({
+      premium_required: unpaid.length > 0,
+      classes: unpaid.map((c) => ({ class_id: c.class_id, class_name: c.class_name, amount_rwf: c.amount_rwf })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // ── Schema: units + student progress (created at startup) ───────────────────
 pool.query(`
   CREATE TABLE IF NOT EXISTS textbook_units (
@@ -493,6 +542,7 @@ router.get('/mine/progress', authenticateToken, async (req, res) => {
 // Stream the PDF file (auth required)
 router.get('/:id/file', authenticateToken, async (req, res) => {
   try {
+    if (await textbookGate(req, res)) return;
     const book = (await pool.query('SELECT * FROM textbooks WHERE id=$1', [req.params.id])).rows[0];
     if (!book) return res.status(404).json({ error: 'Book not found.' });
     const abs = bookFilePath(book);
@@ -507,6 +557,7 @@ router.get('/:id/file', authenticateToken, async (req, res) => {
 // Text-mode pages for books without a stored PDF file
 router.get('/:id/textpages', authenticateToken, async (req, res) => {
   try {
+    if (await textbookGate(req, res)) return;
     const book = (await pool.query('SELECT * FROM textbooks WHERE id=$1', [req.params.id])).rows[0];
     if (!book) return res.status(404).json({ error: 'Book not found.' });
     const pages = await getBookPages(book);
@@ -520,6 +571,7 @@ router.get('/:id/textpages', authenticateToken, async (req, res) => {
 // Book detail for learning: units + my progress
 router.get('/:id/learn', authenticateToken, async (req, res) => {
   try {
+    if (await textbookGate(req, res)) return;
     const book = (await pool.query(
       'SELECT id, title, subject, grade_level, book_type, file_name, file_path, content FROM textbooks WHERE id=$1',
       [req.params.id]
@@ -566,6 +618,7 @@ router.post('/:id/detect-units', authenticateToken, requireRole('admin'), async 
 router.get('/:id/units/:unitId/quiz', authenticateToken, async (req, res) => {
   const kind = ['exercise', 'unit_test', 'summative'].includes(req.query.kind) ? req.query.kind : 'exercise';
   try {
+    if (await textbookGate(req, res)) return;
     const book = (await pool.query('SELECT * FROM textbooks WHERE id=$1', [req.params.id])).rows[0];
     if (!book) return res.status(404).json({ error: 'Book not found.' });
 
