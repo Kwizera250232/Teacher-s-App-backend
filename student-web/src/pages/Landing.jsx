@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DonateSupportBanner from '../components/DonateSupportBanner';
+import UClassSlideShow from '../components/UClassSlideShow';
 import TutorialVideo, { TutorialVideoDownloadLink } from '../components/TutorialVideo';
 import LandingRoleSignup from '../components/LandingRoleSignup';
 
@@ -294,6 +295,8 @@ export default function Landing() {
         </header>
 
         <DonateSupportBanner />
+
+        <UClassSlideShow />
 
         <TutorialVideo
           className="landing-page"
