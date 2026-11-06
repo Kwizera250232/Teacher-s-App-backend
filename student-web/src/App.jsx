@@ -1,3 +1,4 @@
+import { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -6,35 +7,35 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import TeacherDashboard from './pages/TeacherDashboard';
 import HeadTeacherDashboard from './pages/HeadTeacherDashboard';
-import ParentHub from './pages/ParentHub';
-import ParentDashboard from './pages/ParentDashboard';
+const ParentHub = lazy(() => import('./pages/ParentHub'));
+const ParentDashboard = lazy(() => import('./pages/ParentDashboard'));
 import StudentDashboard from './pages/StudentDashboard';
 import { dashboardPath } from './utils/roles';
-import TeacherClassPage from './pages/TeacherClassPage';
-import RecordCatMarks from './pages/RecordCatMarks';
-import StudentClassPage from './pages/StudentClassPage';
-import TakeQuiz from './pages/TakeQuiz';
-import TakeGroupQuiz from './pages/TakeGroupQuiz';
-import StudentQuizReportsPage from './pages/StudentQuizReportsPage';
-import StudentTextbooks from './pages/StudentTextbooks';
-import TeacherConnect from './pages/TeacherConnect';
-import TeacherPublicProfile from './pages/TeacherPublicProfile';
-import TextbookReader from './pages/TextbookReader';
-import QuizResults from './pages/QuizResults';
-import AdminDashboard from './pages/AdminDashboard';
+const TeacherClassPage = lazy(() => import('./pages/TeacherClassPage'));
+const RecordCatMarks = lazy(() => import('./pages/RecordCatMarks'));
+const StudentClassPage = lazy(() => import('./pages/StudentClassPage'));
+const TakeQuiz = lazy(() => import('./pages/TakeQuiz'));
+const TakeGroupQuiz = lazy(() => import('./pages/TakeGroupQuiz'));
+const StudentQuizReportsPage = lazy(() => import('./pages/StudentQuizReportsPage'));
+const StudentTextbooks = lazy(() => import('./pages/StudentTextbooks'));
+const TeacherConnect = lazy(() => import('./pages/TeacherConnect'));
+const TeacherPublicProfile = lazy(() => import('./pages/TeacherPublicProfile'));
+const TextbookReader = lazy(() => import('./pages/TextbookReader'));
+const QuizResults = lazy(() => import('./pages/QuizResults'));
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
 import JoinClass from './pages/JoinClass';
 import StudentNotes from './pages/StudentNotes';
-import ClassMomentsPage from './pages/ClassMomentsPage';
-import ShareMomentPage from './pages/ShareMomentPage';
-import QuizShareLanding from './pages/QuizShareLanding';
-import GuestDashboard from './pages/GuestDashboard';
-import GuestClassPage from './pages/GuestClassPage';
-import GuestProfile from './pages/GuestProfile';
+const ClassMomentsPage = lazy(() => import('./pages/ClassMomentsPage'));
+const ShareMomentPage = lazy(() => import('./pages/ShareMomentPage'));
+const QuizShareLanding = lazy(() => import('./pages/QuizShareLanding'));
+const GuestDashboard = lazy(() => import('./pages/GuestDashboard'));
+const GuestClassPage = lazy(() => import('./pages/GuestClassPage'));
+const GuestProfile = lazy(() => import('./pages/GuestProfile'));
 import InviteSignup from './pages/InviteSignup';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
-import Profile from './pages/Profile';
-import Messages from './pages/Messages';
+const Profile = lazy(() => import('./pages/Profile'));
+const Messages = lazy(() => import('./pages/Messages'));
 import Footer from './components/Footer';
 import OfflineBanner from './components/OfflineBanner';
 import IncomingCallWatcher from './components/IncomingCallWatcher';
@@ -84,6 +85,7 @@ function AppShell() {
       <OfflineBanner />
       <IncomingCallWatcher />
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <Suspense fallback={<div className="app-route-loading" style={{padding:40,textAlign:'center'}}>Loading…</div>}>
         <Routes>
                 <Route path="/" element={<HomeRedirect />} />
                 <Route path="/welcome" element={<Landing />} />
@@ -225,6 +227,7 @@ function AppShell() {
                   <ProtectedRoute><Messages /></ProtectedRoute>
                 } />
         </Routes>
+        </Suspense>
       </div>
       {!hideFooter && <Footer />}
     </div>

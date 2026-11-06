@@ -297,33 +297,60 @@ export default function TextbookReader() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const d = await loadData();
-      if (cancelled || !d || d.error || d.has_file === false) return;
+      // Book details and the PDF load IN PARALLEL (each server trip is slow,
+      // so never wait for one before starting the other).
+      try {
+        const c = JSON.parse(localStorage.getItem(`tb_learn_${id}`) || 'null');
+        if (c && !c.locked && !c.error) setData(c);
+      } catch {}
+      const learnP = loadData().then((d) => {
+        try { if (d && !d.error && !d.locked) localStorage.setItem(`tb_learn_${id}`, JSON.stringify(d)); } catch {}
+        return d;
+      });
       try {
         const url = `${API_BASE}/textbooks/${id}/file`;
-        // Second open: the whole PDF is in device storage → instant.
+        const auth = { Authorization: `Bearer ${token}` };
         const cache = await caches.open('uclass-books-v1').catch(() => null);
         const cached = cache ? await cache.match(url).catch(() => null) : null;
         let doc;
         if (cached) {
-          const buf = await cached.arrayBuffer();
-          doc = await pdfjsLib.getDocument({ data: buf }).promise;
+          // Whole PDF already on this device → no network at all.
+          doc = await pdfjsLib.getDocument({ data: await cached.arrayBuffer() }).promise;
         } else {
-          // First open: stream the PDF — pdf.js fetches only the pages being
-          // viewed via range requests, so page 1 shows immediately.
-          doc = await pdfjsLib.getDocument({
-            url,
-            httpHeaders: { Authorization: `Bearer ${token}` },
-          }).promise;
-          // Save a full copy in the background so the next open is instant.
-          fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-            .then(r => (r.ok && cache) ? cache.put(url, r).catch(() => {}) : null)
-            .catch(() => {});
+          // Edge address of the book is permanent — remember it so the next
+          // open skips the lookup trip entirely.
+          let streamUrl = localStorage.getItem(`tb_url_${id}`) || '';
+          if (!streamUrl) {
+            try {
+              const probe = await fetch(`${url}?resolve=1`, { headers: auth });
+              const j = probe.ok ? await probe.json() : null;
+              if (j?.url && /^https:\/\/[^/]*r2\.dev\//.test(j.url)) {
+                streamUrl = j.url;
+                localStorage.setItem(`tb_url_${id}`, streamUrl);
+              }
+            } catch { /* fall back to API url */ }
+          }
+          const viaEdge = Boolean(streamUrl);
+          try {
+            doc = await pdfjsLib.getDocument({ url: streamUrl || url, httpHeaders: viaEdge ? {} : auth }).promise;
+          } catch (err) {
+            if (!viaEdge) throw err;
+            localStorage.removeItem(`tb_url_${id}`);
+            doc = await pdfjsLib.getDocument({ url, httpHeaders: auth }).promise;
+          }
+          // Save a full copy from the edge (not the slow server) so next open is instant.
+          if (cache) {
+            fetch(viaEdge ? streamUrl : url, viaEdge ? {} : { headers: auth })
+              .then((r) => (r.ok ? cache.put(url, r).catch(() => {}) : null))
+              .catch(() => {});
+          }
         }
-        if (!doc) throw new Error('Could not load the book file.');
+        if (cancelled) return;
         setPdf(doc);
         setPageCount(doc.numPages);
       } catch (e) {
+        const d = await learnP;
+        if (cancelled || !d || d.error || d.locked || d.has_file === false) return;
         setLoadMsg(`⚠️ ${e.message || 'Failed to open book.'}`);
       }
     })();

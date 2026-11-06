@@ -58,7 +58,8 @@ app.use(cors({
     'http://localhost:5173',
     /\.vercel\.app$/
   ],
-  credentials: true
+  credentials: true,
+  maxAge: 86400
 }));
 app.use(express.json({ limit: '2mb' }));
 // gzip JSON responses (no extra dependency — safe on VPS without npm install)
