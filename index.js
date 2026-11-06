@@ -61,6 +61,7 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json({ limit: '2mb' }));
+app.use(require('compression')()); // gzip API JSON — much faster on slow connections
 // Allow uploads to be embedded in iframes and loaded cross-origin (avatars, PDFs)
 app.use('/uploads', (req, res, next) => {
   res.removeHeader('X-Frame-Options');
@@ -78,7 +79,7 @@ ensureDirectory(path.join(uploadsRoot, 'msg_images'));
 ensureDirectory(path.join(uploadsRoot, 'feed'));
 ensureDirectory(path.join(uploadsRoot, 'moments'));
 
-app.use('/uploads', express.static(uploadsRoot));
+app.use('/uploads', express.static(uploadsRoot, { maxAge: '30d', immutable: true })); // filenames are unique — cache hard
 app.use('/uploads/avatars', express.static(path.join(uploadsRoot, 'avatars')));
 app.use('/uploads/msg_images', express.static(path.join(uploadsRoot, 'msg_images')));
 

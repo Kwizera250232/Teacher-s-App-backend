@@ -300,7 +300,15 @@ export default function TextbookReader() {
       const d = await loadData();
       if (cancelled || !d || d.error || d.has_file === false) return;
       try {
-        const res = await fetch(`${API_BASE}/textbooks/${id}/file`, { headers: { Authorization: `Bearer ${token}` } });
+        const url = `${API_BASE}/textbooks/${id}/file`;
+        // Books never change for a given id — keep the PDF in device storage,
+        // so reopening the same book is instant even on slow internet.
+        const cache = await caches.open('uclass-books-v1').catch(() => null);
+        let res = cache ? await cache.match(url).catch(() => null) : null;
+        if (!res) {
+          res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+          if (res.ok && cache) cache.put(url, res.clone()).catch(() => {});
+        }
         if (!res.ok) throw new Error('Could not load the book file.');
         const buf = await res.arrayBuffer();
         setLoadMsg('Preparing pages…');
