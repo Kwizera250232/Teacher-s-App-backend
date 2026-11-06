@@ -17,15 +17,22 @@ export default function StudentTextbooks() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Render last-known books instantly, refresh in the background.
+    try {
+      const c = JSON.parse(localStorage.getItem('cached_textbooks') || 'null');
+      if (c?.books?.length) { setBooks(c.books); setProgress(c.progress || []); setLoading(false); }
+    } catch {}
     Promise.all([
       api.get('/textbooks', token).catch(() => []),
       api.get('/textbooks/mine/progress', token).catch(() => []),
       api.get('/textbooks/access', token).catch(() => ({ premium_required: false })),
     ]).then(([b, p, a]) => {
-      setBooks(Array.isArray(b) ? b : []);
-      setProgress(Array.isArray(p) ? p : []);
+      const bl = Array.isArray(b) ? b : [];
+      const pl = Array.isArray(p) ? p : [];
+      setBooks(bl); setProgress(pl);
       setLocked(a?.premium_required ? (a.classes?.[0] || {}) : null);
       setLoading(false);
+      try { localStorage.setItem('cached_textbooks', JSON.stringify({ books: bl, progress: pl })); } catch {}
     });
   }, [token]);
 

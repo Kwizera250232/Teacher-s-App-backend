@@ -60,6 +60,8 @@ export default function StudentDashboard() {
   };
 
   const loadClasses = () => {
+    // Show last-known classes instantly — network latency shouldn't block the UI.
+    try { const c = JSON.parse(localStorage.getItem('cached_classes') || '[]'); if (c.length) setClasses(c); } catch {}
     api.get('/classes/my', token).then(data => {
       setClasses(data);
       try { localStorage.setItem('cached_classes', JSON.stringify(data)); } catch {}

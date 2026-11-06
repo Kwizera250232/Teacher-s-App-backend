@@ -550,6 +550,10 @@ router.get('/:id/file', authenticateToken, async (req, res) => {
     // Serve from Cloudflare R2 edge when available — much faster for students.
     const r2 = require('../lib/r2');
     const r2Url = await r2.r2UrlIfExists(`textbooks/${book.file_path}`);
+    if (req.query.resolve === '1') {
+      // Reader asks for the final URL once, then streams from the edge directly.
+      return res.json({ url: r2Url || `${req.protocol}://${req.get('host')}${req.baseUrl}${req.path}` });
+    }
     if (r2Url) { r2.enqueue(abs, `textbooks/${book.file_path}`); return res.redirect(302, r2Url); }
     res.setHeader('Content-Type', 'application/pdf');
     res.sendFile(abs);
