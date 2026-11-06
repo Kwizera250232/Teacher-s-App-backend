@@ -9,7 +9,8 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
     user?.school_id != null ? String(user.school_id) : ''
   );
   const [schoolProfileLoaded, setSchoolProfileLoaded] = useState(false);
-  const teacherNeedsSchool = user?.role === 'teacher' && schoolProfileLoaded && !linkedSchoolId;
+  const teacherNoSchool = user?.role === 'teacher' && schoolProfileLoaded && !linkedSchoolId;
+  const teacherNeedsSchool = false; // teachers without a school can pick an existing one or write a new one below
   const canPickSchool = !linkedSchoolId || user?.role === 'admin';
   const [mode, setMode] = useState('single');
   const [schools, setSchools] = useState([]);
@@ -169,12 +170,12 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
           </button>
         </div>
 
-        {teacherNeedsSchool && (
-          <div className="alert alert-error" style={{ marginBottom: 16 }}>
-            Your account is not linked to a school yet. Join a school from the dashboard first — your Head Teacher must approve before you can add students.
+        {teacherNoSchool && (
+          <div style={{ marginBottom: 16, padding: '12px 14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, color: '#1e3a8a', fontSize: 14 }}>
+            You have no school linked yet. <strong>Pick your school below</strong> (or tap <strong>+ New</strong> to write it) and add your students now.
             {onNeedJoinSchool && (
-              <button type="button" className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={() => { onClose(); onNeedJoinSchool(); }}>
-                Join a school
+              <button type="button" className="btn btn-outline btn-sm" style={{ marginTop: 10, display: 'block' }} onClick={() => { onClose(); onNeedJoinSchool(); }}>
+                🏫 Also add my school to my profile
               </button>
             )}
           </div>

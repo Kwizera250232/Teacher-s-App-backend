@@ -295,7 +295,7 @@ export default function StaffDashboard({ roleLabel, basePath }) {
             <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
               + Fungura Ishuri
             </button>
-            <button className="btn btn-secondary" onClick={() => setShowAddStudents(true)} disabled={user?.role === 'teacher' && !hasSchool}>
+            <button className="btn btn-secondary" onClick={() => setShowAddStudents(true)}>
               👤 Add Students
             </button>
           </div>
