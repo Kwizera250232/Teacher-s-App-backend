@@ -547,6 +547,10 @@ router.get('/:id/file', authenticateToken, async (req, res) => {
     if (!book) return res.status(404).json({ error: 'Book not found.' });
     const abs = bookFilePath(book);
     if (!abs || !fs.existsSync(abs)) return res.status(404).json({ error: 'File missing.' });
+    // Serve from Cloudflare R2 edge when available — much faster for students.
+    const r2 = require('../lib/r2');
+    const r2Url = await r2.r2UrlIfExists(`textbooks/${book.file_path}`);
+    if (r2Url) { r2.enqueue(abs, `textbooks/${book.file_path}`); return res.redirect(302, r2Url); }
     res.setHeader('Content-Type', 'application/pdf');
     res.sendFile(abs);
   } catch {

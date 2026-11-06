@@ -96,6 +96,10 @@ ensureDirectory(path.join(uploadsRoot, 'msg_images'));
 ensureDirectory(path.join(uploadsRoot, 'feed'));
 ensureDirectory(path.join(uploadsRoot, 'moments'));
 
+// Serve uploads from Cloudflare R2 edge when available (fast worldwide),
+// falling back to local disk and queueing a background R2 upload.
+const r2 = require('./lib/r2');
+app.use('/uploads', r2.r2Redirect((rel) => path.join(uploadsRoot, rel)));
 app.use('/uploads', express.static(uploadsRoot, { maxAge: '30d', immutable: true })); // filenames are unique — cache hard
 app.use('/uploads/avatars', express.static(path.join(uploadsRoot, 'avatars')));
 app.use('/uploads/msg_images', express.static(path.join(uploadsRoot, 'msg_images')));
