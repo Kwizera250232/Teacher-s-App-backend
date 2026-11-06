@@ -53,3 +53,10 @@
     -webkit-text-size-adjust: 100%;
   }
 }
+
+/* Desktop only: slightly larger, child-friendly text & UI. Mobile untouched. */
+@media (min-width: 641px) {
+  html {
+    zoom: 1.15;
+  }
+}

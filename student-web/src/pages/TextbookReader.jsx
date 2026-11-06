@@ -301,18 +301,26 @@ export default function TextbookReader() {
       if (cancelled || !d || d.error || d.has_file === false) return;
       try {
         const url = `${API_BASE}/textbooks/${id}/file`;
-        // Books never change for a given id — keep the PDF in device storage,
-        // so reopening the same book is instant even on slow internet.
+        // Second open: the whole PDF is in device storage → instant.
         const cache = await caches.open('uclass-books-v1').catch(() => null);
-        let res = cache ? await cache.match(url).catch(() => null) : null;
-        if (!res) {
-          res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-          if (res.ok && cache) cache.put(url, res.clone()).catch(() => {});
+        const cached = cache ? await cache.match(url).catch(() => null) : null;
+        let doc;
+        if (cached) {
+          const buf = await cached.arrayBuffer();
+          doc = await pdfjsLib.getDocument({ data: buf }).promise;
+        } else {
+          // First open: stream the PDF — pdf.js fetches only the pages being
+          // viewed via range requests, so page 1 shows immediately.
+          doc = await pdfjsLib.getDocument({
+            url,
+            httpHeaders: { Authorization: `Bearer ${token}` },
+          }).promise;
+          // Save a full copy in the background so the next open is instant.
+          fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+            .then(r => (r.ok && cache) ? cache.put(url, r).catch(() => {}) : null)
+            .catch(() => {});
         }
-        if (!res.ok) throw new Error('Could not load the book file.');
-        const buf = await res.arrayBuffer();
-        setLoadMsg('Preparing pages…');
-        const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+        if (!doc) throw new Error('Could not load the book file.');
         setPdf(doc);
         setPageCount(doc.numPages);
       } catch (e) {
