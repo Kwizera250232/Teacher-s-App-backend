@@ -61,7 +61,24 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json({ limit: '2mb' }));
-app.use(require('compression')()); // gzip API JSON — much faster on slow connections
+// gzip JSON responses (no extra dependency — safe on VPS without npm install)
+const zlib = require('zlib');
+app.use((req, res, next) => {
+  if (!/gzip/.test(req.headers['accept-encoding'] || '')) return next();
+  const origJson = res.json.bind(res);
+  res.json = (body) => {
+    const raw = JSON.stringify(body);
+    if (raw.length > 1024) {
+      res.set('Content-Type', 'application/json; charset=utf-8');
+      res.set('Content-Encoding', 'gzip');
+      res.set('Vary', 'Accept-Encoding');
+      return res.send(zlib.gzipSync(raw));
+    }
+    res.set('Content-Type', 'application/json; charset=utf-8');
+    return res.send(raw);
+  };
+  next();
+});
 // Allow uploads to be embedded in iframes and loaded cross-origin (avatars, PDFs)
 app.use('/uploads', (req, res, next) => {
   res.removeHeader('X-Frame-Options');
