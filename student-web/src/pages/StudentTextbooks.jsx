@@ -82,7 +82,7 @@ export default function StudentTextbooks() {
         ) : (
           Object.keys(byGrade).sort().map((grade) => (
             <section key={grade} style={{ marginBottom: 26 }}>
-              <h3 style={{ color: '#4f46e5', fontSize: 15, textTransform: 'uppercase', letterSpacing: 1, margin: '0 0 10px' }}>📘 {grade}</h3>
+              <h3 style={{ color: '#4f46e5', fontSize: 15, textTransform: 'uppercase', letterSpacing: 1, margin: '0 0 10px' }}>📘 {/^S[0-9]/i.test(grade) ? `Secondary — ${grade}` : /^P[0-9]/i.test(grade) ? `Primary — ${grade}` : grade}</h3>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(230px,1fr))', gap: 12 }}>
                 {byGrade[grade].map((b) => {
                   const pr = bookProgress(b.id);

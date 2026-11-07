@@ -2,8 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
-const SUBJECTS = ['Mathematics', 'English', 'Kinyarwanda', 'French', 'SST', 'SET', 'Creative Arts', 'PES'];
-const GRADES = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'];
+const SUBJECTS = ['Mathematics', 'English', 'Kinyarwanda', 'French', 'Kiswahili', 'SST', 'SET', 'Creative Arts', 'PES', 'Biology', 'Chemistry', 'Physics', 'Geography', 'History', 'Economics', 'Entrepreneurship', 'Literature', 'General Studies', 'ICT', 'Religious Studies'];
+const GRADES = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6'];
 const TYPES = ['PB', 'TG'];
 
 export default function AdminTextbooks({ token }) {

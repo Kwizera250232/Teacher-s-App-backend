@@ -219,7 +219,7 @@ router.post('/impersonate', ...adminOnly, async (req, res) => {
 // ─── DASHBOARD STATS ──────────────────────────────────────────────────────────
 router.get('/stats', ...adminOnly, async (req, res) => {
   try {
-    const [schools, teachers, students, guests, classes, quizzes, homework, pending, installs, pendingArticles] = await Promise.all([
+    const [schools, teachers, students, guests, classes, quizzes, homework, pending, installs, pendingArticles, headTeachers, parents] = await Promise.all([
       pool.query('SELECT COUNT(*) FROM schools'),
       pool.query("SELECT COUNT(*) FROM users WHERE role='teacher' AND is_approved=TRUE"),
       pool.query("SELECT COUNT(*) FROM users WHERE role='student'"),
@@ -230,8 +230,12 @@ router.get('/stats', ...adminOnly, async (req, res) => {
       pool.query("SELECT COUNT(*) FROM users WHERE role='teacher' AND is_approved=FALSE"),
       pool.query('SELECT COUNT(*) FROM pwa_installs'),
       pool.query("SELECT COUNT(*) FROM student_shares WHERE status='pending'").catch(() => ({ rows: [{ count: 0 }] })),
+      pool.query("SELECT COUNT(*) FROM users WHERE role='head_teacher'"),
+      pool.query("SELECT COUNT(*) FROM users WHERE role='parent'"),
     ]);
     res.json({
+      head_teachers: parseInt(headTeachers.rows[0].count, 10),
+      parents: parseInt(parents.rows[0].count, 10),
       schools: parseInt(schools.rows[0].count, 10),
       teachers: parseInt(teachers.rows[0].count, 10),
       students: parseInt(students.rows[0].count, 10),
@@ -244,6 +248,56 @@ router.get('/stats', ...adminOnly, async (req, res) => {
       pending_articles: parseInt(pendingArticles.rows[0].count, 10),
     });
   } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ─── HEAD TEACHERS & PARENTS (admin overview) ─────────────────────────────────
+router.get('/head-teachers', ...adminOnly, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT u.id, u.name, u.email, u.phone, u.school_id, u.is_suspended, u.is_approved, u.created_at,
+             s.name AS school_name,
+             (SELECT COUNT(*)::int FROM users t WHERE t.school_id = u.school_id AND t.role = 'teacher') AS teacher_count,
+             (SELECT COUNT(*)::int FROM users st WHERE st.school_id = u.school_id AND st.role = 'student') AS student_count
+      FROM users u
+      LEFT JOIN schools s ON s.id = u.school_id
+      WHERE u.role = 'head_teacher'
+      ORDER BY u.created_at DESC
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[admin head-teachers]', err.message);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+router.get('/parents', ...adminOnly, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT p.id, p.name, p.email, p.phone, p.is_suspended, p.created_at,
+             COALESCE(
+               jsonb_agg(DISTINCT jsonb_build_object(
+                 'id', st.id,
+                 'name', st.name,
+                 'school', s.name,
+                 'classes', (SELECT COALESCE(jsonb_agg(c.name), '[]'::jsonb)
+                             FROM class_members cm JOIN classes c ON c.id = cm.class_id
+                             WHERE cm.student_id = st.id)
+               )) FILTER (WHERE st.id IS NOT NULL),
+               '[]'::jsonb
+             ) AS children
+      FROM users p
+      LEFT JOIN parent_children pc ON pc.parent_id = p.id
+      LEFT JOIN users st ON st.id = pc.student_id
+      LEFT JOIN schools s ON s.id = st.school_id
+      WHERE p.role = 'parent'
+      GROUP BY p.id
+      ORDER BY p.created_at DESC
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[admin parents]', err.message);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
