@@ -60,6 +60,7 @@ export default function StaffDashboard({ roleLabel, basePath }) {
   const { online } = usePresence(token);
   const isHeadTeacher = roleLabel === 'Head Teacher';
   const hasSchool = Boolean(user?.school_id);
+  const teachersOnline = online.filter((u) => u.role === 'teacher' || u.role === 'head_teacher');
   const momentsFeedPath = `${basePath}/class-moments`;
   usePushNotifications(token);
 
@@ -295,6 +296,7 @@ export default function StaffDashboard({ roleLabel, basePath }) {
         {hubTab === 'classes' && (
           <>
         <TeacherEarningsCard token={token} />
+        <OnlineNowStrip online={teachersOnline} />
         <div className="dash-top dash-top--staff-actions">
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', width: '100%', justifyContent: 'flex-end' }}>
             {!hasSchool && user?.role === 'teacher' && (
