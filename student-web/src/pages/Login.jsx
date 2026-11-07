@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams, useLocation } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { dashboardPath } from '../utils/roles';
@@ -18,6 +18,8 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const backTo = location.state?.from;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -67,7 +69,7 @@ export default function Login() {
           navigate('/student/dashboard');
         }
       } else {
-        navigate(dashboardPath(data.user.role));
+        navigate(backTo || dashboardPath(data.user.role));
       }
     } catch (err) {
       setError(err.message);

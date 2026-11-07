@@ -17,6 +17,7 @@ export default function TeacherEarningsCard({ token }) {
   const [withdrawing, setWithdrawing] = useState(false);
   const [msg, setMsg] = useState('');
   const [hidden, setHidden] = useState(() => localStorage.getItem('teacherEarningsHidden') === '1');
+  const [expanded, setExpanded] = useState(false);
 
   const toggleHidden = () => {
     setHidden((h) => {
@@ -95,11 +96,38 @@ export default function TeacherEarningsCard({ token }) {
     );
   }
 
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        title={`My Earnings: ${data.available.toLocaleString()} RWF — tap to open`}
+        style={{
+          width: 64, height: 64, borderRadius: '50%', border: 'none', cursor: 'pointer',
+          background: 'linear-gradient(135deg,#064e3b,#047857)', color: '#fff',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 4px 14px rgba(6,78,59,0.35)', marginBottom: 12, padding: 0,
+        }}
+      >
+        <span style={{ fontSize: 22, lineHeight: 1 }}>💰</span>
+        <span style={{ fontSize: 9, fontWeight: 800, marginTop: 2 }}>{data.available >= 1000 ? `${(data.available / 1000).toFixed(1)}k` : data.available}</span>
+      </button>
+    );
+  }
+
   return (
     <div style={{
       background: 'linear-gradient(135deg,#064e3b,#047857)', borderRadius: 16,
       padding: 20, color: '#fff', marginBottom: 16, boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
     }}>
+      <button
+        type="button"
+        onClick={() => setExpanded(false)}
+        title="Collapse earnings"
+        style={{ float: 'right', border: 'none', background: 'rgba(255,255,255,0.15)', color: '#fff', borderRadius: 8, cursor: 'pointer', padding: '4px 10px', fontSize: 13 }}
+      >
+        ✕
+      </button>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
         <div>
           <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 8 }}>

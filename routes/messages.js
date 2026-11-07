@@ -8,6 +8,22 @@ const { canUsersMessage } = require('../lib/messagingAccess');
 const router = express.Router();
 const auth = [authenticateToken];
 const { sendMail } = require('../lib/optionalMailer');
+const { sendPushToUser } = require('../lib/pushNotify');
+
+/** Device push — "X messaged you" → opens that chat. Fire and forget. */
+async function notifyMessagePush(senderId, receiverId, preview) {
+  try {
+    const sender = await pool.query('SELECT name FROM users WHERE id=$1', [senderId]);
+    await sendPushToUser(receiverId, {
+      title: `💬 ${sender.rows[0]?.name || 'New message'}`,
+      body: String(preview || 'Sent you a message').slice(0, 140),
+      url: `/messages?to=${senderId}`,
+      tag: `msg-${senderId}`,
+    });
+  } catch (e) {
+    console.error('[messages] push failed:', e.message);
+  }
+}
 
 /** Email the receiver once per unread conversation — "X messaged you, open UClass to reply". */
 async function notifyMessageEmail(senderId, receiverId, preview) {
@@ -77,6 +93,7 @@ router.post('/', auth, async (req, res) => {
       [req.user.id, rid, content.trim().slice(0, 2000)]
     );
     notifyMessageEmail(req.user.id, rid, content.trim()); // fire and forget
+    notifyMessagePush(req.user.id, rid, content.trim()); // fire and forget
     res.status(201).json(result.rows[0]);
   } catch {
     res.status(500).json({ error: 'Internal server error.' });
@@ -97,6 +114,7 @@ router.post('/image', auth, uploadMsgImage.single('image'), async (req, res) => 
       `INSERT INTO messages (sender_id, receiver_id, content, image_path) VALUES ($1,$2,$3,$4) RETURNING *`,
       [req.user.id, rid, '', imagePath]
     );
+    notifyMessagePush(req.user.id, rid, '📷 Sent you a photo'); // fire and forget
     res.status(201).json({ image_path: imagePath, message: result.rows[0] });
   } catch {
     res.status(500).json({ error: 'Internal server error.' });
