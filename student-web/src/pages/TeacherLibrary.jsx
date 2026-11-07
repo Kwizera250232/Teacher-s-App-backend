@@ -12,6 +12,7 @@ const TYPES = [
 ];
 const ICON = { homework: '📋', quiz: '📝', note: '📒' };
 const LEVEL = { primary: 'Primary', secondary: 'Secondary', other: 'Other' };
+const GRADES = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6'];
 const FOLDER = { homework: 'homework', note: 'notes' };
 
 function quizToText(quiz, questions) {
@@ -92,6 +93,34 @@ export default function TeacherLibrary() {
 
         {error && <div style={{ background: '#fee2e2', color: '#991b1b', padding: '10px 14px', borderRadius: 10, marginBottom: 12 }}>{error}</div>}
         {!data && !error && <p style={{ textAlign: 'center', color: '#64748b', padding: 40 }}>Loading…</p>}
+        {data && data.unleveled_classes?.length > 0 && (
+          <div style={{ background: '#fff', border: '1.5px solid #fde68a', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
+            <div style={{ fontWeight: 800, color: '#92400e', fontSize: 14, marginBottom: 8 }}>
+              ⚠️ {data.unleveled_classes.length} class(es) have no level — pick one so colleagues can open your documents
+            </div>
+            {data.unleveled_classes.map((c) => (
+              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13, color: '#334155' }}>{c.name}</span>
+                <select
+                  defaultValue=""
+                  onChange={async (e) => {
+                    const g = e.target.value;
+                    if (!g) return;
+                    try {
+                      await api.put('/teacher-library/class-grade', { class_id: c.id, grade: g }, token);
+                      setData((d) => ({ ...d, unleveled_classes: d.unleveled_classes.filter((x) => x.id !== c.id), my_levels: [...new Set([...d.my_levels, /^S/.test(g) ? 'secondary' : 'primary'])] }));
+                    } catch { setError('Could not save the grade.'); }
+                  }}
+                  style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13 }}
+                >
+                  <option value="">Set level…</option>
+                  {GRADES.map((g) => <option key={g} value={g}>{g}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+        )}
+
         {data && data.my_levels.length === 0 && (
           <div style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', padding: '10px 14px', borderRadius: 10, marginBottom: 12, fontSize: 14 }}>
             Create a class first (for example P6 or S2) — documents open only for the level you teach.
