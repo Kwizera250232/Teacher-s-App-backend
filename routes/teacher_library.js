@@ -17,12 +17,22 @@ function levelOf(grade, name) {
   return 'other';
 }
 
-async function myLevels(userId) {
-  const r = await pool.query('SELECT grade, name FROM classes WHERE teacher_id = $1', [userId]);
-  return new Set(r.rows.map((c) => levelOf(c.grade, c.name)).filter((l) => l !== 'other'));
-}
-
 const GRADES = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6'];
+
+// Teachers without any class still declare the level they teach so the
+// library can open same-level documents for them.
+pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS library_grade TEXT').catch(() => {});
+
+async function myLevels(userId) {
+  const [r, u] = await Promise.all([
+    pool.query('SELECT grade, name FROM classes WHERE teacher_id = $1', [userId]),
+    pool.query('SELECT library_grade FROM users WHERE id = $1', [userId]),
+  ]);
+  const levels = new Set(r.rows.map((c) => levelOf(c.grade, c.name)).filter((l) => l !== 'other'));
+  const declared = levelOf(u.rows[0]?.library_grade, '');
+  if (declared !== 'other') levels.add(declared);
+  return levels;
+}
 
 const TEACHER_FIELDS = `t.id AS teacher_id, t.name AS teacher_name, s.name AS school_name,
        c.id AS class_id, c.name AS class_name, c.grade AS class_grade`;
@@ -78,7 +88,8 @@ router.get('/', ...staff, async (req, res) => {
     ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     const own = await pool.query('SELECT id, name, grade FROM classes WHERE teacher_id = $1 ORDER BY id', [req.user.id]);
     const unleveled = own.rows.filter((c) => levelOf(c.grade, c.name) === 'other').map((c) => ({ id: c.id, name: c.name }));
-    res.json({ my_levels: [...mine], unleveled_classes: unleveled, items });
+    const me = await pool.query('SELECT library_grade FROM users WHERE id = $1', [req.user.id]);
+    res.json({ my_levels: [...mine], my_grade: me.rows[0]?.library_grade || null, unleveled_classes: unleveled, items });
   } catch (err) {
     console.error('[teacher-library]', err.message);
     res.status(500).json({ error: 'Internal server error.' });
@@ -98,6 +109,19 @@ router.put('/class-grade', ...staff, async (req, res) => {
     res.json(r.rows[0]);
   } catch (err) {
     console.error('[teacher-library class-grade]', err.message);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// A teacher declares the grade they teach (used when they have no class yet).
+router.put('/my-grade', ...staff, async (req, res) => {
+  const grade = String(req.body.grade || '').trim().toUpperCase();
+  if (!GRADES.includes(grade)) return res.status(400).json({ error: 'Choose a grade from P1 to S6.' });
+  try {
+    await pool.query('UPDATE users SET library_grade = $1 WHERE id = $2', [grade, req.user.id]);
+    res.json({ grade });
+  } catch (err) {
+    console.error('[teacher-library my-grade]', err.message);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });

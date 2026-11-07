@@ -10,16 +10,12 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
   );
   const [schoolProfileLoaded, setSchoolProfileLoaded] = useState(false);
   const teacherNoSchool = user?.role === 'teacher' && schoolProfileLoaded && !linkedSchoolId;
-  const teacherNeedsSchool = false; // teachers without a school can pick an existing one or write a new one below
-  const canPickSchool = !linkedSchoolId || user?.role === 'admin';
+  const teacherNeedsSchool = teacherNoSchool;
   const [mode, setMode] = useState('single');
-  const [schools, setSchools] = useState([]);
   const [schoolId, setSchoolId] = useState(
     user?.school_id != null ? String(user.school_id) : ''
   );
   const [linkedSchoolName, setLinkedSchoolName] = useState('');
-  const [newSchoolName, setNewSchoolName] = useState('');
-  const [showNewSchool, setShowNewSchool] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const [name, setName] = useState('');
@@ -32,8 +28,11 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
   const [results, setResults] = useState(null);
   const [error, setError] = useState('');
 
-  const selectedSchool = schools.find((s) => String(s.id) === String(schoolId));
-  const studentEmailDomain = signupEmailDomain(selectedSchool || (linkedSchoolName ? { name: linkedSchoolName } : null));
+  // Class selection for immediate join
+  const [teacherClasses, setTeacherClasses] = useState([]);
+  const [addClassTo, setAddClassTo] = useState(''); // '' = none, 'select' = pick from list
+
+  const studentEmailDomain = signupEmailDomain(linkedSchoolName ? { name: linkedSchoolName } : null);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,36 +57,25 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
       try {
         const data = await api.get('/auth/schools', token);
         if (cancelled) return;
-        setSchools(Array.isArray(data) ? data : []);
         if (activeSchoolId) {
-          const mySchool = data.find((s) => String(s.id) === activeSchoolId);
+          const mySchool = (Array.isArray(data) ? data : []).find((s) => String(s.id) === activeSchoolId);
           if (mySchool) setLinkedSchoolName(mySchool.name);
         }
       } catch {
-        if (!cancelled) setSchools([]);
+        /* school name is cosmetic */
+      }
+      // Fetch teacher's classes for immediate-add option
+      try {
+        const classesData = await api.get('/classes', token);
+        if (!cancelled && Array.isArray(classesData)) {
+          setTeacherClasses(classesData);
+        }
+      } catch {
+        // ignore — class selection is optional
       }
     })();
     return () => { cancelled = true; };
   }, [token]);
-
-  const handleCreateSchool = async () => {
-    if (!newSchoolName.trim()) return;
-    setLoading(true);
-    setError('');
-    try {
-      const created = await api.post('/auth/schools', { name: newSchoolName.trim() }, token);
-      setSchools(prev => [...prev, created]);
-      const newId = String(created.id);
-      setSchoolId(newId);
-      if (!linkedSchoolId) setLinkedSchoolName(created.name || newSchoolName.trim());
-      setShowNewSchool(false);
-      setNewSchoolName('');
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleAddSingle = async () => {
     if (!name.trim()) return setError('Student name is required.');
@@ -112,7 +100,19 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
       if (trimmedEmail) body.email = trimmedEmail;
       if (password.trim()) body.password = password.trim();
       const res = await api.post('/admin/add-pupil', body, token);
-      setResults({ type: 'single', data: res });
+      // If teacher selected a class, add student to it immediately
+      if (addClassTo && res?.user?.id) {
+        try {
+          await api.post(`/classes/${addClassTo}/join`, { student_id: res.user.id }, token);
+        } catch (joinErr) {
+          // Student created but class join failed — show partial success
+          setResults({ type: 'single', data: res, joinWarning: `Student created but could not add to class: ${joinErr.message}` });
+          setName(''); setEmail(''); setPassword('');
+          setLoading(false);
+          return;
+        }
+      }
+      setResults({ type: 'single', data: res, addedToClass: addClassTo ? teacherClasses.find(c => String(c.id) === String(addClassTo))?.name : null });
       setName('');
       setEmail('');
       setPassword('');
@@ -136,7 +136,28 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
       };
       if (bulkPassword.trim()) body.password = bulkPassword.trim();
       const res = await api.post('/admin/add-pupils', body, token);
-      setResults({ type: 'bulk', data: res });
+      // If teacher selected a class, add all created students to it
+      let joinedCount = 0;
+      let joinFailures = 0;
+      if (addClassTo && res?.created) {
+        for (const item of res.created) {
+          if (item?.user?.id) {
+            try {
+              await api.post(`/classes/${addClassTo}/join`, { student_id: item.user.id }, token);
+              joinedCount++;
+            } catch {
+              joinFailures++;
+            }
+          }
+        }
+      }
+      setResults({
+        type: 'bulk',
+        data: res,
+        addedToClass: addClassTo ? teacherClasses.find(c => String(c.id) === String(addClassTo))?.name : null,
+        joinedCount,
+        joinFailures,
+      });
       setBulkNames('');
       setBulkPassword('');
     } catch (e) {
@@ -172,100 +193,68 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
 
         {teacherNoSchool && (
           <div style={{ marginBottom: 16, padding: '12px 14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, color: '#1e3a8a', fontSize: 14 }}>
-            You have no school linked yet. <strong>Pick your school below</strong> (or tap <strong>+ New</strong> to write it) and add your students now.
-            {onNeedJoinSchool && (
-              <button type="button" className="btn btn-outline btn-sm" style={{ marginTop: 10, display: 'block' }} onClick={() => { onClose(); onNeedJoinSchool(); }}>
-                🏫 Also add my school to my profile
-              </button>
-            )}
+            You need a school first. Close this and tap <strong>🏫 Add School</strong> on your dashboard — pick your school or write a new one.
           </div>
         )}
 
-        {/* School selection */}
-        {!teacherNeedsSchool && (
-        <div className="form-group">
-          <label style={{ fontSize: 14, fontWeight: 600 }}>
-            School *
-            {linkedSchoolId && linkedSchoolName && (
-              <span style={{ fontWeight: 400, color: '#16a34a', marginLeft: 8, fontSize: 12 }}>
-                (Your school: {linkedSchoolName})
-              </span>
-            )}
-          </label>
-          {linkedSchoolId && !canPickSchool ? (
+        {linkedSchoolName && (
+          <div className="form-group">
+            <label style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>School</label>
             <input
               readOnly
-              value={linkedSchoolName || 'Your school'}
-              style={{ width: '100%', padding: '10px 14px', border: '2px solid #e8e8e8', borderRadius: 8, fontSize: 14, background: '#f8fafc' }}
+              value={linkedSchoolName}
+              style={{ width: '100%', padding: '10px 14px', border: '2px solid #e8e8e8', borderRadius: 8, fontSize: 14, background: '#f8fafc', color: '#1e293b' }}
             />
-          ) : !showNewSchool ? (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <select
-                style={{ flex: 1, padding: '10px 14px', border: '2px solid #e8e8e8', borderRadius: 8, fontSize: 14, background: 'white' }}
-                value={schoolId}
-                onChange={e => setSchoolId(e.target.value)}
-              >
-                <option value="">Select School</option>
-                {schools.map(s => (
-                  <option key={s.id} value={String(s.id)}>{s.name}</option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => setShowNewSchool(true)}
-                title="Add new school"
-              >
-                + New
-              </button>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input
-                style={{ flex: 1, padding: '10px 14px', border: '2px solid #e8e8e8', borderRadius: 8, fontSize: 14 }}
-                placeholder="Enter new school name"
-                value={newSchoolName}
-                onChange={e => setNewSchoolName(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleCreateSchool()}
-              />
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                onClick={handleCreateSchool}
-                disabled={loading}
-              >
-                Add
-              </button>
-              <button
-                type="button"
-                className="btn btn-outline btn-sm"
-                onClick={() => { setShowNewSchool(false); setNewSchoolName(''); }}
-              >
-                Cancel
-              </button>
-            </div>
-          )}
-        </div>
+          </div>
         )}
 
         {error && <div className="alert alert-error">{error}</div>}
+
+        {/* Class selection for immediate add */}
+        {!teacherNeedsSchool && teacherClasses.length > 0 && !results && (
+          <div className="form-group">
+            <label style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>
+              Add to class immediately?
+              <span style={{ fontWeight: 400, color: '#64748b', marginLeft: 8, fontSize: 12 }}>
+                (Optional — skip class code)
+              </span>
+            </label>
+            <select
+              style={{ width: '100%', padding: '10px 14px', border: '2px solid #e8e8e8', borderRadius: 8, fontSize: 14, background: 'white', color: '#1e293b' }}
+              value={addClassTo}
+              onChange={e => setAddClassTo(e.target.value)}
+            >
+              <option value="">No — just create school account</option>
+              {teacherClasses.map(c => (
+                <option key={c.id} value={String(c.id)}>
+                  {c.name} {c.subject ? `(${c.subject})` : ''} {c.class_code ? `· Code: ${c.class_code}` : ''}
+                </option>
+              ))}
+            </select>
+            {addClassTo && (
+              <small style={{ color: '#16a34a', fontSize: 12, display: 'block', marginTop: 6 }}>
+                ✓ Student(s) will be added to this class immediately — no class code needed.
+              </small>
+            )}
+          </div>
+        )}
 
         {/* Single student form */}
         {mode === 'single' && !results && !teacherNeedsSchool && (
           <div>
             <div className="form-group">
-              <label style={{ fontSize: 14, fontWeight: 600 }}>Full Name *</label>
+              <label style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>Full Name *</label>
               <input
-                style={{ width: '100%', padding: '10px 14px', border: '2px solid #e8e8e8', borderRadius: 8, fontSize: 14 }}
+                style={{ width: '100%', padding: '10px 14px', border: '2px solid #e8e8e8', borderRadius: 8, fontSize: 14, color: '#1e293b' }}
                 value={name}
                 onChange={e => setName(e.target.value)}
                 placeholder="Enter student full name"
               />
             </div>
             <div className="form-group">
-              <label style={{ fontSize: 14, fontWeight: 600 }}>Email (optional)</label>
+              <label style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>Email (optional)</label>
               <input
-                style={{ width: '100%', padding: '10px 14px', border: '2px solid #e8e8e8', borderRadius: 8, fontSize: 14 }}
+                style={{ width: '100%', padding: '10px 14px', border: '2px solid #e8e8e8', borderRadius: 8, fontSize: 14, color: '#1e293b' }}
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 placeholder={studentEmailDomain ? `name@${studentEmailDomain}` : 'name@schoolname.edu (auto-generated if empty)'}
@@ -277,9 +266,9 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
               )}
             </div>
             <div className="form-group">
-              <label style={{ fontSize: 14, fontWeight: 600 }}>Password (optional)</label>
+              <label style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>Password (optional)</label>
               <input
-                style={{ width: '100%', padding: '10px 14px', border: '2px solid #e8e8e8', borderRadius: 8, fontSize: 14 }}
+                style={{ width: '100%', padding: '10px 14px', border: '2px solid #e8e8e8', borderRadius: 8, fontSize: 14, color: '#1e293b' }}
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="Leave empty for auto-generated password"
@@ -302,18 +291,18 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
         {mode === 'bulk' && !results && !teacherNeedsSchool && (
           <div>
             <div className="form-group">
-              <label style={{ fontSize: 14, fontWeight: 600 }}>Student Names (one per line) *</label>
+              <label style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>Student Names (one per line) *</label>
               <textarea
-                style={{ width: '100%', padding: '10px 14px', border: '2px solid #e8e8e8', borderRadius: 8, fontSize: 14, minHeight: 120, resize: 'vertical' }}
+                style={{ width: '100%', padding: '10px 14px', border: '2px solid #e8e8e8', borderRadius: 8, fontSize: 14, minHeight: 120, resize: 'vertical', color: '#1e293b' }}
                 value={bulkNames}
                 onChange={e => setBulkNames(e.target.value)}
                 placeholder={"Jean Mugisha\nMarie Uwimana\nPierre Habimana"}
               />
             </div>
             <div className="form-group">
-              <label style={{ fontSize: 14, fontWeight: 600 }}>Password for all students (optional)</label>
+              <label style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>Password for all students (optional)</label>
               <input
-                style={{ width: '100%', padding: '10px 14px', border: '2px solid #e8e8e8', borderRadius: 8, fontSize: 14 }}
+                style={{ width: '100%', padding: '10px 14px', border: '2px solid #e8e8e8', borderRadius: 8, fontSize: 14, color: '#1e293b' }}
                 value={bulkPassword}
                 onChange={e => setBulkPassword(e.target.value)}
                 placeholder="Same password for all students (leave empty for random)"
@@ -345,6 +334,16 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
                   {results.data.temp_password}
                 </code>
               </div>
+              {results.addedToClass && (
+                <div style={{ marginTop: 8, padding: '8px 12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, color: '#1e40af', fontSize: 13 }}>
+                  ✓ Added to class: <strong>{results.addedToClass}</strong>
+                </div>
+              )}
+              {results.joinWarning && (
+                <div style={{ marginTop: 8, padding: '8px 12px', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 6, color: '#92400e', fontSize: 13 }}>
+                  ⚠ {results.joinWarning}
+                </div>
+              )}
               <small style={{ color: '#64748b', display: 'block', marginTop: 8 }}>
                 Share these credentials with the student securely.
               </small>
@@ -365,6 +364,12 @@ export default function AddStudentsModal({ token, onClose, onNeedJoinSchool }) {
             <h3 style={{ color: '#166534', fontSize: 16, marginBottom: 12 }}>
               {results.data.created.length} Student(s) Created!
             </h3>
+            {results.addedToClass && (
+              <div style={{ marginBottom: 12, padding: '10px 14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, color: '#1e40af', fontSize: 13 }}>
+                ✓ {results.joinedCount} student(s) added to class: <strong>{results.addedToClass}</strong>
+                {results.joinFailures > 0 && <span style={{ color: '#92400e' }}> ({results.joinFailures} failed)</span>}
+              </div>
+            )}
             <div style={{ maxHeight: 300, overflowY: 'auto' }}>
               {results.data.created.map((item, i) => (
                 <div key={i} style={{ background: 'white', padding: 10, borderRadius: 8, marginBottom: 8, fontSize: 13 }}>

@@ -122,8 +122,28 @@ export default function TeacherLibrary() {
         )}
 
         {data && data.my_levels.length === 0 && (
-          <div style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', padding: '10px 14px', borderRadius: 10, marginBottom: 12, fontSize: 14 }}>
-            Create a class first (for example P6 or S2) — documents open only for the level you teach.
+          <div style={{ background: '#fffbeb', border: '1.5px solid #fde68a', borderRadius: 12, padding: '14px 16px', marginBottom: 14 }}>
+            <div style={{ fontWeight: 800, color: '#92400e', fontSize: 14, marginBottom: 4 }}>Choose your class grade to open documents</div>
+            <div style={{ fontSize: 13, color: '#92400e', marginBottom: 10 }}>
+              Pick the grade you teach — documents for your level unlock instantly. Other levels stay locked.
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {GRADES.map((g) => (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await api.put('/teacher-library/my-grade', { grade: g }, token);
+                      setData((d) => ({ ...d, my_grade: g, my_levels: [...new Set([...d.my_levels, /^S/.test(g) ? 'secondary' : 'primary'])] }));
+                    } catch { setError('Could not save your grade.'); }
+                  }}
+                  style={{ ...btn, background: '#fff', color: '#92400e', border: '1.5px solid #f59e0b' }}
+                >
+                  {g}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {data && items.length === 0 && <p style={{ textAlign: 'center', color: '#94a3b8', padding: 40 }}>Nothing here yet.</p>}

@@ -4,6 +4,8 @@ import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import CreateClassModal from '../components/CreateClassModal';
 import AddStudentsModal from '../components/AddStudentsModal';
+import AddSchoolModal from '../components/AddSchoolModal';
+import TeacherEarningsCard from '../components/TeacherEarningsCard';
 import SchoolRequestBanner from '../components/SchoolRequestBanner';
 import CoTeacherInviteBanner from '../components/CoTeacherInviteBanner';
 import SchoolRequestsPanel from '../components/SchoolRequestsPanel';
@@ -44,6 +46,7 @@ export default function StaffDashboard({ roleLabel, basePath }) {
   const [classes, setClasses] = useState([]);
   const [showCreate, setShowCreate] = useState(false);
   const [showAddStudents, setShowAddStudents] = useState(false);
+  const [showAddSchool, setShowAddSchool] = useState(false);
   const [error, setError] = useState('');
   const [announcements, setAnnouncements] = useState([]);
   const [dismissed, setDismissed] = useState(() => JSON.parse(localStorage.getItem('dismissed_announcements') || '[]'));
@@ -291,8 +294,14 @@ export default function StaffDashboard({ roleLabel, basePath }) {
 
         {hubTab === 'classes' && (
           <>
+        <TeacherEarningsCard token={token} />
         <div className="dash-top dash-top--staff-actions">
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', width: '100%', justifyContent: 'flex-end' }}>
+            {!hasSchool && user?.role === 'teacher' && (
+              <button className="btn btn-primary" onClick={() => setShowAddSchool(true)}>
+                🏫 Add School
+              </button>
+            )}
             <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
               + Fungura Ishuri
             </button>
@@ -402,16 +411,21 @@ export default function StaffDashboard({ roleLabel, basePath }) {
         />
       )}
 
+      {showAddSchool && (
+        <AddSchoolModal
+          token={token}
+          onClose={() => setShowAddSchool(false)}
+          onDone={() => setShowAddSchool(false)}
+        />
+      )}
+
       {showAddStudents && (
         <AddStudentsModal
           token={token}
           onClose={() => setShowAddStudents(false)}
           onNeedJoinSchool={() => {
             setShowAddStudents(false);
-            setHubTab('classes');
-            setTimeout(() => {
-              document.getElementById('school-join-banner')?.scrollIntoView({ behavior: 'smooth' });
-            }, 100);
+            setShowAddSchool(true);
           }}
         />
       )}
