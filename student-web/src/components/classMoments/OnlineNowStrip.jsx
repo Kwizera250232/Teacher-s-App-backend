@@ -29,7 +29,7 @@ export default function OnlineNowStrip({ online = [] }) {
       </div>
       <div className="cm-online-avatars">
         {shown.map((u) => (
-          <div key={u.id} className="cm-online-person" title={`${u.name} · ${ROLE_LABEL[u.role] || u.role}`}>
+          <div key={u.id} className="cm-online-person" title={`${u.name} · ${ROLE_LABEL[u.role] || u.role}${u.school_name ? ` · ${u.school_name}` : ''}`}>
             <img src={teacherAvatarUrl(u.avatar_path)} alt="" className="cm-online-avatar" />
             <span className="cm-online-name">{u.name?.split(' ')[0] || 'User'}</span>
           </div>

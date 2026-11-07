@@ -60,7 +60,14 @@ export default function StaffDashboard({ roleLabel, basePath }) {
   const { online } = usePresence(token);
   const isHeadTeacher = roleLabel === 'Head Teacher';
   const hasSchool = Boolean(user?.school_id);
-  const teachersOnline = online.filter((u) => u.role === 'teacher' || u.role === 'head_teacher');
+  const [teachersOnline, setTeachersOnline] = useState([]);
+  useEffect(() => {
+    if (!token) return undefined;
+    const load = () => api.get('/presence/online?scope=all', token).then((d) => setTeachersOnline(d?.online || [])).catch(() => {});
+    load();
+    const t = setInterval(load, 60000);
+    return () => clearInterval(t);
+  }, [token]);
   const momentsFeedPath = `${basePath}/class-moments`;
   usePushNotifications(token);
 
