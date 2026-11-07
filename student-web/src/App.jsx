@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, Component } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -47,6 +47,37 @@ import './styles/WaAppShell.css';
 import './styles/WaChatShell.css';
 import './styles/AppFullscreen.css';
 
+// If a lazy page chunk fails after an app update (stale cached index.html),
+// reload once so the fresh bundle is fetched instead of showing a white screen.
+class AppErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch() {
+    const last = Number(sessionStorage.getItem('app_reload_ts') || 0);
+    if (Date.now() - last > 30000) {
+      sessionStorage.setItem('app_reload_ts', String(Date.now()));
+      window.location.reload();
+    }
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 40, textAlign: 'center' }}>
+          <p style={{ color: '#475569', marginBottom: 12 }}>Something went wrong loading this page.</p>
+          <button
+            type="button"
+            onClick={() => { sessionStorage.removeItem('app_reload_ts'); window.location.reload(); }}
+            style={{ padding: '10px 18px', borderRadius: 8, border: 'none', background: '#0f766e', color: '#fff', fontWeight: 700 }}
+          >
+            Reload
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function ProtectedRoute({ children, role }) {
   const { user, loading } = useAuth();
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>Loading...</div>;
@@ -86,6 +117,7 @@ function AppShell() {
       <OfflineBanner />
       <IncomingCallWatcher />
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <AppErrorBoundary>
         <Suspense fallback={<div className="app-route-loading" style={{padding:40,textAlign:'center'}}>Loading…</div>}>
         <Routes>
                 <Route path="/" element={<HomeRedirect />} />
@@ -235,6 +267,7 @@ function AppShell() {
                 } />
         </Routes>
         </Suspense>
+        </AppErrorBoundary>
       </div>
       {!hideFooter && <Footer />}
     </div>
