@@ -12,7 +12,7 @@ export default function OnlineNowStrip({ online = [] }) {
     return (
       <div className="cm-online-strip cm-online-strip--empty">
         <span className="cm-online-dot" aria-hidden />
-        <span>No one else from your school online right now — check back soon.</span>
+        <span>No other teachers online on UClass right now — check back soon.</span>
       </div>
     );
   }
