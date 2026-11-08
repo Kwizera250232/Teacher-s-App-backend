@@ -657,7 +657,7 @@ async function loadSettings(classId) {
   // Subjects the teacher actually recorded marks for in this class
   const recorded = (await pool.query(
     `SELECT DISTINCT subject FROM cat_marks WHERE class_id = $1 AND subject IS NOT NULL ORDER BY subject`, [classId]
-  )).rows.map((r) => r.subject).filter((s) => s && s !== 'General');
+  )).rows.map((r) => r.subject).filter(Boolean);
 
   const savedList = Array.isArray(saved?.subjects) ? saved.subjects.filter(Boolean) : [];
   const recordedOrdered = orderByRef(recorded, levelDefaults);
