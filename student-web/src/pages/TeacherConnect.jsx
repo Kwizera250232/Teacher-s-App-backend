@@ -66,10 +66,13 @@ export default function TeacherConnect() {
         <div style={{ display: 'grid', gap: 10 }}>
           {list.map((t) => (
             <div key={t.id} style={{ background: '#fff', borderRadius: 14, padding: '12px 14px', display: 'flex', gap: 12, alignItems: 'center', boxShadow: '0 1px 4px rgba(0,0,0,.06)', flexWrap: 'wrap' }}>
-              <img src={t.avatar_path ? `${UPLOADS_BASE}${t.avatar_path}` : AV} alt="" style={{ width: 52, height: 52, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, cursor: 'pointer' }} onClick={() => navigate(`/teacher-profile/${t.id}`)} />
+              <span style={{ position: 'relative', flexShrink: 0 }}>
+                <img src={t.avatar_path ? `${UPLOADS_BASE}${t.avatar_path}` : AV} alt="" style={{ width: 52, height: 52, borderRadius: '50%', objectFit: 'cover', cursor: 'pointer' }} onClick={() => navigate(`/teacher-profile/${t.id}`)} />
+                {t.is_online && <span style={{ position: 'absolute', bottom: 2, right: 2, width: 13, height: 13, background: '#22c55e', borderRadius: '50%', border: '2.5px solid #fff' }} />}
+              </span>
               <div style={{ flex: 1, minWidth: 190 }}>
                 <div style={{ fontWeight: 800, color: '#0f172a', cursor: 'pointer' }} onClick={() => navigate(`/teacher-profile/${t.id}`)}>
-                  {t.name} {t.same_school && <span style={{ fontSize: 10, background: '#dcfce7', color: '#15803d', borderRadius: 6, padding: '1px 6px', marginLeft: 4, verticalAlign: 'middle' }}>SAME SCHOOL</span>}
+                  {t.name} {t.is_online && <span style={{ fontSize: 10, color: '#16a34a', fontWeight: 700, marginLeft: 2 }}>● online</span>} {t.same_school && <span style={{ fontSize: 10, background: '#dcfce7', color: '#15803d', borderRadius: 6, padding: '1px 6px', marginLeft: 4, verticalAlign: 'middle' }}>SAME SCHOOL</span>}
                 </div>
                 <div style={{ fontSize: 12, color: '#64748b' }}>{t.role === 'head_teacher' ? '🏫 Head Teacher' : '👩‍🏫 Teacher'}{t.school_name ? ` · ${t.school_name}` : ''}</div>
                 <div style={{ fontSize: 12.5, color: '#334155', marginTop: 3 }}>

@@ -160,7 +160,7 @@ export default function TeacherLibrary() {
                 </div>
                 <div style={{ fontSize: 12, color: '#64748b', margin: '6px 0 10px' }}>
                   {i.subject ? `${i.subject} · ` : ''}{i.class_name}<br />
-                  👩‍🏫 <span style={{ cursor: 'pointer', textDecoration: 'underline' }} onClick={() => navigate(`/teacher-profile/${i.teacher.id}`)}>{i.teacher.name}</span>{i.teacher.school ? ` · ${i.teacher.school}` : ''}
+                  👩‍🏫 {i.teacher.online && <span style={{ color: '#16a34a', fontWeight: 700 }}>● </span>}<span style={{ cursor: 'pointer', textDecoration: 'underline' }} onClick={() => navigate(`/teacher-profile/${i.teacher.id}`)}>{i.teacher.name}</span>{i.teacher.school ? ` · ${i.teacher.school}` : ''}
                 </div>
 
                 {i.locked ? (

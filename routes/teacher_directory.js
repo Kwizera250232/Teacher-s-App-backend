@@ -14,7 +14,9 @@ router.get('/', auth, async (req, res) => {
     const r = await pool.query(
       `SELECT u.id, u.name, u.role, u.email, u.phone, u.avatar_path,
               s.name AS school_name,
-              ($2::int IS NOT NULL AND u.school_id = $2) AS same_school
+              ($2::int IS NOT NULL AND u.school_id = $2) AS same_school,
+              (u.last_seen_at >= NOW() - INTERVAL '2 minutes') AS is_online,
+              u.last_seen_at
          FROM users u
          LEFT JOIN schools s ON s.id = u.school_id
         WHERE u.role IN ('teacher','head_teacher')

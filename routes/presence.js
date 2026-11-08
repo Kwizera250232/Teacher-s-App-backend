@@ -83,4 +83,19 @@ router.get('/online', authenticateToken, async (req, res) => {
   }
 });
 
+// GET /api/presence/status/:userId — is this person online right now (for chat headers)
+router.get('/status/:userId', authenticateToken, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT (u.last_seen_at >= NOW() - INTERVAL '2 minutes') AS is_online, u.last_seen_at
+       FROM users u WHERE u.id = $1`,
+      [req.params.userId]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Not found.' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 module.exports = router;

@@ -121,18 +121,24 @@ router.post('/image', auth, uploadMsgImage.single('image'), async (req, res) => 
   }
 });
 
-// GET /api/messages/inbox  — my received messages (grouped by sender)
+// GET /api/messages/inbox  — conversations, most recent first (with preview, unread count, online status)
 router.get('/inbox', auth, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT DISTINCT ON (m.sender_id)
-              m.id, m.sender_id, m.content, m.is_read, m.created_at,
-              u.name AS sender_name, u.role AS sender_role, p.avatar_path
-       FROM messages m
-       JOIN users u ON u.id = m.sender_id
-       LEFT JOIN user_profiles p ON p.user_id = m.sender_id
-       WHERE m.receiver_id = $1
-       ORDER BY m.sender_id, m.created_at DESC`,
+      `SELECT * FROM (
+         SELECT DISTINCT ON (m.sender_id)
+                m.id, m.sender_id, m.content, m.is_read, m.created_at,
+                u.name AS sender_name, u.role AS sender_role, p.avatar_path,
+                (u.last_seen_at >= NOW() - INTERVAL '2 minutes') AS is_online,
+                (SELECT COUNT(*)::int FROM messages x
+                  WHERE x.sender_id = m.sender_id AND x.receiver_id = $1 AND x.is_read = FALSE) AS unread_count
+         FROM messages m
+         JOIN users u ON u.id = m.sender_id
+         LEFT JOIN user_profiles p ON p.user_id = m.sender_id
+         WHERE m.receiver_id = $1
+         ORDER BY m.sender_id, m.created_at DESC
+       ) latest
+       ORDER BY latest.created_at DESC`,
       [req.user.id]
     );
     res.json(result.rows);

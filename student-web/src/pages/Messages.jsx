@@ -145,6 +145,15 @@ export default function Messages() {
     setSending(false);
   };
 
+  const [peerOnline, setPeerOnline] = useState(null);
+  useEffect(() => {
+    if (!activeId) { setPeerOnline(null); return undefined; }
+    const load = () => api.get(`/presence/status/${activeId}`, token).then((r) => setPeerOnline(!!r?.is_online)).catch(() => {});
+    load();
+    const t = setInterval(load, 20000);
+    return () => clearInterval(t);
+  }, [activeId, token]);
+
   const activeContact = contacts.find(c => c.id === activeId);
   const unreadMap = Object.fromEntries(inbox.map(m => [m.sender_id, true]));
   const contactsWithMsg = contacts
@@ -251,7 +260,7 @@ export default function Messages() {
                     <path d="M6.5 12.5l3.5 3.5 7.5-8" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </div>
-                <div className="msg-chat-role">{activeContact?.role}</div>
+                <div className="msg-chat-role">{peerOnline ? '● online now' : 'offline'} · {activeContact?.role}</div>
               </div>
             </div>
 

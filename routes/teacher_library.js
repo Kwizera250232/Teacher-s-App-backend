@@ -35,7 +35,8 @@ async function myLevels(userId) {
 }
 
 const TEACHER_FIELDS = `t.id AS teacher_id, t.name AS teacher_name, s.name AS school_name,
-       c.id AS class_id, c.name AS class_name, c.grade AS class_grade`;
+       c.id AS class_id, c.name AS class_name, c.grade AS class_grade,
+       (t.last_seen_at >= NOW() - INTERVAL '2 minutes') AS teacher_online`;
 const TEACHER_JOINS = `JOIN classes c ON c.id = x.class_id
        JOIN users t ON t.id = c.teacher_id
        LEFT JOIN schools s ON s.id = t.school_id`;
@@ -53,7 +54,7 @@ function shape(type, row, mine) {
     level,
     locked: !allowed,
     class_name: row.class_name,
-    teacher: { id: row.teacher_id, name: row.teacher_name, school: row.school_name || null },
+    teacher: { id: row.teacher_id, name: row.teacher_name, school: row.school_name || null, online: !!row.teacher_online },
     file_path: allowed ? row.file_path || null : null,
     file_name: allowed ? row.file_name || null : null,
     question_count: type === 'quiz' ? Number(row.question_count || 0) : undefined,

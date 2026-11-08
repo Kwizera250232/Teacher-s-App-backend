@@ -30,12 +30,18 @@ export default function StaffChatsPanel({ token }) {
     setTimeout(() => scrollThreadToBottom('auto'), 0);
   };
 
+  // Messenger-style list: people who messaged (most recent first) on top, then everyone else
+  const [convos, setConvos] = useState([]);
+  const [peerOnline, setPeerOnline] = useState(null);
+
   useEffect(() => {
-    Promise.all([
+    const load = () => Promise.all([
       api.get('/profile/contacts/list', token).catch(() => []),
       api.get('/messages/inbox', token).catch(() => []),
       api.get('/parent/school/parents', token).catch(() => []),
     ]).then(([profileContacts, inbox, parents]) => {
+      setConvos(inbox || []);
+      const byId = Object.fromEntries((inbox || []).map((m) => [m.sender_id, m]));
       const map = new Map();
       profileContacts.forEach((c) => map.set(c.id, c));
       parents.forEach((p) => {
@@ -53,9 +59,32 @@ export default function StaffChatsPanel({ token }) {
           });
         }
       });
-      setContacts([...map.values()].sort((a, b) => a.name.localeCompare(b.name)));
+      // sort: conversations first (recent first), then the rest alphabetically
+      const convoIds = new Set((inbox || []).map((m) => m.sender_id));
+      const all = [...map.values()];
+      all.sort((a, b) => {
+        const ac = byId[a.id]?.created_at, bc = byId[b.id]?.created_at;
+        if (ac && bc) return new Date(bc) - new Date(ac);
+        if (ac) return -1;
+        if (bc) return 1;
+        return a.name.localeCompare(b.name);
+      });
+      all.forEach((c) => { c.unread = byId[c.id]?.unread_count || 0; c.preview = byId[c.id]?.content || ''; c.online = byId[c.id]?.is_online; });
+      setContacts(all);
     });
+    load();
+    const t = setInterval(load, 15000);
+    return () => clearInterval(t);
   }, [token]);
+
+  // live online status for the open chat header
+  useEffect(() => {
+    if (!activeChat) { setPeerOnline(null); return undefined; }
+    const load = () => api.get(`/presence/status/${activeChat}`, token).then((r) => setPeerOnline(!!r?.is_online)).catch(() => {});
+    load();
+    const t = setInterval(load, 20000);
+    return () => clearInterval(t);
+  }, [activeChat, token]);
 
   useEffect(() => {
     if (!activeChat) return;
@@ -109,14 +138,20 @@ export default function StaffChatsPanel({ token }) {
             className={`msg-contact ${activeChat === c.id ? 'active' : ''}`}
             onClick={() => openChat(c.id)}
           >
-            <img src={c.avatar_path ? `${UPLOADS_BASE}${c.avatar_path}` : DEFAULT_AVATAR} alt="" className="msg-contact-avatar" />
+            <span style={{ position: 'relative', flexShrink: 0 }}>
+              <img src={c.avatar_path ? `${UPLOADS_BASE}${c.avatar_path}` : DEFAULT_AVATAR} alt="" className="msg-contact-avatar" />
+              {c.online && <span style={{ position: 'absolute', bottom: 0, right: 0, width: 12, height: 12, background: '#22c55e', borderRadius: '50%', border: '2px solid #fff' }} />}
+            </span>
             <div className="msg-contact-info">
               <span className="msg-contact-name">{c.name}</span>
               <span className="msg-contact-role">
-                {c.role?.replace('_', ' ')}
-                {c.student_hint ? ` · ${c.student_hint}` : ''}
+                {c.preview ? String(c.preview).slice(0, 40) : (c.role?.replace('_', ' '))}
+                {!c.preview && c.student_hint ? ` · ${c.student_hint}` : ''}
               </span>
             </div>
+            {c.unread > 0 && (
+              <span style={{ marginLeft: 'auto', background: '#ef4444', color: '#fff', borderRadius: 999, fontSize: 11, fontWeight: 700, padding: '1px 7px', minWidth: 20, textAlign: 'center' }}>{c.unread}</span>
+            )}
           </div>
         ))}
       </div>
@@ -129,7 +164,12 @@ export default function StaffChatsPanel({ token }) {
               <button type="button" className="msg-back-btn" onClick={() => setMobilePanel('list')}>←</button>
               <div>
                 <strong>{activeContact?.name}</strong>
-                <div className="phub-chat-meta">{activeContact?.role?.replace('_', ' ')}</div>
+                <div className="phub-chat-meta">
+                  {peerOnline ? (
+                    <span style={{ color: '#22c55e', fontWeight: 600 }}>● online now</span>
+                  ) : 'offline'}
+                  {' · '}{activeContact?.role?.replace('_', ' ')}
+                </div>
               </div>
             </div>
             <div className="wa-chat-body">
