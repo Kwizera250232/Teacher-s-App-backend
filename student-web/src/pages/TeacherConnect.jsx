@@ -75,10 +75,12 @@ export default function TeacherConnect() {
                   {t.name} {t.is_online && <span style={{ fontSize: 10, color: '#16a34a', fontWeight: 700, marginLeft: 2 }}>● online</span>} {t.same_school && <span style={{ fontSize: 10, background: '#dcfce7', color: '#15803d', borderRadius: 6, padding: '1px 6px', marginLeft: 4, verticalAlign: 'middle' }}>SAME SCHOOL</span>}
                 </div>
                 <div style={{ fontSize: 12, color: '#64748b' }}>{t.role === 'head_teacher' ? '🏫 Head Teacher' : '👩‍🏫 Teacher'}{t.school_name ? ` · ${t.school_name}` : ''}</div>
-                <div style={{ fontSize: 12.5, color: '#334155', marginTop: 3 }}>
-                  <a href={`mailto:${t.email}`} style={{ color: '#0369a1', textDecoration: 'none' }}>✉️ {t.email}</a>
-                  {t.phone && <span style={{ marginLeft: 10 }}>📱 <a href={`tel:${t.phone}`} style={{ color: '#0369a1', textDecoration: 'none' }}>{t.phone}</a></span>}
-                </div>
+                {user?.role === 'admin' && (
+                  <div style={{ fontSize: 12.5, color: '#334155', marginTop: 3 }}>
+                    <a href={`mailto:${t.email}`} style={{ color: '#0369a1', textDecoration: 'none' }}>✉️ {t.email}</a>
+                    {t.phone && <span style={{ marginLeft: 10 }}>📱 <a href={`tel:${t.phone}`} style={{ color: '#0369a1', textDecoration: 'none' }}>{t.phone}</a></span>}
+                  </div>
+                )}
               </div>
               <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
                 <button
@@ -97,6 +99,16 @@ export default function TeacherConnect() {
             </div>
           ))}
         </div>
+
+        <a
+          href="https://student.umunsi.com/alumni/feed"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ display: 'block', marginTop: 26, background: 'linear-gradient(135deg,#667eea,#764ba2)', borderRadius: 14, padding: '16px 18px', color: '#fff', textDecoration: 'none', boxShadow: '0 4px 14px rgba(102,126,234,.3)' }}
+        >
+          <div style={{ fontWeight: 800, fontSize: 16 }}>🎓 UClass Alumni Feed</div>
+          <div style={{ fontSize: 12.5, opacity: 0.9, marginTop: 3 }}>Post, chat and explore with every teacher on UClass — tap to open the community →</div>
+        </a>
       </div>
 
       {call && (
