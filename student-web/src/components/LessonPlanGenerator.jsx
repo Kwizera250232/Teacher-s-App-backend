@@ -2,7 +2,23 @@ import { useEffect, useRef, useState } from 'react';
 import { api, API_BASE } from '../api';
 import './LessonPlanGenerator.css';
 
+const SUBJECTS = {
+  Primary: [
+    'Mathematics', 'English', 'Kinyarwanda', 'French', 'Kiswahili',
+    'Science and Elementary Technology (SET)', 'Social Studies', 'Social and Religious Studies (SRS)',
+    'Creative Arts', 'Physical Education', 'ICT', 'Religious Education', 'Literacy and Numeracy',
+  ],
+  Secondary: [
+    'Mathematics', 'English', 'Kinyarwanda', 'French', 'Kiswahili',
+    'Biology', 'Chemistry', 'Physics', 'Geography', 'History', 'Economics', 'Entrepreneurship',
+    'Literature in English', 'General Studies and Communication Skills', 'ICT / Computer Science',
+    'Religious Education', 'Physical Education and Sports', 'Fine Arts and Crafts', 'Music, Dance and Drama',
+    'Agriculture', 'Home Science', 'Citizenship', 'Advanced Mathematics',
+  ],
+};
+
 export default function LessonPlanGenerator({ user, token }) {
+  const [level, setLevel] = useState('Primary');
   const [form, setForm] = useState({
     schoolName: user?.school_name || '',
     teacherName: user?.name || '',
@@ -88,6 +104,8 @@ export default function LessonPlanGenerator({ user, token }) {
     try {
       const r = await api.post('/lesson-plan/generate', {
         subject: form.subject,
+        level,
+        language: /French/i.test(form.subject) ? 'French' : /Kiswahili/i.test(form.subject) ? 'Kiswahili' : 'English',
         className: form.class,
         unitTitle: form.unitTitle,
         lessonTitle: form.lessonTitle,
@@ -520,9 +538,31 @@ export default function LessonPlanGenerator({ user, token }) {
             <label className="lp-required">Date</label>
             <input type="date" value={form.date} onChange={handleChange('date')} required />
           </div>
+          <div className="lp-group" style={{ gridColumn: '1 / -1' }}>
+            <label className="lp-required">Level</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {['Primary', 'Secondary'].map((lvl) => (
+                <button
+                  key={lvl}
+                  type="button"
+                  onClick={() => { setLevel(lvl); setForm((f) => ({ ...f, subject: '' })); }}
+                  style={{
+                    flex: 1, padding: '11px 14px', borderRadius: 10, cursor: 'pointer', fontWeight: 800, fontSize: 14,
+                    border: level === lvl ? '2px solid #4f46e5' : '1.5px solid #e2e8f0',
+                    background: level === lvl ? '#eef2ff' : '#fff', color: level === lvl ? '#3730a3' : '#334155',
+                  }}
+                >{lvl === 'Primary' ? '🎒 Primary' : '🎓 Secondary'}</button>
+              ))}
+            </div>
+          </div>
           <div className="lp-group">
             <label className="lp-required">Subject</label>
-            <input type="text" value={form.subject} onChange={handleChange('subject')} placeholder="e.g., Mathematics, Science" required />
+            <select value={form.subject} onChange={handleChange('subject')} required>
+              <option value="">Select {level} subject</option>
+              {SUBJECTS[level].map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            {/French/i.test(form.subject) && <small style={{ color: '#4f46e5', fontWeight: 600 }}>🇫🇷 Lesson plan will be written in French</small>}
+            {/Kiswahili/i.test(form.subject) && <small style={{ color: '#4f46e5', fontWeight: 600 }}>🇹🇿 Lesson plan will be written in Kiswahili</small>}
           </div>
           <div className="lp-group">
             <label className="lp-required">Class</label>
