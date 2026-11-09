@@ -30,6 +30,17 @@ pool.query(`
   ALTER TABLE alumni_feed_posts ADD COLUMN IF NOT EXISTS views_count INTEGER DEFAULT 0;
   ALTER TABLE alumni_feed_posts ADD COLUMN IF NOT EXISTS likes_count INTEGER DEFAULT 0;
   ALTER TABLE alumni_feed_posts ADD COLUMN IF NOT EXISTS comments_count INTEGER DEFAULT 0;
+  ALTER TABLE alumni_feed_posts ADD COLUMN IF NOT EXISTS review_status VARCHAR(20) DEFAULT 'pending';
+  ALTER TABLE alumni_feed_posts ADD COLUMN IF NOT EXISTS reviewed_by INTEGER;
+  CREATE TABLE IF NOT EXISTS alumni_post_rewards (
+    id SERIAL PRIMARY KEY,
+    post_id INTEGER NOT NULL REFERENCES alumni_feed_posts(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    amount INTEGER NOT NULL,
+    notes TEXT,
+    created_by INTEGER,
+    created_at TIMESTAMP DEFAULT NOW()
+  );
   ALTER TABLE alumni_feed_comments ADD COLUMN IF NOT EXISTS author_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
   ALTER TABLE alumni_feed_comments ADD COLUMN IF NOT EXISTS content TEXT;
   ALTER TABLE alumni_feed_comments ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
@@ -872,6 +883,77 @@ router.post('/direct-messages/:userId', authenticateToken, async (req, res) => {
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('[alumni/direct-messages/send]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── ADMIN: review alumni feed articles + reward authors ─────────────────────
+
+// GET /api/alumni/admin/feed-posts — all posts for review
+router.get('/admin/feed-posts', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  try {
+    const rows = await pool.query(
+      `SELECT p.id, p.content, p.image_paths, p.post_type, p.views_count, p.likes_count, p.comments_count,
+              p.review_status, p.created_at,
+              u.id AS author_id, u.name AS author_name, u.role AS author_role,
+              s.name AS school_name,
+              COALESCE((SELECT SUM(amount) FROM alumni_post_rewards r WHERE r.post_id = p.id), 0)::int AS rewarded
+       FROM alumni_feed_posts p
+       JOIN users u ON u.id = p.author_id
+       LEFT JOIN schools s ON s.id = u.school_id
+       ORDER BY p.created_at DESC LIMIT 300`
+    );
+    res.json({ posts: rows.rows });
+  } catch (err) {
+    console.error('[alumni/admin/feed-posts]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// PUT /api/alumni/admin/feed-posts/:id/review — approve or flag
+router.put('/admin/feed-posts/:id/review', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  const status = req.body.status === 'flagged' ? 'flagged' : 'approved';
+  try {
+    const r = await pool.query(
+      `UPDATE alumni_feed_posts SET review_status=$1, reviewed_by=$2 WHERE id=$3 RETURNING author_id`,
+      [status, req.user.id, req.params.id]
+    );
+    if (!r.rowCount) return res.status(404).json({ error: 'Post not found.' });
+    await notify(pool, r.rows[0].author_id, 'article_review',
+      status === 'approved' ? '✅ Your article was reviewed' : '⚠️ Your article was flagged',
+      status === 'approved' ? 'Your alumni article complies with community rules — well done!' : 'An admin flagged your alumni article for review against community rules.',
+      { post_id: parseInt(req.params.id), alumni: true, status });
+    res.json({ ok: true, status });
+  } catch (err) {
+    console.error('[alumni/admin/review]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// POST /api/alumni/admin/feed-posts/:id/reward — credit author wallet
+router.post('/admin/feed-posts/:id/reward', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  const amount = Math.floor(Number(req.body.amount));
+  if (!amount || amount < 1 || amount > 10000000) return res.status(400).json({ error: 'Amount must be between 1 and 10,000,000 RWF.' });
+  try {
+    const post = await pool.query('SELECT id, author_id FROM alumni_feed_posts WHERE id=$1', [req.params.id]);
+    if (!post.rowCount) return res.status(404).json({ error: 'Post not found.' });
+    const authorId = post.rows[0].author_id;
+    await pool.query('INSERT INTO alumni_wallets (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING', [authorId]);
+    await pool.query('UPDATE alumni_wallets SET pending_rewards = COALESCE(pending_rewards,0) + $1 WHERE user_id=$2', [amount, authorId]);
+    await pool.query(
+      `INSERT INTO alumni_post_rewards (post_id, user_id, amount, notes, created_by) VALUES ($1,$2,$3,$4,$5)`,
+      [req.params.id, authorId, amount, req.body.notes || null, req.user.id]
+    );
+    await pool.query(
+      `UPDATE alumni_feed_posts SET review_status='approved', reviewed_by=$1 WHERE id=$2`, [req.user.id, req.params.id]
+    );
+    await notify(pool, authorId, 'reward',
+      `🎁 You received a ${amount.toLocaleString()} RWF reward`,
+      `An admin rewarded your alumni article${req.body.notes ? `: ${req.body.notes}` : ''}`,
+      { post_id: parseInt(req.params.id), amount, alumni: true });
+    res.json({ ok: true, rewarded: amount });
+  } catch (err) {
+    console.error('[alumni/admin/reward]', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
