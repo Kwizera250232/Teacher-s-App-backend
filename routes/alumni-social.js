@@ -958,6 +958,33 @@ router.post('/admin/feed-posts/:id/reward', authenticateToken, requireRole('admi
   }
 });
 
+// GET /api/alumni/top-writers — real ranked authors + teachers directory
+router.get('/top-writers', authenticateToken, async (req, res) => {
+  try {
+    const writers = await pool.query(
+      `SELECT u.id, u.name, s.name AS school, COUNT(p.id)::int AS articles
+       FROM alumni_feed_posts p
+       JOIN users u ON u.id = p.author_id
+       LEFT JOIN schools s ON s.id = u.school_id
+       GROUP BY u.id, u.name, s.name
+       ORDER BY articles DESC, u.name LIMIT 5`
+    );
+    const teachers = await pool.query(
+      `SELECT u.id, u.name, u.role, s.name AS school,
+              (SELECT COUNT(*) FROM alumni_feed_posts ap WHERE ap.author_id = u.id)::int AS articles
+       FROM users u
+       LEFT JOIN schools s ON s.id = u.school_id
+       WHERE u.role IN ('teacher','head_teacher') AND u.is_approved = TRUE AND u.id != $1
+       ORDER BY articles DESC, u.name LIMIT 30`,
+      [req.user.id]
+    );
+    res.json({ writers: writers.rows, teachers: teachers.rows });
+  } catch (err) {
+    console.error('[alumni/top-writers]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // ── NOTIFICATIONS ───────────────────────────────────────────────────────────
 
 // Get notifications for current user
