@@ -17,6 +17,287 @@ const SUBJECTS = {
   ],
 };
 
+const LP_T = {
+  en: {
+    lessonPlan: 'LESSON PLAN', schoolName: 'School Name:', teacherName: "Teacher's name:",
+    term: 'Term', date: 'Date', subject: 'Subject', classLbl: 'Class',
+    unitNo: 'Unit N°', lessonNo: 'Lesson N°', duration: 'Duration', classSize: 'Class size',
+    lessonOf: (n, t) => `${n} of ${t}`, minUnit: 'min',
+    sen: 'Type of Special Educational Needs',
+    senNone: 'No specific special educational needs identified in this class',
+    unitTitle: 'Unit title', keyUnitComp: 'Key Unit Competence',
+    keyUnitCompVal: (lesson, subj) => `Be able to understand and apply ${lesson} concepts accurately in ${subj}`,
+    titleOfLesson: 'Title of the lesson', instructionalObjective: 'Instructional Objective',
+    objFallback: (lesson) => `By the end of this lesson, learners should be able to explain and demonstrate ${lesson} with accuracy and confidence`,
+    planForClass: 'Plan for this Class',
+    planForClassVal: (g) => `Inside the classroom - learners arranged in ${g}`,
+    learningMaterials: 'Learning Materials',
+    learningMaterialsVal: (subj) => `${subj} textbook, charts, Manila paper, markers, learner's exercise books, chalk/whiteboard markers, demonstration materials`,
+    references: 'References',
+    referencesVal: (subj, cls) => `${subj} book for ${cls}, Rwanda Education Board curriculum`,
+    timingEachStep: 'Timing for each step',
+    descActivities: 'Description of teaching and learning activity',
+    genericCompHdr: 'Generic competences and Cross cutting issues to be addressed + a short explanation',
+    teacherActivities: 'Teacher activities', learnerActivities: 'Learner activities',
+    introduction: 'Introduction', development: 'Development of the lesson', conclusion: 'Conclusion',
+    teacherSelfEval: 'Teacher self-evaluation', toBeCompleted: 'To be completed after lesson delivery:',
+  },
+  fr: {
+    lessonPlan: 'PLAN DE LEÇON', schoolName: "Nom de l'école :", teacherName: "Nom de l'enseignant(e) :",
+    term: 'Trimestre', date: 'Date', subject: 'Matière', classLbl: 'Classe',
+    unitNo: 'Unité N°', lessonNo: 'Leçon N°', duration: 'Durée', classSize: 'Effectif',
+    lessonOf: (n, t) => `${n} sur ${t}`, minUnit: 'min',
+    sen: 'Type de besoins éducatifs spéciaux',
+    senNone: 'Aucun besoin éducatif spécial spécifique identifié dans cette classe',
+    unitTitle: "Titre de l'unité", keyUnitComp: "Compétence clé de l'unité",
+    keyUnitCompVal: (lesson, subj) => `Être capable de comprendre et d'appliquer correctement les concepts de ${lesson} en ${subj}`,
+    titleOfLesson: 'Titre de la leçon', instructionalObjective: 'Objectif pédagogique',
+    objFallback: (lesson) => `À la fin de cette leçon, les apprenants seront capables d'expliquer et de démontrer ${lesson} avec précision et confiance`,
+    planForClass: 'Organisation de la classe',
+    planForClassVal: (g) => `Dans la salle de classe - apprenants disposés en ${g}`,
+    learningMaterials: 'Matériel didactique',
+    learningMaterialsVal: (subj) => `Manuel de ${subj}, tableaux illustrés, papier manilla, marqueurs, cahiers d'exercices des apprenants, craie/marqueurs pour tableau, matériel de démonstration`,
+    references: 'Références',
+    referencesVal: (subj, cls) => `Livre de ${subj} pour ${cls}, programme du Rwanda Education Board`,
+    timingEachStep: 'Durée de chaque étape',
+    descActivities: "Description des activités d'enseignement et d'apprentissage",
+    genericCompHdr: 'Compétences génériques et questions transversales à aborder + brève explication',
+    teacherActivities: "Activités de l'enseignant(e)", learnerActivities: 'Activités des apprenants',
+    introduction: 'Introduction', development: 'Développement de la leçon', conclusion: 'Conclusion',
+    teacherSelfEval: "Auto-évaluation de l'enseignant(e)", toBeCompleted: 'À compléter après la prestation de la leçon :',
+  },
+  sw: {
+    lessonPlan: 'MPANGO WA SOMO', schoolName: 'Jina la Shule:', teacherName: 'Jina la Mwalimu:',
+    term: 'Muhula', date: 'Tarehe', subject: 'Somo', classLbl: 'Darasa',
+    unitNo: 'Kipengele Na.', lessonNo: 'Somo Na.', duration: 'Muda', classSize: 'Idadi ya wanafunzi',
+    lessonOf: (n, t) => `${n} kati ya ${t}`, minUnit: 'dakika',
+    sen: 'Aina ya mahitaji maalum ya kielimu',
+    senNone: 'Hakuna mahitaji maalum ya kielimu yaliyotambuliwa katika darasa hili',
+    unitTitle: 'Jina la kipengele', keyUnitComp: 'Umahiri mkuu wa kipengele',
+    keyUnitCompVal: (lesson, subj) => `Kuweza kuelewa na kutumia kwa usahihi dhana za ${lesson} katika ${subj}`,
+    titleOfLesson: 'Jina la somo', instructionalObjective: 'Lengo la ufundishaji',
+    objFallback: (lesson) => `Mwishoni mwa somo hili, wanafunzi wataweza kueleza na kuonyesha ${lesson} kwa usahihi na ujasiri`,
+    planForClass: 'Mpango wa darasa hili',
+    planForClassVal: (g) => `Ndani ya darasa - wanafunzi wamepangwa katika ${g}`,
+    learningMaterials: 'Vifaa vya kujifunzia',
+    learningMaterialsVal: (subj) => `Kitabu cha ${subj}, chati, karatasi ya manila, kalamu za ubao, daftari za kazi za wanafunzi, chaki/kalamu za ubao mweupe, vifaa vya kuonyeshia`,
+    references: 'Marejeo',
+    referencesVal: (subj, cls) => `Kitabu cha ${subj} cha ${cls}, mtaala wa Rwanda Education Board`,
+    timingEachStep: 'Muda wa kila hatua',
+    descActivities: 'Maelezo ya shughuli za ufundishaji na kujifunza',
+    genericCompHdr: 'Umahiri wa jumla na masuala yanayovuka mada yanayohitaji kushughulikiwa + maelezo mafupi',
+    teacherActivities: 'Shughuli za mwalimu', learnerActivities: 'Shughuli za wanafunzi',
+    introduction: 'Utangulizi', development: 'Maendeleo ya somo', conclusion: 'Hitimisho',
+    teacherSelfEval: 'Tathmini ya mwalimu', toBeCompleted: 'Kujazwa baada ya kutoa somo:',
+  },
+};
+
+const GROUP_LABELS = {
+  fr: { 'pairs': 'binômes', 'groups of 3': 'groupes de 3', 'groups of 4': 'groupes de 4', 'groups of 5': 'groupes de 5', 'groups of 6': 'groupes de 6', 'mixed-ability groups of 4': 'groupes mixtes de 4', 'mixed-ability groups of 5': 'groupes mixtes de 5', 'whole class': 'classe entière' },
+  sw: { 'pairs': 'jozi', 'groups of 3': 'vikundi vya watu 3', 'groups of 4': 'vikundi vya watu 4', 'groups of 5': 'vikundi vya watu 5', 'groups of 6': 'vikundi vya watu 6', 'mixed-ability groups of 4': 'vikundi vya watu 4 vya uwezo tofauti', 'mixed-ability groups of 5': 'vikundi vya watu 5 vya uwezo tofauti', 'whole class': 'darasa zima' },
+};
+
+const LP_TPL = {
+  en: (f) => ({
+    introT: [
+      'Greets learners and checks attendance',
+      `Reviews previous lesson related to ${f.unitTitle}`,
+      `Asks learners: "What do you remember about ${f.unitTitle}?"`,
+      `Introduces today's topic: "${f.lessonTitle}"`,
+      'Shares the lesson objectives with learners',
+    ],
+    introL: [
+      'Respond to greetings and settle down',
+      'Recall and share what they learned in previous lesson',
+      'Listen attentively to the new topic',
+      'Write lesson title in their exercise books',
+      'Ask questions if they need clarification',
+    ],
+    introC: `<strong>Communication:</strong> Learners express their prior knowledge clearly<br/><br/><strong>Peace and values education:</strong> Respectful participation in class discussions`,
+    devT: [
+      'Organizes learners into groups of 5',
+      'Distributes learning materials to each group',
+      `Explains the key concepts of ${f.lessonTitle} using examples`,
+      'Demonstrates the main concept on the board with step-by-step explanation',
+      'Guides groups to work on practice activities related to the topic',
+      'Moves around the classroom observing and assisting learners',
+      'Asks probing questions to check understanding',
+      'Invites group representatives to present their work',
+      'Provides constructive feedback and clarifies misconceptions',
+      'Gives additional practice exercises for individual work',
+    ],
+    devL: [
+      'Form groups as instructed by the teacher',
+      'Collect and handle learning materials carefully',
+      "Listen to teacher's explanation and take notes",
+      'Follow the demonstration and ask questions',
+      'Work collaboratively in groups to complete activities',
+      'Discuss and share ideas with group members',
+      'Record findings on Manila paper or in exercise books',
+      'Present group work to the class',
+      'Listen to feedback and make corrections',
+      'Complete individual practice exercises',
+    ],
+    devC: `<strong>Critical thinking:</strong> Learners analyze concepts and solve problems independently<br/><br/><strong>Cooperation:</strong> Working in groups develops teamwork and interpersonal skills<br/><br/><strong>Inclusive education:</strong> Mixed-ability groups ensure all learners participate actively<br/><br/><strong>Creativity and innovation:</strong> Learners explore different approaches to solve problems`,
+    concT: [
+      `Guides learners to summarize the main points about ${f.lessonTitle}`,
+      'Reinforces key concepts through questions and answers',
+      'Conducts a quick oral assessment with 2-3 questions',
+      `Assigns homework: Practice exercises on ${f.lessonTitle} from textbook`,
+      'Links to the next lesson and explains what will be covered',
+      'Appreciates learners for their active participation and good work',
+    ],
+    concL: [
+      'Participate in summarizing what they have learned',
+      "Answer teacher's questions to demonstrate understanding",
+      'Self-assess their learning progress',
+      'Write down homework assignment clearly',
+      'Ask final questions for clarification',
+      'Pack their materials and prepare for the next lesson',
+    ],
+    concC: `<strong>Self-confidence:</strong> Learners gain confidence through successful practice and participation<br/><br/><strong>Communication:</strong> Summarizing helps consolidate and articulate learning<br/><br/><strong>Lifelong learning:</strong> Reflection on learning promotes continuous improvement`,
+    eval: [
+      'Did all learners achieve the lesson objective?',
+      'Which activities worked well and which need improvement?',
+      'Were the learning materials adequate and effective?',
+      'How many learners need additional support?',
+      'What adjustments are needed for the next lesson?',
+    ],
+  }),
+  fr: (f) => ({
+    introT: [
+      'Accueille les apprenants et vérifie la présence',
+      `Révise la leçon précédente liée à ${f.unitTitle}`,
+      `Demande aux apprenants : « Que retenez-vous de ${f.unitTitle} ? »`,
+      `Présente le thème du jour : « ${f.lessonTitle} »`,
+      'Partage les objectifs de la leçon avec les apprenants',
+    ],
+    introL: [
+      "Répondent aux salutations et s'installent",
+      "Se rappellent et partagent ce qu'ils ont appris à la leçon précédente",
+      'Écoutent attentivement le nouveau thème',
+      "Écrivent le titre de la leçon dans leurs cahiers d'exercices",
+      "Posent des questions s'ils ont besoin de clarification",
+    ],
+    introC: `<strong>Communication :</strong> Les apprenants expriment clairement leurs connaissances antérieures<br/><br/><strong>Éducation à la paix et aux valeurs :</strong> Participation respectueuse aux discussions de classe`,
+    devT: [
+      'Organise les apprenants en groupes de 5',
+      'Distribue le matériel didactique à chaque groupe',
+      `Explique les concepts clés de ${f.lessonTitle} à l'aide d'exemples`,
+      'Démontre le concept principal au tableau avec une explication pas à pas',
+      'Guide les groupes dans des activités pratiques liées au thème',
+      'Circule dans la classe pour observer et aider les apprenants',
+      "Pose des questions de vérification pour s'assurer de la compréhension",
+      'Invite les représentants des groupes à présenter leur travail',
+      'Fournit une rétroaction constructive et clarifie les idées fausses',
+      'Donne des exercices supplémentaires pour le travail individuel',
+    ],
+    devL: [
+      "Forment des groupes comme indiqué par l'enseignant(e)",
+      'Récoltent et manipulent soigneusement le matériel didactique',
+      "Écoutent les explications de l'enseignant(e) et prennent des notes",
+      'Suivent la démonstration et posent des questions',
+      'Travaillent en collaboration en groupes pour réaliser les activités',
+      'Discutent et partagent des idées avec les membres du groupe',
+      "Consignent les résultats sur du papier manilla ou dans les cahiers d'exercices",
+      'Présentent le travail du groupe à la classe',
+      'Écoutent la rétroaction et apportent des corrections',
+      'Complètent les exercices pratiques individuels',
+    ],
+    devC: `<strong>Pensée critique :</strong> Les apprenants analysent les concepts et résolvent les problèmes de manière autonome<br/><br/><strong>Coopération :</strong> Le travail en groupe développe l'esprit d'équipe et les compétences interpersonnelles<br/><br/><strong>Éducation inclusive :</strong> Les groupes mixtes garantissent la participation active de tous les apprenants<br/><br/><strong>Créativité et innovation :</strong> Les apprenants explorent différentes approches pour résoudre les problèmes`,
+    concT: [
+      `Guide les apprenants à résumer les points principaux sur ${f.lessonTitle}`,
+      'Renforce les concepts clés par des questions-réponses',
+      'Réalise une évaluation orale rapide avec 2-3 questions',
+      `Donne des devoirs : exercices pratiques sur ${f.lessonTitle} dans le manuel`,
+      'Fait le lien avec la prochaine leçon et explique ce qui sera abordé',
+      'Félicite les apprenants pour leur participation active et leur bon travail',
+    ],
+    concL: [
+      "Participent au résumé de ce qu'ils ont appris",
+      "Répondent aux questions de l'enseignant(e) pour démontrer leur compréhension",
+      "Auto-évaluent leur progression dans l'apprentissage",
+      'Notent clairement le devoir à faire',
+      'Posent leurs dernières questions de clarification',
+      'Rangent leur matériel et se préparent pour la prochaine leçon',
+    ],
+    concC: `<strong>Confiance en soi :</strong> Les apprenants gagnent en confiance grâce à la pratique réussie et à la participation<br/><br/><strong>Communication :</strong> Le résumé aide à consolider et à articuler l'apprentissage<br/><br/><strong>Apprentissage tout au long de la vie :</strong> La réflexion sur l'apprentissage favorise l'amélioration continue`,
+    eval: [
+      "Tous les apprenants ont-ils atteint l'objectif de la leçon ?",
+      'Quelles activités ont bien fonctionné et lesquelles doivent être améliorées ?',
+      'Le matériel didactique était-il adéquat et efficace ?',
+      "Combien d'apprenants ont besoin d'un soutien supplémentaire ?",
+      'Quels ajustements sont nécessaires pour la prochaine leçon ?',
+    ],
+  }),
+  sw: (f) => ({
+    introT: [
+      'Anawasalimu wanafunzi na kuchunguza mahudhurio',
+      `Anarudia somo lililopita linalohusiana na ${f.unitTitle}`,
+      `Anawauliza wanafunzi: "Je, mnakumbuka nini kuhusu ${f.unitTitle}?"`,
+      `Anatambulisha mada ya leo: "${f.lessonTitle}"`,
+      'Anawaelekeza wanafunzi malengo ya somo',
+    ],
+    introL: [
+      'Hujibu salamu na kujipanga kikaoni',
+      'Hukumbuka na kushiriki walichojifunza katika somo lililopita',
+      'Husikiliza kwa makini mada mpya',
+      'Huandika jina la somo katika daftari zao za kazi',
+      'Huuliza maswali wakiwa na shaka',
+    ],
+    introC: `<strong>Mawasiliano:</strong> Wanafunzi huonyesha ujuzi wao wa awali kwa uwazi<br/><br/><strong>Elmu ya amani na maadili:</strong> Kushiriki kwa heshima katika mijadala ya darasa`,
+    devT: [
+      'Anawapanga wanafunzi katika vikundi vya watu 5',
+      'Anagawa vifaa vya kujifunzia kwa kila kikundi',
+      `Anaeleza dhana kuu za ${f.lessonTitle} kwa kutumia mifano`,
+      'Anaonyesha dhana kuu kwenye ubao kwa maelezo ya hatua kwa hatua',
+      'Anawaongoza vikundi kufanya shughuli za mazoezi zinazohusiana na mada',
+      'Anazunguka darasani akiangalia na kuwasaidia wanafunzi',
+      'Anauliza maswali ya kuchunguza uelewa',
+      'Anawaalika wawakilishi wa vikundi kuwasilisha kazi zao',
+      'Anatoa maoni ya kujenga na kurekebisha makosea ya dhana',
+      'Anatoa mazoezi zaidi ya kazi ya mtu binafsi',
+    ],
+    devL: [
+      'Hutengeneza vikundi kama alivyoelekezwa na mwalimu',
+      'Hupokea na kutumia vifaa vya kujifunzia kwa uangalifu',
+      'Husikiliza maelezo ya mwalimu na kuandika maelezo',
+      'Hufuatilia onyesho na kuuliza maswali',
+      'Hufanya kazi kwa ushirikiano katika vikundi kukamilisha shughuli',
+      'Hujadiliana na kubadilishana mawazo na wanakikundi',
+      'Huandika matokeo kwenye karatasi ya manila au katika daftari za kazi',
+      'Huwasilisha kazi ya kikundi kwa darasa',
+      'Husikiliza maoni na kufanya marekebisho',
+      'Hukamilisha mazoezi ya mtu binafsi',
+    ],
+    devC: `<strong>Kufikiria kwa kina:</strong> Wanafunzi huchambua dhana na kutatua matatizo kwa kujitegemea<br/><br/><strong>Ushirikiano:</strong> Kufanya kazi katika vikundi hukuza kazi ya timu na ujuzi wa kijamii<br/><br/><strong>Elimu jumuishi:</strong> Vikundi vya uwezo tofauti huhakikisha wanafunzi wote hushiriki kikamilifu<br/><br/><strong>Ubunifu na uvumbuzi:</strong> Wanafunzi huchunguza njia tofauti za kutatua matatizo`,
+    concT: [
+      `Anawaongoza wanafunzi kufupisha mambo makuu kuhusu ${f.lessonTitle}`,
+      'Anaimarisha dhana kuu kupitia maswali na majibu',
+      'Anafanya tathmini ya haraka ya mdomo kwa maswali 2-3',
+      `Anatoa kazi ya nyumbani: Mazoezi kuhusu ${f.lessonTitle} kutoka kitabuni`,
+      'Anaunganisha na somo linalofuata na kueleza kile kitakachofundishwa',
+      'Anawashukuru wanafunzi kwa kushiriki kikamilifu na kazi nzuri',
+    ],
+    concL: [
+      'Hushiriki katika kufupisha walichojifunza',
+      'Hujibu maswali ya mwalimu kuonyesha uelewa',
+      'Hujitathmini maendeleo yao ya kujifunza',
+      'Huandika kazi ya nyumbani kwa uwazi',
+      'Huuliza maswali ya mwisho ya ufafanuzi',
+      'Hupanga vifaa vyao na kujiandaa kwa somo linalofuata',
+    ],
+    concC: `<strong>Kujiamini:</strong> Wanafunzi hupata ujasiri kupitia mazoezi ya mafanikio na ushiriki<br/><br/><strong>Mawasiliano:</strong> Kufupisha husaidia kuimarisha na kueleza kujifunza<br/><br/><strong>Kujifunza maisha yote:</strong> Kutafakari juu ya kujifunza huendeleza uboreshaji endelevu`,
+    eval: [
+      'Je, wanafunzi wote walifikia lengo la somo?',
+      'Ni shughuli zipi zilizofanya kazi vizuri na zipi zinahitaji kuboreshwa?',
+      'Je, vifaa vya kujifunzia vilikuwa vya kutosha na vya manufaa?',
+      'Wanafunzi wangapi wanahitaji msaada wa ziada?',
+      'Ni marekebisho gani yanahitajika kwa somo linalofuata?',
+    ],
+  }),
+};
+
 export default function LessonPlanGenerator({ user, token }) {
   const [level, setLevel] = useState('Primary');
   const [form, setForm] = useState({
@@ -160,7 +441,7 @@ export default function LessonPlanGenerator({ user, token }) {
       <span>student.umunsi.com</span>
     </div>`;
 
-  const buildDoc = (withBrand) => `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Lesson Plan - ${form.lessonTitle}</title>
+  const buildDoc = (withBrand) => `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${t.lessonPlan} - ${form.lessonTitle}</title>
     <style>
       body{font-family:Arial,sans-serif;font-size:10pt;line-height:1.4;margin:24px;}
       table{width:100%;border-collapse:collapse;margin-bottom:5px;}
@@ -269,6 +550,12 @@ export default function LessonPlanGenerator({ user, token }) {
   const devDuration = form.devMin !== '' ? Number(form.devMin) : Math.floor(dur * 0.6);
   const concDuration = form.concMin !== '' ? Number(form.concMin) : Math.floor(dur * 0.25);
 
+  const lang = /French/i.test(form.subject) ? 'fr' : /Kiswahili/i.test(form.subject) ? 'sw' : 'en';
+  const t = LP_T[lang];
+  const gVal = form.grouping || 'groups of 5';
+  const gLabel = lang === 'en' ? gVal : (GROUP_LABELS[lang]?.[gVal] || gVal);
+  const tpl = LP_TPL[lang](form);
+
   // ── Content: AI-generated if available, else the built-in template ──
   const escHtml = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const ul = (items) => `<ul>${(items || []).map((b) => `<li>${escHtml(b)}</li>`).join('')}</ul>`;
@@ -285,66 +572,6 @@ export default function LessonPlanGenerator({ user, token }) {
     return [gen, cross].filter(Boolean).join('<br/><br/>');
   };
 
-  const TPL_INTRO_T = [
-    'Greets learners and checks attendance',
-    `Reviews previous lesson related to ${form.unitTitle}`,
-    `Asks learners: "What do you remember about ${form.unitTitle}?"`,
-    `Introduces today's topic: "${form.lessonTitle}"`,
-    'Shares the lesson objectives with learners',
-  ];
-  const TPL_INTRO_L = [
-    'Respond to greetings and settle down',
-    'Recall and share what they learned in previous lesson',
-    'Listen attentively to the new topic',
-    'Write lesson title in their exercise books',
-    'Ask questions if they need clarification',
-  ];
-  const TPL_INTRO_C = `<strong>Communication:</strong> Learners express their prior knowledge clearly<br/><br/><strong>Peace and values education:</strong> Respectful participation in class discussions`;
-
-  const TPL_DEV_T = [
-    'Organizes learners into groups of 5',
-    'Distributes learning materials to each group',
-    `Explains the key concepts of ${form.lessonTitle} using examples`,
-    'Demonstrates the main concept on the board with step-by-step explanation',
-    'Guides groups to work on practice activities related to the topic',
-    'Moves around the classroom observing and assisting learners',
-    'Asks probing questions to check understanding',
-    'Invites group representatives to present their work',
-    'Provides constructive feedback and clarifies misconceptions',
-    'Gives additional practice exercises for individual work',
-  ];
-  const TPL_DEV_L = [
-    'Form groups as instructed by the teacher',
-    'Collect and handle learning materials carefully',
-    "Listen to teacher's explanation and take notes",
-    'Follow the demonstration and ask questions',
-    'Work collaboratively in groups to complete activities',
-    'Discuss and share ideas with group members',
-    'Record findings on Manila paper or in exercise books',
-    'Present group work to the class',
-    'Listen to feedback and make corrections',
-    'Complete individual practice exercises',
-  ];
-  const TPL_DEV_C = `<strong>Critical thinking:</strong> Learners analyze concepts and solve problems independently<br/><br/><strong>Cooperation:</strong> Working in groups develops teamwork and interpersonal skills<br/><br/><strong>Inclusive education:</strong> Mixed-ability groups ensure all learners participate actively<br/><br/><strong>Creativity and innovation:</strong> Learners explore different approaches to solve problems`;
-
-  const TPL_CONC_T = [
-    `Guides learners to summarize the main points about ${form.lessonTitle}`,
-    'Reinforces key concepts through questions and answers',
-    'Conducts a quick oral assessment with 2-3 questions',
-    `Assigns homework: Practice exercises on ${form.lessonTitle} from textbook`,
-    'Links to the next lesson and explains what will be covered',
-    'Appreciates learners for their active participation and good work',
-  ];
-  const TPL_CONC_L = [
-    'Participate in summarizing what they have learned',
-    "Answer teacher's questions to demonstrate understanding",
-    'Self-assess their learning progress',
-    'Write down homework assignment clearly',
-    'Ask final questions for clarification',
-    'Pack their materials and prepare for the next lesson',
-  ];
-  const TPL_CONC_C = `<strong>Self-confidence:</strong> Learners gain confidence through successful practice and participation<br/><br/><strong>Communication:</strong> Summarizing helps consolidate and articulate learning<br/><br/><strong>Lifelong learning:</strong> Reflection on learning promotes continuous improvement`;
-
   const step = (key, fbT, fbL, fbC) => {
     const s = aiSections?.[key];
     if (s && Array.isArray(s.teacher) && s.teacher.length && Array.isArray(s.learner) && s.learner.length) {
@@ -352,39 +579,32 @@ export default function LessonPlanGenerator({ user, token }) {
     }
     return { teacher: fbT, learner: fbL, comp: fbC };
   };
-  const intro = step('intro', TPL_INTRO_T, TPL_INTRO_L, TPL_INTRO_C);
-  const dev = step('dev', TPL_DEV_T, TPL_DEV_L, TPL_DEV_C);
-  const conc = step('conc', TPL_CONC_T, TPL_CONC_L, TPL_CONC_C);
+  const intro = step('intro', tpl.introT, tpl.introL, tpl.introC);
+  const dev = step('dev', tpl.devT, tpl.devL, tpl.devC);
+  const conc = step('conc', tpl.concT, tpl.concL, tpl.concC);
 
-  const TPL_EVAL = [
-    'Did all learners achieve the lesson objective?',
-    'Which activities worked well and which need improvement?',
-    'Were the learning materials adequate and effective?',
-    'How many learners need additional support?',
-    'What adjustments are needed for the next lesson?',
-  ];
-  const evalLines = (aiSections?.selfEval?.length ? aiSections.selfEval : TPL_EVAL)
+  const evalLines = (aiSections?.selfEval?.length ? aiSections.selfEval : tpl.eval)
     .map((b) => `• ${escHtml(b)}`).join('<br/>');
 
   const planHtml = `
-    <div class="lp-text-center lp-bold" style="font-size: 12pt; margin-bottom: 10px;">LESSON PLAN</div>
+    <div class="lp-text-center lp-bold" style="font-size: 12pt; margin-bottom: 10px;">${t.lessonPlan}</div>
     <div style="margin-bottom: 5px; font-size: 10pt;">
-      <span class="lp-bold">School Name:</span> ${form.schoolName}
-      <span style="margin-left: 80px;" class="lp-bold">Teacher's name:</span> ${form.teacherName}
+      <span class="lp-bold">${t.schoolName}</span> ${form.schoolName}
+      <span style="margin-left: 80px;" class="lp-bold">${t.teacherName}</span> ${form.teacherName}
     </div>
     <table class="lp-meta">
       <colgroup>
         <col width="9%"/><col width="14%"/><col width="12%"/><col width="9%"/><col width="11%"/><col width="12%"/><col width="12%"/><col width="11%"/>
       </colgroup>
       <tr>
-        <td class="lp-hdr">Term</td>
-        <td class="lp-hdr">Date</td>
-        <td class="lp-hdr">Subject</td>
-        <td class="lp-hdr">Class</td>
-        <td class="lp-hdr">Unit N°</td>
-        <td class="lp-hdr">Lesson N°</td>
-        <td class="lp-hdr">Duration</td>
-        <td class="lp-hdr">Class size</td>
+        <td class="lp-hdr">${t.term}</td>
+        <td class="lp-hdr">${t.date}</td>
+        <td class="lp-hdr">${t.subject}</td>
+        <td class="lp-hdr">${t.classLbl}</td>
+        <td class="lp-hdr">${t.unitNo}</td>
+        <td class="lp-hdr">${t.lessonNo}</td>
+        <td class="lp-hdr">${t.duration}</td>
+        <td class="lp-hdr">${t.classSize}</td>
       </tr>
       <tr>
         <td>${form.term}</td>
@@ -392,79 +612,79 @@ export default function LessonPlanGenerator({ user, token }) {
         <td>${form.subject}</td>
         <td>${form.class}</td>
         <td>${form.unitNo}</td>
-        <td>${form.lessonNo} of ${form.totalLessons}</td>
-        <td>${form.duration} min</td>
+        <td>${t.lessonOf(form.lessonNo, form.totalLessons)}</td>
+        <td>${form.duration} ${t.minUnit}</td>
         <td>${form.classSize}</td>
       </tr>
     </table>
     <table class="lp-info">
       <tr>
-        <td class="lp-bold" style="width: 33%;">Type of Special Educational Needs</td>
-        <td>${form.specialNeeds || 'No specific special educational needs identified in this class'}</td>
+        <td class="lp-bold" style="width: 33%;">${t.sen}</td>
+        <td>${form.specialNeeds || t.senNone}</td>
       </tr>
       <tr>
-        <td class="lp-bold">Unit title</td>
+        <td class="lp-bold">${t.unitTitle}</td>
         <td>${form.unitTitle}</td>
       </tr>
       <tr>
-        <td class="lp-bold">Key Unit Competence</td>
-        <td>Be able to understand and apply ${form.lessonTitle} concepts accurately in ${form.subject}</td>
+        <td class="lp-bold">${t.keyUnitComp}</td>
+        <td>${t.keyUnitCompVal(form.lessonTitle, form.subject)}</td>
       </tr>
       <tr>
-        <td class="lp-bold">Title of the lesson</td>
+        <td class="lp-bold">${t.titleOfLesson}</td>
         <td>${form.lessonTitle}</td>
       </tr>
       <tr>
-        <td class="lp-bold">Instructional Objective</td>
-        <td>${String(aiSections?.objective || form.objective || `By the end of this lesson, learners should be able to explain and demonstrate ${form.lessonTitle} with accuracy and confidence`).replace(/[<>]/g, '')}</td>
+        <td class="lp-bold">${t.instructionalObjective}</td>
+        <td>${String(aiSections?.objective || form.objective || `${t.objFallback(form.lessonTitle)}`).replace(/[<>]/g, '')}</td>
       </tr>
       <tr>
-        <td class="lp-bold">Plan for this Class</td>
-        <td>Inside the classroom - learners arranged in ${form.grouping || 'groups of 5'}</td>
+        <td class="lp-bold">${t.planForClass}</td>
+        <td>${t.planForClassVal(gLabel)}</td>
       </tr>
       <tr>
-        <td class="lp-bold">Learning Materials</td>
-        <td>${form.subject} textbook, charts, Manila paper, markers, learner's exercise books, chalk/whiteboard markers, demonstration materials</td>
+        <td class="lp-bold">${t.learningMaterials}</td>
+        <td>${t.learningMaterialsVal(form.subject)}</td>
       </tr>
       <tr>
-        <td class="lp-bold">References</td>
-        <td>${form.references || `${form.subject} book for ${form.class}, Rwanda Education Board curriculum`}</td>
+        <td class="lp-bold">${t.references}</td>
+        <td>${form.references || t.referencesVal(form.subject, form.class)}</td>
       </tr>
     </table>
     <table class="lp-acts">
       <tr>
-        <td class="lp-bold" style="width: 15%;">Timing for each step</td>
-        <td colspan="2" class="lp-bold lp-text-center">Description of teaching and learning activity</td>
-        <td class="lp-bold" style="width: 30%;">Generic competences and Cross cutting issues to be addressed + a short explanation</td>
+        <td class="lp-bold" style="width: 15%;">${t.timingEachStep}</td>
+        <td colspan="2" class="lp-bold lp-text-center">${t.descActivities}</td>
+        <td class="lp-bold" style="width: 30%;">${t.genericCompHdr}</td>
       </tr>
       <tr>
         <td></td>
-        <td class="lp-bold" style="width: 27.5%;">Teacher activities</td>
-        <td class="lp-bold" style="width: 27.5%;">Learner activities</td>
+        <td class="lp-bold" style="width: 27.5%;">${t.teacherActivities}</td>
+        <td class="lp-bold" style="width: 27.5%;">${t.learnerActivities}</td>
         <td></td>
       </tr>
       <tr>
-        <td class="lp-bold">Introduction<br/>${introDuration} min</td>
+        <td class="lp-bold">${t.introduction}<br/>${introDuration} ${t.minUnit}</td>
         <td>${ul(intro.teacher)}</td>
         <td>${ul(intro.learner)}</td>
         <td>${intro.comp}</td>
       </tr>
       <tr>
-        <td class="lp-bold">Development of the lesson<br/>${devDuration} min</td>
+        <td class="lp-bold">${t.development}<br/>${devDuration} ${t.minUnit}</td>
         <td>${ul(dev.teacher)}</td>
         <td>${ul(dev.learner)}</td>
         <td>${dev.comp}</td>
       </tr>
       <tr>
-        <td class="lp-bold">Conclusion<br/>${concDuration} min</td>
+        <td class="lp-bold">${t.conclusion}<br/>${concDuration} ${t.minUnit}</td>
         <td>${ul(conc.teacher)}</td>
         <td>${ul(conc.learner)}</td>
         <td>${conc.comp}</td>
       </tr>
       <tr>
-        <td class="lp-bold">Teacher self-evaluation</td>
+        <td class="lp-bold">${t.teacherSelfEval}</td>
         <td colspan="3">
-          <em>To be completed after lesson delivery:</em><br/>
+          <em>${t.toBeCompleted}</em><br/>
           ${evalLines}
         </td>
       </tr>
