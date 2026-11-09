@@ -1,1 +1,0 @@
-import{j as l}from"./index-BlzF2YBk.js";import{t as s}from"./achievementCatalog-DSjlL_Bk.js";function r({titleKey:t,title:a,compact:i}){const e=a||s(t);return e?l.jsxs("span",{className:"ach-displayed-crown",style:i?{fontSize:10,padding:"1px 6px"}:void 0,title:e.label,children:[e.emoji," ",e.label]}):null}export{r as D};

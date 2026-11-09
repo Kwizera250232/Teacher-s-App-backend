@@ -15,6 +15,17 @@ export function roleNotificationPath(n, role, basePath) {
     return payload.url.startsWith('/') ? payload.url : `/${payload.url}`;
   }
 
+  // Alumni notifications route to alumni paths for every role
+  if (n.type === 'group_message' && payload.group_id) {
+    return `/alumni/groups/${payload.group_id}`;
+  }
+  if (n.type === 'group_invite' && payload.group_id) {
+    return `/alumni/groups/${payload.group_id}`;
+  }
+  if (n.type === 'message' && payload.sender_id) {
+    return payload.alumni ? `/alumni/chat/${payload.sender_id}` : `/messages?to=${payload.sender_id}`;
+  }
+
   if (role === 'parent') {
     if (n.type === 'class_moment' && payload.moment_id) {
       return classMomentDetailPath('parent', payload.moment_id);

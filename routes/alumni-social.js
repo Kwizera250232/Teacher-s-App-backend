@@ -868,7 +868,7 @@ router.post('/direct-messages/:userId', authenticateToken, async (req, res) => {
     );
     // Notify receiver
     const senderName = await pool.query('SELECT name FROM users WHERE id=$1', [req.user.id]);
-    await notify(pool, otherId, 'message', `${senderName.rows[0]?.name || 'Someone'} sent you a message`, (content || '').trim().slice(0, 100), { sender_id: req.user.id });
+    await notify(pool, otherId, 'message', `${senderName.rows[0]?.name || 'Someone'} sent you a message`, (content || '').trim().slice(0, 100), { sender_id: req.user.id, alumni: true });
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('[alumni/direct-messages/send]', err);
