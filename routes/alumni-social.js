@@ -575,7 +575,10 @@ router.get('/feed', optionalAuth, async (req, res) => {
       LEFT JOIN schools s ON s.id=u.school_id
     `;
     const params = req.user ? [req.user.id] : [];
-    const filters = [];
+    const filters = [req.user
+      ? `(p.review_status = 'approved' OR p.author_id = $${params.length + 1})`
+      : `p.review_status = 'approved'`];
+    if (req.user) params.push(req.user.id);
     if (cursor) {
       filters.push(`p.id < $${params.length + 1}`);
       params.push(cursor);
