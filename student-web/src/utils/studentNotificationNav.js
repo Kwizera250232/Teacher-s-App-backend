@@ -30,6 +30,9 @@ export function notificationIcon(type) {
 export function studentNotificationPath(n, role = 'student') {
   const payload = n?.payload || {};
   if (payload.url) return payload.url.startsWith('/') ? payload.url : `/${payload.url}`;
+  if (n.type === 'message' && payload.sender_id) {
+    return `/messages?to=${payload.sender_id}`;
+  }
   if (n.type === 'class_moment' && payload.moment_id) {
     return classMomentDetailPath(role, payload.moment_id);
   }

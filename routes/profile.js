@@ -125,16 +125,17 @@ router.get('/contacts/list', auth, async (req, res) => {
          )`,
         [req.user.id, req.user.id]
       );
-      let staffPeers = { rows: [] };
-      if (req.user.role === 'head_teacher' && req.user.school_id) {
-        staffPeers = await pool.query(
-          `SELECT DISTINCT u.id, u.name, u.role, p.avatar_path
-           FROM users u
-           LEFT JOIN user_profiles p ON p.user_id = u.id
-           WHERE u.school_id = $1 AND u.id != $2 AND u.role IN ('teacher', 'head_teacher')`,
-          [req.user.school_id, req.user.id]
-        );
-      }
+      // Every teacher can reach other teachers — same school first, then all UClass staff
+      const staffPeers = await pool.query(
+        `SELECT DISTINCT u.id, u.name, u.role, p.avatar_path
+         FROM users u
+         LEFT JOIN user_profiles p ON p.user_id = u.id
+         WHERE u.id != $2 AND u.role IN ('teacher', 'head_teacher')
+           AND u.is_approved = TRUE
+         ORDER BY (u.school_id = $1) DESC, u.name
+         LIMIT 200`,
+        [req.user.school_id || -1, req.user.id]
+      );
       const merged = new Map();
       [...students.rows, ...parents.rows, ...staffPeers.rows].forEach((r) => merged.set(r.id, r));
       rows = [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));

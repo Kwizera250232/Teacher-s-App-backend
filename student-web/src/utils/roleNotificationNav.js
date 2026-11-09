@@ -34,7 +34,7 @@ export function roleNotificationPath(n, role, basePath) {
       return `${bp}/colleagues`;
     }
     if (n.type === 'message' && payload.sender_id) {
-      return `${bp}/messages/${payload.sender_id}`;
+      return `${bp}/chat/${payload.sender_id}`;
     }
     if (n.type === 'group_message' && payload.group_id) {
       return `${bp}/groups/${payload.group_id}`;
@@ -43,6 +43,9 @@ export function roleNotificationPath(n, role, basePath) {
   }
 
   if (role === 'teacher' || role === 'head_teacher') {
+    if (n.type === 'message' && payload.sender_id) {
+      return `/messages?to=${payload.sender_id}`;
+    }
     const bp = staffBasePath(role, basePath);
     const classId = payload.class_id;
     if (n.type === 'co_teacher_invite') {

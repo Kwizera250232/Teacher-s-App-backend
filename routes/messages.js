@@ -94,6 +94,14 @@ router.post('/', auth, async (req, res) => {
     );
     notifyMessageEmail(req.user.id, rid, content.trim()); // fire and forget
     notifyMessagePush(req.user.id, rid, content.trim()); // fire and forget
+    // in-app notification so the bell shows it and tapping opens this exact chat
+    pool.query('SELECT name FROM users WHERE id=$1', [req.user.id]).then((s) => {
+      const senderName = s.rows[0]?.name || 'Someone';
+      return pool.query(
+        `INSERT INTO user_notifications (user_id, type, title, body, payload) VALUES ($1,'message',$2,$3,$4)`,
+        [rid, `💬 ${senderName}`, String(content.trim()).slice(0, 140), JSON.stringify({ sender_id: req.user.id, url: `/messages?to=${req.user.id}` })]
+      );
+    }).catch((e) => console.warn('[msg notif]', e.message.slice(0, 80)));
     res.status(201).json(result.rows[0]);
   } catch {
     res.status(500).json({ error: 'Internal server error.' });
