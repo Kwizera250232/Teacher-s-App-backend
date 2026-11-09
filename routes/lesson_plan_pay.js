@@ -273,10 +273,22 @@ function validAiSections(s) {
 router.post('/generate', authenticateToken, requireRole('teacher', 'head_teacher', 'admin'), async (req, res) => {
   try {
     const f = req.body || {};
+    const level = /secondary/i.test(f.level || '') || /^S[1-6]/i.test(f.className || '') ? 'secondary' : 'primary';
+    const lang = /french/i.test(f.language || f.subject || '') ? 'French'
+      : /kiswahili|swahili/i.test(f.language || f.subject || '') ? 'Kiswahili' : 'English';
+    const langRule = lang === 'French'
+      ? '- LANGUAGE: Write ALL content (objective, every teacher/learner activity, competences, cross-cutting issues, self-evaluation) in correct, natural, standard French as used in Rwandan and francophone African schools. Use proper accents (é, è, à, ç) and pedagogical vocabulary ("Les apprenants…", "L\'enseignant(e)…"). Keep the JSON keys in English.'
+      : lang === 'Kiswahili'
+        ? '- LANGUAGE: Write ALL content (objective, every teacher/learner activity, competences, cross-cutting issues, self-evaluation) in correct, natural Standard Kiswahili (Kiswahili Sanifu) as spoken in Zanzibar and taught in East African schools. Use proper pedagogical vocabulary ("Wanafunzi…", "Mwalimu…", "Mwishoni mwa somo hili, wanafunzi wataweza…"). No Sheng or slang. Keep the JSON keys in English.'
+        : '- Clear, correct, simple English suitable for a Rwandan classroom (groups, exercise books, manila paper, board work).';
+    const objectiveLead = lang === 'French' ? 'À la fin de cette leçon, les apprenants seront capables de …'
+      : lang === 'Kiswahili' ? 'Mwishoni mwa somo hili, wanafunzi wataweza …'
+        : 'By the end of this lesson, learners should be able to …';
     const prompt = [
-      'You are an expert Rwandan primary school lesson planner writing CBC (Competence-Based Curriculum) lesson plans.',
+      `You are an expert Rwandan ${level} school lesson planner writing CBC (Competence-Based Curriculum) lesson plans${level === 'secondary' ? ' for Ordinary and Advanced Level (S1–S6)' : ' (P1–P6)'}.`,
       '',
       'Write the teaching/learning content for THIS exact lesson (do not write generic filler):',
+      `- Level: ${level}`,
       `- Subject: ${f.subject || ''}`,
       `- Class: ${f.className || ''}`,
       `- Unit title: ${f.unitTitle || ''}`,
@@ -291,16 +303,16 @@ router.post('/generate', authenticateToken, requireRole('teacher', 'head_teacher
       '',
       'Rules:',
       '- Activities must be SPECIFIC to this lesson topic and subject — mention the actual topic/concept in several activities.',
-      '- Include subject-appropriate methods (e.g. manipulatives for maths, reading/dialogue for languages, observation/experiment for science).',
-      '- Clear, correct, simple English suitable for a Rwandan primary classroom (groups, exercise books, manila paper, board work).',
+      `- Include subject-appropriate methods (e.g. manipulatives for maths, reading/dialogue for languages, observation/experiment for science${level === 'secondary' ? ', case studies, debates, lab practicals and problem sets for secondary' : ''}).`,
+      langRule,
       '- Every bullet must be different — no repeated or rephrased activities between steps.',
       '- GROUP WORK MUST VARY: never just "work in groups". Rotate named strategies with different sizes across lessons — buzz pairs, think-pair-share, jigsaw groups, gallery walk, learning stations, mixed-ability groups, peer teaching. State the size (e.g. "pairs", "groups of 4") each time.',
-      '- objective: ONE instructional objective starting "By the end of this lesson, learners should be able to …". Keep the real curriculum meaning of this lesson but choose varied Bloom verbs — rotate among define, identify, describe, explain, classify, apply, solve, compare, demonstrate, construct, recite — never default to "explain and demonstrate". If the teacher supplied an objective, keep its meaning and only polish the verbs.',
+      `- objective: ONE instructional objective starting "${objectiveLead}". Keep the real curriculum meaning of this lesson but choose varied Bloom verbs — rotate among define, identify, describe, explain, classify, apply, solve, compare, demonstrate, construct, recite — never default to "explain and demonstrate". If the teacher supplied an objective, keep its meaning and only polish the verbs.`,
       '- genericComp: 3-4 competences, each "Label: one sentence". crossCut: a short title; crossCutDesc: one sentence.',
       '- selfEval: 3-4 short reflection points for the teacher.',
       '',
       'Return ONLY valid JSON in exactly this shape:',
-      '{"objective":"By the end of this lesson, learners should be able to ...",',
+      `{"objective":"${objectiveLead.replace(' …', ' ...')}",`,
       '"intro":{"teacher":["..."],"learner":["..."],"genericComp":"...","crossCut":"...","crossCutDesc":"..."},',
       '"dev":{"teacher":["..."],"learner":["..."],"genericComp":"...","crossCut":"...","crossCutDesc":"..."},',
       '"conc":{"teacher":["..."],"learner":["..."],"genericComp":"...","crossCut":"...","crossCutDesc":"..."},',
@@ -308,7 +320,7 @@ router.post('/generate', authenticateToken, requireRole('teacher', 'head_teacher
     ].filter(Boolean).join('\n');
 
     const raw = await callGroq([
-      { role: 'system', content: 'You produce structured CBC lesson plan content as JSON.' },
+      { role: 'system', content: `You produce structured CBC lesson plan content as JSON. All human-readable text values must be written in ${lang}.` },
       { role: 'user', content: prompt },
     ]);
     const sections = extractJson(raw);
