@@ -700,6 +700,8 @@ async function loadSettings(classId) {
 
 /** Grade bands printed on the comprehensive report: A 80-100, B 60-79, C 0-59. */
 const gradeABC = (pct) => (pct >= 80 ? 'A' : pct >= 60 ? 'B' : 'C');
+/** 1-2 word teacher comment matching the mark, printed in Short comments. */
+const commentFor = (pct) => (pct >= 90 ? 'Outstanding' : pct >= 80 ? 'Excellent' : pct >= 70 ? 'Good' : pct >= 60 ? 'Fair' : pct >= 50 ? 'Improve' : pct >= 40 ? 'Weak' : 'Needs help');
 
 /** Build the two-page (front + back) Mid term comprehensive assessment report for one student. */
 function buildReportHtml({ student, teacherName, schoolName, district, level, year, term, logo, comment, subjects, scores }) {
@@ -715,7 +717,7 @@ function buildReportHtml({ student, teacherName, schoolName, district, level, ye
       <td class="b">${escHtml(name)}</td>
       <td class="c">${markTxt}</td>
       <td class="c">${mark === null ? '' : gradeABC(mark)}</td>
-      <td>&nbsp;</td>
+      <td>${mark === null ? '&nbsp;' : escHtml(commentFor(mark))}</td>
     </tr>`;
   }).join('');
   const outOf = subjects.length * 100;
