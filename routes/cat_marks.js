@@ -811,19 +811,22 @@ function buildReportHtml({ student, teacherName, schoolName, district, level, ye
       <tr><td class="b">#</td><td class="b">Total</td><td class="c b">${counted ? `${totalTxt} / ${outOf}` : ''}</td><td class="c b">${counted ? gradeABC(pct) : ''}</td><td>&nbsp;</td></tr>
       <tr><td></td><td class="b">%</td><td class="c b">${counted ? `${pct}%` : ''}</td><td></td><td>&nbsp;</td></tr>
     </table>
-  </div>
 
-  <!-- ===================== BACK ===================== -->
-  <br clear="all" style="page-break-before:always;mso-break-type:page-break;" />
-  <div class="page last">
-    <div class="sec" style="margin-top:0;">LEARNER DEVELOPMENT AND PARTICIPATION</div>
+    <div class="sec">LEARNER DEVELOPMENT AND PARTICIPATION</div>
     <div class="sub">(Imyitwarire n&rsquo;iterambere by&rsquo;umunyeshuri mu myigire) <i>Tick (&#10003;) the statement that best describes the learner</i></div>
     <table class="t" width="100%" style="table-layout:fixed;">
       <tr><td width="22%" style="width:22%" class="c">Area</td><td width="24%" style="width:24%">Positive (Bimeze neza)</td><td width="26%" style="width:26%">Developing(birimo gutera imbere)</td><td width="28%" style="width:28%">Needs Support (Akeneye ubufasha)</td></tr>
       <tr><td>Attitude to Learning/ <i>Uko yitwara mu myigire</i></td><td>Curious, attentive and actively participates in learning.</td><td>Participates and remains attentive with occasional prompting.</td><td>Needs support to remain focused and engaged in learning.</td></tr>
       <tr><td>Collaboration <i>Gukorana n&rsquo;abandi</i></td><td>Cooperates, shares ideas and supports others.</td><td>Participates in group activities with encouragement.</td><td>Needs support to cooperate and participate effectively with others.</td></tr>
       <tr><td>Communication <i>Itumanaho</i></td><td>Expresses ideas clearly and listens to others.</td><td>Shares ideas with some encouragement.</td><td>Needs support to express ideas and communicate with others.</td></tr>
-      <tr><td>Independence <i>Kwikorera/kwigenga</i></td><td>Works independently and completes tasks confidently.</td><td>Completes tasks with some support.</td><td>Needs regular support to complete learning tasks.</td></tr>
+    </table>
+  </div>
+
+  <!-- ===================== BACK ===================== -->
+  <br clear="all" style="page-break-before:always;mso-break-type:page-break;" />
+  <div class="page last">
+    <table class="t" width="100%" style="table-layout:fixed;">
+      <tr><td width="22%" style="width:22%">Independence <i>Kwikorera/kwigenga</i></td><td width="24%" style="width:24%">Works independently and completes tasks confidently.</td><td width="26%" style="width:26%">Completes tasks with some support.</td><td width="28%" style="width:28%">Needs regular support to complete learning tasks.</td></tr>
       <tr><td>Attendance &amp; Punctuality<i>Ubwitabire n&rsquo;igihe</i></td><td>Consistently attends and arrives on time.</td><td>Generally attends and arrives on time.</td><td>Frequent absence or lateness affects learning.</td></tr>
     </table>
 
