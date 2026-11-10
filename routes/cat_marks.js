@@ -799,16 +799,14 @@ function buildReportHtml({ student, teacherName, schoolName, district, level, ye
 
     <h2>Mid term comprehensive assessment report</h2>
     <h3>Grades</h3>
-    <table class="t" style="margin-bottom:16px;width:74%;">
-      <colgroup><col style="width:30%"/><col style="width:14%"/><col style="width:8%"/><col style="width:48%"/></colgroup>
-      <tr><td style="background:#00b050;">&nbsp;</td><td class="b">(80-100)</td><td class="b">A</td><td class="b">Above expectation/Birahebuje</td></tr>
+    <table class="t" width="74%" style="margin-bottom:16px;width:74%;table-layout:fixed;">
+      <tr><td width="30%" style="width:30%;background:#00b050;">&nbsp;</td><td width="14%" style="width:14%" class="b">(80-100)</td><td width="8%" style="width:8%" class="b">A</td><td width="48%" style="width:48%" class="b">Above expectation/Birahebuje</td></tr>
       <tr><td style="background:#ffff00;">&nbsp;</td><td class="b">(60-79)</td><td class="b">B</td><td class="b">On target/Yakoze neza</td></tr>
       <tr><td style="background:#ff0000;">&nbsp;<br/>&nbsp;</td><td class="b">(0-59)</td><td class="b">C</td><td class="b">Below exoectation/Akeneye ubufasha bwisumbuyeho</td></tr>
     </table>
 
-    <table class="t">
-      <colgroup><col style="width:7%"/><col style="width:19%"/><col style="width:21%"/><col style="width:12%"/><col style="width:41%"/></colgroup>
-      <tr><th>#</th><th>Subjects</th><th>Marks out of 100</th><th>Grade</th><th>Short comments</th></tr>
+    <table class="t" width="100%" style="table-layout:fixed;">
+      <tr><th width="7%" style="width:7%">#</th><th width="19%" style="width:19%">Subjects</th><th width="21%" style="width:21%">Marks out of 100</th><th width="12%" style="width:12%">Grade</th><th width="41%" style="width:41%">Short comments</th></tr>
       ${rowsHtml}
       <tr><td class="b">#</td><td class="b">Total</td><td class="c b">${counted ? `${totalTxt} / ${outOf}` : ''}</td><td class="c b">${counted ? gradeABC(pct) : ''}</td><td>&nbsp;</td></tr>
       <tr><td></td><td class="b">%</td><td class="c b">${counted ? `${pct}%` : ''}</td><td></td><td>&nbsp;</td></tr>
@@ -820,9 +818,8 @@ function buildReportHtml({ student, teacherName, schoolName, district, level, ye
   <div class="page last">
     <div class="sec" style="margin-top:0;">LEARNER DEVELOPMENT AND PARTICIPATION</div>
     <div class="sub">(Imyitwarire n&rsquo;iterambere by&rsquo;umunyeshuri mu myigire) <i>Tick (&#10003;) the statement that best describes the learner</i></div>
-    <table class="t">
-      <colgroup><col style="width:22%"/><col style="width:24%"/><col style="width:26%"/><col style="width:28%"/></colgroup>
-      <tr><td class="c">Area</td><td>Positive (Bimeze neza)</td><td>Developing(birimo gutera imbere)</td><td>Needs Support (Akeneye ubufasha)</td></tr>
+    <table class="t" width="100%" style="table-layout:fixed;">
+      <tr><td width="22%" style="width:22%" class="c">Area</td><td width="24%" style="width:24%">Positive (Bimeze neza)</td><td width="26%" style="width:26%">Developing(birimo gutera imbere)</td><td width="28%" style="width:28%">Needs Support (Akeneye ubufasha)</td></tr>
       <tr><td>Attitude to Learning/ <i>Uko yitwara mu myigire</i></td><td>Curious, attentive and actively participates in learning.</td><td>Participates and remains attentive with occasional prompting.</td><td>Needs support to remain focused and engaged in learning.</td></tr>
       <tr><td>Collaboration <i>Gukorana n&rsquo;abandi</i></td><td>Cooperates, shares ideas and supports others.</td><td>Participates in group activities with encouragement.</td><td>Needs support to cooperate and participate effectively with others.</td></tr>
       <tr><td>Communication <i>Itumanaho</i></td><td>Expresses ideas clearly and listens to others.</td><td>Shares ideas with some encouragement.</td><td>Needs support to express ideas and communicate with others.</td></tr>
@@ -831,9 +828,8 @@ function buildReportHtml({ student, teacherName, schoolName, district, level, ye
     </table>
 
     <div class="lbl">Areas of Progress</div>
-    <table class="t">
-      <colgroup><col style="width:50%"/><col style="width:50%"/></colgroup>
-      <tr><td>Progress observed</td><td class="c">Priority for development</td></tr>
+    <table class="t" width="100%" style="table-layout:fixed;">
+      <tr><td width="50%" style="width:50%">Progress observed</td><td width="50%" style="width:50%" class="c">Priority for development</td></tr>
       <tr>
         <td>${box} Mathematics ${box} Kinyarwanda ${box} Science ${box} social studies ${box} English other:____________</td>
         <td>${box} Mathematics ${box} Kinyarwanda ${box} Science ${box} social studies ${box} English ${box} Other: ___________</td>
