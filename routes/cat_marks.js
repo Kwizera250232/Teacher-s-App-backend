@@ -561,10 +561,11 @@ pool.query(`
     subjects JSONB, logo TEXT, updated_at TIMESTAMP DEFAULT NOW()
   );
   ALTER TABLE midterm_report_settings ADD COLUMN IF NOT EXISTS authority_email TEXT;
+  ALTER TABLE midterm_report_settings ADD COLUMN IF NOT EXISTS removed_subjects JSONB;
 `).catch(e => console.error('[midterm settings] migration error:', e.message));
 
 const DEFAULT_SUBJECTS = {
-  Primary: ['Mathematics', 'SET', 'Kinyarwanda', 'Social Studies', 'English', 'French', 'Creative Art', 'Ph. Education'],
+  Primary: ['Mathematics', 'SET', 'Kinyarwanda', 'SRS', 'English', 'French', 'Creative Arts', 'Physical Education'],
   Secondary: ['Geography', 'History', 'Literature in English', 'Entrepreneurship', 'English', 'French', 'Kinyarwanda',
     'General Studies and Communication', 'Computer', 'Library', 'Sports / Clubs'],
 };
@@ -626,15 +627,15 @@ async function subjectScores(classId, studentId) {
      FROM cat_marks WHERE class_id = $1 AND student_id = $2 GROUP BY subject`, [classId, studentId]
   )).rows;
   const out = {};
-  for (const r of rows) out[normSubj(r.subject)] = { name: r.subject, score: Math.round((r.m / r.t) * 1000) / 10 };
+  for (const r of rows) out[canonSubj(r.subject)] = { name: r.subject, score: Math.round((r.m / r.t) * 1000) / 10 };
   return out;
 }
 
 /** Ordered union: items in refOrder first (in that order), then the rest alphabetically. */
 function orderByRef(items, refOrder) {
   return [...items].sort((a, b) => {
-    const ia = refOrder.findIndex((d) => normSubj(d) === normSubj(a));
-    const ib = refOrder.findIndex((d) => normSubj(d) === normSubj(b));
+    const ia = refOrder.findIndex((d) => canonSubj(d) === canonSubj(a));
+    const ib = refOrder.findIndex((d) => canonSubj(d) === canonSubj(b));
     if (ia !== -1 || ib !== -1) return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
     return a.localeCompare(b);
   });
@@ -659,8 +660,10 @@ async function loadSettings(classId) {
     `SELECT DISTINCT subject FROM cat_marks WHERE class_id = $1 AND subject IS NOT NULL ORDER BY subject`, [classId]
   )).rows.map((r) => r.subject).filter(Boolean);
 
-  const savedList = Array.isArray(saved?.subjects) ? saved.subjects.filter(Boolean) : [];
-  const recordedOrdered = orderByRef(recorded, levelDefaults);
+  const savedList = (Array.isArray(saved?.subjects) ? saved.subjects : [])
+    .filter((s) => s && normSubj(s) !== 'general');
+  const removedSaved = new Set((Array.isArray(saved?.removed_subjects) ? saved.removed_subjects : []).map(canonSubj));
+  const recordedOrdered = orderByRef(recorded.filter((r) => normSubj(r) !== 'general'), levelDefaults);
 
   // Default authority email = the school's head teacher (auto-filled, editable)
   const htEmail = (await pool.query(
@@ -677,11 +680,14 @@ async function loadSettings(classId) {
   if (savedList.length) {
     subjects = [...savedList];
     for (const r of recordedOrdered) {
-      if (!subjects.some((s) => normSubj(s) === normSubj(r))) subjects.push(r);
+      if (removedSaved.has(canonSubj(r))) continue;
+      if (!subjects.some((s) => canonSubj(s) === canonSubj(r))) subjects.push(r);
     }
   } else {
-    subjects = orderByRef([...levelDefaults, ...recorded.filter((r) => !levelDefaults.some((d) => normSubj(d) === normSubj(r)))], levelDefaults);
+    subjects = orderByRef([...levelDefaults, ...recordedOrdered.filter((r) => !levelDefaults.some((d) => canonSubj(d) === canonSubj(r)))], levelDefaults);
   }
+  // dedupe canonical duplicates (e.g. "SET" + "Science and Elementary Technology (SET)")
+  subjects = subjects.filter((s, i) => subjects.findIndex((x) => canonSubj(x) === canonSubj(s)) === i);
 
   return {
     class_name: cls.class_name || '',
@@ -702,19 +708,45 @@ async function loadSettings(classId) {
 const gradeABC = (pct) => (pct >= 80 ? 'A' : pct >= 60 ? 'B' : 'C');
 /** 1-2 word teacher comment matching the mark, printed in Short comments. */
 const commentFor = (pct) => (pct >= 90 ? 'Outstanding' : pct >= 80 ? 'Excellent' : pct >= 70 ? 'Good' : pct >= 60 ? 'Fair' : pct >= 50 ? 'Improve' : pct >= 40 ? 'Weak' : 'Needs help');
+/** Canonical subject key — variants recorded under different names map to one report row. */
+const canonSubj = (n) => {
+  const k = normSubj(n);
+  if (k === 'ssr' || k === 'sst' || k === 'srs' || k.startsWith('socialandreligious')) return 'srs';
+  if (k === 'set' || k.startsWith('scienceandelementary')) return 'set';
+  if (k.startsWith('physicaleducation') || k === 'pheducation' || k === 'pes') return 'physicaleducation';
+  return k;
+};
+/** Printed subject name — variants render as the short report name. */
+const displaySubj = (n) => ({ srs: 'SRS', set: 'SET', physicaleducation: 'Physical Education' }[canonSubj(n)] || n);
+/** Auto NEXT STEPS sentences from the recorded marks (weakest subjects first). */
+function nextStepLines(subjects, scores, comment) {
+  const withMarks = subjects
+    .map((n) => ({ n: displaySubj(n), s: scores[canonSubj(n)]?.score }))
+    .filter((x) => x.s != null)
+    .sort((a, b) => a.s - b.s);
+  const lines = [];
+  if (comment) lines.push(comment.replace(/\n/g, ' '));
+  for (const x of withMarks) {
+    if (lines.length >= 3) break;
+    lines.push(x.s < 60 ? `Needs help in ${x.n} (${x.s}%).` : x.s < 80 ? `Improve ${x.n}.` : `Keep up ${x.n}.`);
+  }
+  const fill = ['Continue practising all subjects daily.', 'Monitor homework and class participation.', 'Encourage regular reading and revision.'];
+  for (const f of fill) { if (lines.length >= 3) break; lines.push(f); }
+  return lines.slice(0, 3);
+}
 
 /** Build the two-page (front + back) Mid term comprehensive assessment report for one student. */
 function buildReportHtml({ student, teacherName, schoolName, district, level, year, term, logo, comment, subjects, scores }) {
   let total = 0;
   let counted = 0;
   const rowsHtml = subjects.map((name, i) => {
-    const sc = scores[normSubj(name)];
+    const sc = scores[canonSubj(name)];
     const mark = sc ? sc.score : null;
     if (mark !== null) { total += mark; counted += 1; }
     const markTxt = mark === null ? '' : (Number.isInteger(mark) ? mark : mark.toFixed(1));
     return `<tr>
       <td class="b">${i + 1}</td>
-      <td class="b">${escHtml(name)}</td>
+      <td class="b">${escHtml(displaySubj(name))}</td>
       <td class="c">${markTxt}</td>
       <td class="c">${mark === null ? '' : gradeABC(mark)}</td>
       <td>${mark === null ? '&nbsp;' : escHtml(commentFor(mark))}</td>
@@ -725,9 +757,7 @@ function buildReportHtml({ student, teacherName, schoolName, district, level, ye
   const pct = outOf ? Math.round((total / outOf) * 1000) / 10 : 0;
   const dots = (n) => '.'.repeat(n);
   const box = '&#9744;';
-  const nextSteps = comment
-    ? escHtml(comment).replace(/\n/g, '<br/>')
-    : '';
+  const nextSteps = nextStepLines(subjects, scores, comment).map((l) => escHtml(l));
 
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Mid term comprehensive assessment report</title><style>
     @page { size: A4; margin: 1.6cm 1.8cm; }
@@ -782,8 +812,12 @@ function buildReportHtml({ student, teacherName, schoolName, district, level, ye
       ${rowsHtml}
       <tr><td class="b">#</td><td class="b">Total</td><td class="c b">${counted ? `${totalTxt} / ${outOf}` : ''}</td><td class="c b">${counted ? gradeABC(pct) : ''}</td><td>${counted ? `${pct}%` : '&nbsp;'}</td></tr>
     </table>
+  </div>
 
-    <div class="sec">LEARNER DEVELOPMENT AND PARTICIPATION</div>
+  <!-- ===================== BACK ===================== -->
+  <br clear="all" style="page-break-before:always;mso-break-type:page-break;" />
+  <div class="page last">
+    <div class="sec" style="margin-top:0;">LEARNER DEVELOPMENT AND PARTICIPATION</div>
     <div class="sub">(Imyitwarire n&rsquo;iterambere by&rsquo;umunyeshuri mu myigire) <i>Tick (&#10003;) the statement that best describes the learner</i></div>
     <table class="t">
       <colgroup><col style="width:22%"/><col style="width:24%"/><col style="width:26%"/><col style="width:28%"/></colgroup>
@@ -791,14 +825,6 @@ function buildReportHtml({ student, teacherName, schoolName, district, level, ye
       <tr><td>Attitude to Learning/ <i>Uko yitwara mu myigire</i></td><td>Curious, attentive and actively participates in learning.</td><td>Participates and remains attentive with occasional prompting.</td><td>Needs support to remain focused and engaged in learning.</td></tr>
       <tr><td>Collaboration <i>Gukorana n&rsquo;abandi</i></td><td>Cooperates, shares ideas and supports others.</td><td>Participates in group activities with encouragement.</td><td>Needs support to cooperate and participate effectively with others.</td></tr>
       <tr><td>Communication <i>Itumanaho</i></td><td>Expresses ideas clearly and listens to others.</td><td>Shares ideas with some encouragement.</td><td>Needs support to express ideas and communicate with others.</td></tr>
-    </table>
-  </div>
-
-  <!-- ===================== BACK ===================== -->
-  <br clear="all" style="page-break-before:always;mso-break-type:page-break;" />
-  <div class="page last">
-    <table class="t">
-      <colgroup><col style="width:22%"/><col style="width:24%"/><col style="width:26%"/><col style="width:28%"/></colgroup>
       <tr><td>Independence <i>Kwikorera/kwigenga</i></td><td>Works independently and completes tasks confidently.</td><td>Completes tasks with some support.</td><td>Needs regular support to complete learning tasks.</td></tr>
       <tr><td>Attendance &amp; Punctuality<i>Ubwitabire n&rsquo;igihe</i></td><td>Consistently attends and arrives on time.</td><td>Generally attends and arrives on time.</td><td>Frequent absence or lateness affects learning.</td></tr>
     </table>
@@ -842,6 +868,8 @@ async function resolveReportParams(classId, body) {
   const level = ['Primary', 'Secondary'].includes(b.level) ? b.level : prev.level;
   const subjects = (Array.isArray(b.subjects) ? b.subjects : prev.subjects)
     .map((s) => String(s || '').trim()).filter(Boolean).slice(0, 30);
+  const kept = new Set(subjects.map(canonSubj));
+  const removedSubjects = (prev.recorded_subjects || []).filter((r) => !kept.has(canonSubj(r)));
   return {
     level,
     subjects,
@@ -853,15 +881,16 @@ async function resolveReportParams(classId, body) {
     logo: b.logo === null ? null : (typeof b.logo === 'string' && /^data:image\/(png|jpe?g|gif|webp);base64,/.test(b.logo) && b.logo.length < 700000 ? b.logo : prev.logo),
     comment: String(b.teacher_comment || '').trim(),
     className: prev.class_name,
+    removedSubjects,
   };
 }
 
 async function saveSettings(classId, p) {
   await pool.query(
-    `INSERT INTO midterm_report_settings (class_id, school_name, district, level, academic_year, term, authority_email, subjects, logo, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
-     ON CONFLICT (class_id) DO UPDATE SET school_name=$2, district=$3, level=$4, academic_year=$5, term=$6, authority_email=$7, subjects=$8, logo=$9, updated_at=NOW()`,
-    [classId, p.schoolName, p.district, p.level, p.year, p.term, p.authorityEmail, JSON.stringify(p.subjects), p.logo]
+    `INSERT INTO midterm_report_settings (class_id, school_name, district, level, academic_year, term, authority_email, subjects, logo, removed_subjects, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
+     ON CONFLICT (class_id) DO UPDATE SET school_name=$2, district=$3, level=$4, academic_year=$5, term=$6, authority_email=$7, subjects=$8, logo=$9, removed_subjects=$10, updated_at=NOW()`,
+    [classId, p.schoolName, p.district, p.level, p.year, p.term, p.authorityEmail, JSON.stringify(p.subjects), p.logo, JSON.stringify(p.removedSubjects || [])]
   );
 }
 
