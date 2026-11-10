@@ -799,15 +799,15 @@ function buildReportHtml({ student, teacherName, schoolName, district, level, ye
 
     <h2>Mid term comprehensive assessment report</h2>
     <h3>Grades</h3>
-    <table class="t" style="margin-bottom:16px;width:62%;">
-      <colgroup><col style="width:26%"/><col style="width:18%"/><col style="width:12%"/><col style="width:44%"/></colgroup>
+    <table class="t" style="margin-bottom:16px;width:74%;">
+      <colgroup><col style="width:26%"/><col style="width:15%"/><col style="width:9%"/><col style="width:50%"/></colgroup>
       <tr><td style="background:#00b050;">&nbsp;</td><td class="b">(80-100)</td><td class="b">A</td><td class="b">Above expectation/Birahebuje</td></tr>
       <tr><td style="background:#ffff00;">&nbsp;</td><td class="b">(60-79)</td><td class="b">B</td><td class="b">On target/Yakoze neza</td></tr>
       <tr><td style="background:#ff0000;">&nbsp;<br/>&nbsp;</td><td class="b">(0-59)</td><td class="b">C</td><td class="b">Below exoectation/Akeneye ubufasha bwisumbuyeho</td></tr>
     </table>
 
     <table class="t">
-      <colgroup><col style="width:6%"/><col style="width:25%"/><col style="width:19%"/><col style="width:12%"/><col style="width:38%"/></colgroup>
+      <colgroup><col style="width:7%"/><col style="width:19%"/><col style="width:21%"/><col style="width:12%"/><col style="width:41%"/></colgroup>
       <tr><th>#</th><th>Subjects</th><th>Marks out of 100</th><th>Grade</th><th>Short comments</th></tr>
       ${rowsHtml}
       <tr><td class="b">#</td><td class="b">Total</td><td class="c b">${counted ? `${totalTxt} / ${outOf}` : ''}</td><td class="c b">${counted ? gradeABC(pct) : ''}</td><td>${counted ? `${pct}%` : '&nbsp;'}</td></tr>
