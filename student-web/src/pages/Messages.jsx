@@ -252,9 +252,13 @@ export default function Messages() {
                 <div
                   className="msg-chat-name"
                   onClick={() => ['teacher','head_teacher','admin'].includes(activeContact?.role) && navigate(`/teacher-profile/${activeId}`)}
-                  style={['teacher','head_teacher','admin'].includes(activeContact?.role) ? { cursor: 'pointer' } : undefined}
+                  style={{
+                    display: 'flex', alignItems: 'center', maxWidth: '62vw', overflow: 'hidden',
+                    textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    cursor: ['teacher','head_teacher','admin'].includes(activeContact?.role) ? 'pointer' : undefined,
+                  }}
                 >
-                  {activeContact?.name}
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeContact?.name}</span>
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginLeft: 4, verticalAlign: 'middle' }}>
                     <circle cx="12" cy="12" r="12" fill="#1d9bf0"/>
                     <path d="M6.5 12.5l3.5 3.5 7.5-8" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -291,7 +295,25 @@ export default function Messages() {
                           style={{ display: 'block', width: '100%', margin: '6px 0', padding: '10px', border: 'none', borderRadius: 10, background: '#15803d', color: '#fff', fontWeight: 800, cursor: 'pointer' }}
                         >📞 Join the call</button>
                       )}
-                      <span className="msg-time">{new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      <span className="msg-time" style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {m.sender_id === user?.id && (
+                          m.is_read ? (
+                            <span
+                              title="Read"
+                              style={{
+                                background: 'linear-gradient(180deg, #00A1DE 0% 38%, #FAD201 38% 72%, #20603D 72% 100%)',
+                                WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent',
+                                fontWeight: 900, fontSize: 12, letterSpacing: -2,
+                              }}
+                            >✓✓</span>
+                          ) : peerOnline ? (
+                            <span title="Delivered" style={{ color: '#9ca3af', fontWeight: 800, fontSize: 12, letterSpacing: -2 }}>✓✓</span>
+                          ) : (
+                            <span title="Sent" style={{ color: '#9ca3af', fontWeight: 800, fontSize: 12 }}>✓</span>
+                          )
+                        )}
+                      </span>
                     </div>
                   </div>
                   );
