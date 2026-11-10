@@ -50,8 +50,17 @@ export default function MidTermReportModal({ classId, token, student, onClose, o
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
-  const scoreFor = (name) => scores.find((s) => norm(s.name) === norm(name))?.score;
-  const unlisted = scores.filter((s) => !form.subjects.some((n) => norm(n) === norm(s.name)));
+  // canonical subject key — mirrors backend: variants map to the report's short name
+  const canon = (s) => {
+    const k = norm(s);
+    if (k === 'ssr' || k === 'sst' || k === 'srs' || k.startsWith('socialandreligious')) return 'srs';
+    if (k === 'set' || k.startsWith('scienceandelementary')) return 'set';
+    if (k.startsWith('physicaleducation') || k === 'pheducation' || k === 'pes') return 'physicaleducation';
+    return k;
+  };
+  const displaySubj = (s) => ({ srs: 'SRS', set: 'SET', physicaleducation: 'Physical Education' }[canon(s)] || s);
+  const scoreFor = (name) => scores.find((s) => canon(s.name) === canon(name))?.score;
+  const unlisted = scores.filter((s) => !form.subjects.some((n) => canon(n) === canon(s.name)));
 
   const onLevel = (lvl) => {
     setForm((f) => ({ ...f, level: lvl, subjects: defaults[lvl] || f.subjects }));
@@ -66,7 +75,7 @@ export default function MidTermReportModal({ classId, token, student, onClose, o
   };
   const addSubject = (name) => {
     const n = String(name || '').trim();
-    if (!n || form.subjects.some((s) => norm(s) === norm(n))) return;
+    if (!n || form.subjects.some((s) => canon(s) === canon(n))) return;
     set('subjects', [...form.subjects, n]);
     setNewSubject('');
   };
@@ -258,7 +267,7 @@ export default function MidTermReportModal({ classId, token, student, onClose, o
                     >
                       <span title="Drag to reorder" style={{ color: '#94a3b8', cursor: 'grab', userSelect: 'none', fontSize: 14, letterSpacing: 1 }}>⋮⋮</span>
                       <span style={{ color: '#94a3b8', width: 20 }}>{i + 1}.</span>
-                      <span style={{ flex: 1, fontWeight: 600 }}>{s}</span>
+                      <span style={{ flex: 1, fontWeight: 600 }}>{displaySubj(s)}</span>
                       <span style={{ color: sc == null ? '#cbd5e1' : '#166534', fontWeight: 600, minWidth: 54, textAlign: 'right' }}>{sc == null ? 'no marks' : `${sc}/100`}</span>
                       <button type="button" onClick={() => moveSubject(i, i - 1)} disabled={i === 0} title="Move up" style={{ border: 'none', background: 'transparent', color: i === 0 ? '#cbd5e1' : '#475569', cursor: i === 0 ? 'default' : 'pointer', fontSize: 13, padding: '0 2px' }}>▲</button>
                       <button type="button" onClick={() => moveSubject(i, i + 1)} disabled={i === form.subjects.length - 1} title="Move down" style={{ border: 'none', background: 'transparent', color: i === form.subjects.length - 1 ? '#cbd5e1' : '#475569', cursor: i === form.subjects.length - 1 ? 'default' : 'pointer', fontSize: 13, padding: '0 2px' }}>▼</button>
