@@ -241,7 +241,7 @@ export default function Messages() {
           </div>
         ) : (
           <>
-            <div className="msg-chat-header">
+            <div className="msg-chat-header" style={{ position: 'sticky', top: 0, zIndex: 25 }}>
               <button className="msg-back-btn" onClick={() => setMobilePanel('list')}>←</button>
               <img
                 src={activeContact?.avatar_path ? `${UPLOADS_BASE}${activeContact.avatar_path}` : DEFAULT_AVATAR}
