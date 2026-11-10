@@ -403,7 +403,8 @@ export default function LessonPlanGenerator({ user, token }) {
         grouping: form.grouping,
       }, token);
       setAiSections(r?.ai && r.sections ? r.sections : null);
-    } catch {
+    } catch (e2) {
+      if (/paid|payment/i.test(e2?.message || '')) { setShowPay(true); setGenerating(false); return; }
       setAiSections(null); // fall back to local template
     }
     setGenerating(false);

@@ -269,9 +269,23 @@ function validAiSections(s) {
   return true;
 }
 
-// ── POST /generate — AI lesson plan content (falls back to template if AI unavailable) ──
+// ── POST /generate — AI lesson plan content (PAID teachers only — 2000 RWF per term) ──
 router.post('/generate', authenticateToken, requireRole('teacher', 'head_teacher', 'admin'), async (req, res) => {
   try {
+    await ensureSchema();
+    const sub = (await pool.query(
+      `SELECT id, expires_at FROM lesson_plan_payments
+       WHERE teacher_id=$1 AND status='SUCCESSFUL' AND expires_at > NOW() LIMIT 1`,
+      [req.user.id]
+    )).rows[0];
+    if (!sub && req.user.role !== 'admin') {
+      return res.status(402).json({
+        error: `A paid Lesson Plan term is required to generate plans.`,
+        payment_required: true,
+        amount_rwf: LESSON_PLAN_PRICE,
+        duration_days: TERM_DAYS,
+      });
+    }
     const f = req.body || {};
     const level = /secondary/i.test(f.level || '') || /^S[1-6]/i.test(f.className || '') ? 'secondary' : 'primary';
     const lang = /french/i.test(f.language || f.subject || '') ? 'French'
