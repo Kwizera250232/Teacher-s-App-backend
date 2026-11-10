@@ -799,8 +799,8 @@ function buildReportHtml({ student, teacherName, schoolName, district, level, ye
 
     <h2>Mid term comprehensive assessment report</h2>
     <h3>Grades</h3>
-    <table class="t" width="74%" style="margin-bottom:16px;width:74%;table-layout:fixed;">
-      <tr><td width="30%" style="width:30%;background:#00b050;">&nbsp;</td><td width="14%" style="width:14%" class="b">(80-100)</td><td width="8%" style="width:8%" class="b">A</td><td width="48%" style="width:48%" class="b">Above expectation/Birahebuje</td></tr>
+    <table class="t" width="100%" style="margin-bottom:16px;table-layout:fixed;">
+      <tr><td width="22%" style="width:22%;background:#00b050;">&nbsp;</td><td width="10%" style="width:10%" class="b">(80-100)</td><td width="6%" style="width:6%" class="b">A</td><td width="62%" style="width:62%" class="b">Above expectation/Birahebuje</td></tr>
       <tr><td style="background:#ffff00;">&nbsp;</td><td class="b">(60-79)</td><td class="b">B</td><td class="b">On target/Yakoze neza</td></tr>
       <tr><td style="background:#ff0000;">&nbsp;<br/>&nbsp;</td><td class="b">(0-59)</td><td class="b">C</td><td class="b">Below exoectation/Akeneye ubufasha bwisumbuyeho</td></tr>
     </table>
