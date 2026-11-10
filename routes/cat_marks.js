@@ -698,70 +698,140 @@ async function loadSettings(classId) {
   };
 }
 
-/** Build the single-page Word report HTML for one student. */
+/** Grade bands printed on the comprehensive report: A 80-100, B 60-79, C 0-59. */
+const gradeABC = (pct) => (pct >= 80 ? 'A' : pct >= 60 ? 'B' : 'C');
+
+/** Build the two-page (front + back) Mid term comprehensive assessment report for one student. */
 function buildReportHtml({ student, teacherName, schoolName, district, level, year, term, logo, comment, subjects, scores }) {
   let total = 0;
-  const outOf = subjects.length * 100;
+  let counted = 0;
   const rowsHtml = subjects.map((name, i) => {
     const sc = scores[normSubj(name)];
     const mark = sc ? sc.score : null;
-    if (mark !== null) total += mark;
+    if (mark !== null) { total += mark; counted += 1; }
     const markTxt = mark === null ? '' : (Number.isInteger(mark) ? mark : mark.toFixed(1));
     return `<tr>
-      <td class="c">${i + 1}.</td>
+      <td class="b">${i + 1}</td>
       <td class="b">${escHtml(name)}</td>
-      <td class="c">100</td>
       <td class="c">${markTxt}</td>
-      <td class="c">${mark === null ? '' : gradeFor(mark)}</td>
+      <td class="c">${mark === null ? '' : gradeABC(mark)}</td>
+      <td>&nbsp;</td>
     </tr>`;
   }).join('');
-  const pct = outOf ? Math.round((total / outOf) * 1000) / 10 : 0;
+  const outOf = subjects.length * 100;
   const totalTxt = Number.isInteger(total) ? total : total.toFixed(1);
+  const pct = outOf ? Math.round((total / outOf) * 1000) / 10 : 0;
+  const dots = (n) => '.'.repeat(n);
+  const box = '&#9744;';
+  const nextSteps = comment
+    ? escHtml(comment).replace(/\n/g, '<br/>')
+    : '';
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Mid-Term Report</title><style>
-    @page { size: A4; margin: 1.2cm; }
-    body{font-family:'Times New Roman',Times,serif;font-size:12pt;color:#000;margin:0;}
-    .frame{border:3px double #000;padding:16px 22px;}
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Mid term comprehensive assessment report</title><style>
+    @page { size: A4; margin: 1.6cm 1.8cm; }
+    body{font-family:'Times New Roman',Times,serif;font-size:11pt;color:#000;margin:0;}
+    @media screen { .page{max-width:800px;margin:0 auto;padding:10px 0 24px;} .page.last{border-top:3px dashed #94a3b8;padding-top:24px;} .page.last:before{content:'BACK PAGE';display:block;text-align:center;color:#94a3b8;font:bold 10pt Arial;margin-bottom:12px;} }
     .hdr{width:100%;border-collapse:collapse;}
     .hdr td{border:none;vertical-align:top;padding:0;}
-    .hdr .lines{font-weight:bold;font-size:13pt;line-height:1.4;text-transform:uppercase;}
-    .hdr .lines .nm{text-transform:none;font-weight:normal;}
-    h2{text-align:center;text-decoration:underline;font-size:14pt;margin:14px 0 10px;font-family:Arial,Helvetica,sans-serif;}
-    table.m{border-collapse:collapse;margin:0 auto;width:88%;font-size:11pt;table-layout:fixed;}
-    table.m th,table.m td{border:1px solid #000;padding:4px 6px;}
-    table.m th{font-weight:bold;text-align:center;}
-    table.m td.c{text-align:center;}
-    table.m td.b{font-weight:bold;}
-    table.m tr.tot td{font-weight:bold;}
-    .cmt{margin:16px auto 0;width:88%;font-size:11pt;}
-    .cmt .box{border:1px solid #000;min-height:42px;padding:6px 8px;margin-top:5px;}
-    .sig{width:88%;margin:24px auto 0;border-collapse:collapse;font-size:10.5pt;}
-    .sig td{border:none;padding-top:26px;width:50%;}
-    .sig .ln{border-top:1px solid #000;width:220px;padding-top:4px;}
-  </style></head><body><div class="frame">
+    .hdr .lines{font-weight:bold;font-size:11.5pt;line-height:1.3;}
+    .hdr .names{font-size:13pt;}
+    h2{text-align:center;text-decoration:underline;font-size:13pt;font-weight:bold;margin:14px 0 4px;}
+    h3{font-size:12pt;font-weight:bold;margin:2px 0 2px 30px;}
+    table.t{border-collapse:collapse;width:100%;font-size:10.5pt;}
+    table.t th,table.t td{border:1px solid #000;padding:4px 6px;vertical-align:top;}
+    table.t th{font-weight:bold;text-align:left;}
+    table.t td.c{text-align:center;}
+    table.t td.b{font-weight:bold;}
+    .sec{text-align:center;font-weight:bold;font-size:11.5pt;margin:18px 0 0;}
+    .sub{font-size:10.5pt;margin:0 0 4px 30px;}
+    .lbl{font-weight:bold;font-size:11pt;margin:16px 0 2px 10px;}
+    .ns{margin:16px 0 0 30px;font-size:11pt;}
+    .ns ol{margin:8px 0 0 20px;padding-left:20px;}
+    .ns li{margin-bottom:10px;line-height:1.5;}
+    .sig{margin:18px 0 0 30px;font-size:11pt;}
+    .sig p{margin:0 0 6px;}
+    .sig .ln{margin:4px 0 16px;}
+  </style></head><body>
+
+  <!-- ===================== FRONT ===================== -->
+  <div class="page">
     <table class="hdr"><tr>
+      <td style="width:120px;">${logo ? `<img src="${logo}" alt="logo" width="100" style="width:100px;max-height:110px;"/>` : ''}</td>
       <td class="lines">
-        ${district ? `${escHtml(district)} DISTRICT<br/>` : ''}
-        ${escHtml(schoolName || 'SCHOOL NAME')}<br/>
-        ${escHtml(level)} ${escHtml(year)}<br/>
-        Student Names: <span class="nm">${escHtml(student.name)}</span>
+        ${escHtml((district || '').toUpperCase())}${district ? ' DISTRICT' : ''}<br/>
+        ${escHtml((schoolName || 'SCHOOL NAME').toUpperCase())}<br/>
+        Academic Year: ${year ? escHtml(year) : dots(28)} &nbsp;Term: ${term ? escHtml(term) : dots(28)}<br/>
+        <span class="names">Names: ${student?.name ? escHtml(student.name) : dots(60)}</span>
       </td>
-      <td style="width:110px;text-align:right;">${logo ? `<img src="${logo}" alt="logo" width="90" style="width:90px;max-height:110px;"/>` : ''}</td>
     </tr></table>
-    <h2>MID-TERM ${escHtml(term)} REPORT</h2>
-    <table class="m">
-      <colgroup><col style="width:6%"/><col style="width:40%"/><col style="width:18%"/><col style="width:18%"/><col style="width:18%"/></colgroup>
-      <tr><th>#</th><th>Subjects</th><th>Marks Out<br/>of 100</th><th>Marks</th><th>Grade</th></tr>
-      ${rowsHtml}
-      <tr class="tot"><td></td><td class="c">Total</td><td class="c">${outOf}</td><td class="c">${totalTxt}</td><td></td></tr>
-      <tr class="tot"><td></td><td class="c">%</td><td></td><td class="c">${pct}%</td><td class="c">${outOf ? gradeFor(pct) : ''}</td></tr>
+
+    <h2>Mid term comprehensive assessment report</h2>
+    <h3>Grades</h3>
+    <table class="t" style="margin-bottom:16px;">
+      <colgroup><col style="width:30%"/><col style="width:18%"/><col style="width:12%"/><col style="width:40%"/></colgroup>
+      <tr><td style="background:#00b050;">&nbsp;</td><td class="b">(80-100)</td><td class="b">A</td><td class="b">Above expectation/Birahebuje</td></tr>
+      <tr><td style="background:#ffff00;">&nbsp;</td><td class="b">(60-79)</td><td class="b">B</td><td class="b">On target/Yakoze neza</td></tr>
+      <tr><td style="background:#ff0000;">&nbsp;<br/>&nbsp;</td><td class="b">(0-59)</td><td class="b">C</td><td class="b">Below exoectation/Akeneye ubufasha bwisumbuyeho</td></tr>
     </table>
-    <div class="cmt"><b>Teacher's Comment:</b><div class="box">${comment ? escHtml(comment).replace(/\n/g, '<br/>') : '&nbsp;'}</div></div>
-    <table class="sig"><tr>
-      <td><div class="ln"><b>Class Teacher</b><br/>${escHtml(teacherName)}</div></td>
-      <td style="text-align:right;"><div class="ln" style="margin-left:auto;"><b>Head Teacher &amp; Stamp</b><br/>&nbsp;</div></td>
-    </tr></table>
-  </div></body></html>`;
+
+    <table class="t">
+      <colgroup><col style="width:6%"/><col style="width:25%"/><col style="width:19%"/><col style="width:12%"/><col style="width:38%"/></colgroup>
+      <tr><th>#</th><th>Subjects</th><th>Marks out of 100</th><th>Grade</th><th>Short comments</th></tr>
+      ${rowsHtml}
+      <tr><td class="b">#</td><td class="b">Total</td><td class="c b">${counted ? `${totalTxt} / ${outOf}` : ''}</td><td class="c b">${counted ? gradeABC(pct) : ''}</td><td>${counted ? `${pct}%` : '&nbsp;'}</td></tr>
+    </table>
+
+    <div class="sec">LEARNER DEVELOPMENT AND PARTICIPATION</div>
+    <div class="sub">(Imyitwarire n&rsquo;iterambere by&rsquo;umunyeshuri mu myigire) <i>Tick (&#10003;) the statement that best describes the learner</i></div>
+    <table class="t">
+      <colgroup><col style="width:22%"/><col style="width:24%"/><col style="width:26%"/><col style="width:28%"/></colgroup>
+      <tr><td class="c">Area</td><td>Positive (Bimeze neza)</td><td>Developing(birimo gutera imbere)</td><td>Needs Support (Akeneye ubufasha)</td></tr>
+      <tr><td>Attitude to Learning/ <i>Uko yitwara mu myigire</i></td><td>Curious, attentive and actively participates in learning.</td><td>Participates and remains attentive with occasional prompting.</td><td>Needs support to remain focused and engaged in learning.</td></tr>
+      <tr><td>Collaboration <i>Gukorana n&rsquo;abandi</i></td><td>Cooperates, shares ideas and supports others.</td><td>Participates in group activities with encouragement.</td><td>Needs support to cooperate and participate effectively with others.</td></tr>
+      <tr><td>Communication <i>Itumanaho</i></td><td>Expresses ideas clearly and listens to others.</td><td>Shares ideas with some encouragement.</td><td>Needs support to express ideas and communicate with others.</td></tr>
+    </table>
+  </div>
+
+  <!-- ===================== BACK ===================== -->
+  <br clear="all" style="page-break-before:always;mso-break-type:page-break;" />
+  <div class="page last">
+    <table class="t">
+      <colgroup><col style="width:22%"/><col style="width:24%"/><col style="width:26%"/><col style="width:28%"/></colgroup>
+      <tr><td>Independence <i>Kwikorera/kwigenga</i></td><td>Works independently and completes tasks confidently.</td><td>Completes tasks with some support.</td><td>Needs regular support to complete learning tasks.</td></tr>
+      <tr><td>Attendance &amp; Punctuality<i>Ubwitabire n&rsquo;igihe</i></td><td>Consistently attends and arrives on time.</td><td>Generally attends and arrives on time.</td><td>Frequent absence or lateness affects learning.</td></tr>
+    </table>
+
+    <div class="lbl">Areas of Progress</div>
+    <table class="t">
+      <colgroup><col style="width:50%"/><col style="width:50%"/></colgroup>
+      <tr><td>Progress observed</td><td class="c">Priority for development</td></tr>
+      <tr>
+        <td>${box} Mathematics ${box} Kinyarwanda ${box} Science ${box} social studies ${box} English other:____________</td>
+        <td>${box} Mathematics ${box} Kinyarwanda ${box} Science ${box} social studies ${box} English ${box} Other: ___________</td>
+      </tr>
+    </table>
+
+    <div class="ns">
+      <b>NEXT STEPS(Intambwe ikurikira mu iterambere ry&rsquo;umunyeshuri)</b><br/>
+      <i>What should the learner focus on during the next half of the term?</i><br/>
+      <i>Ni iki umunyeshuri akwiriye kwibandaho mu gice gikurikira cy&rsquo;igihembwe?</i>
+      <ol>
+        <li>${nextSteps || dots(95)}<br/>${dots(100)}</li>
+        <li>${dots(95)}<br/>${dots(100)}</li>
+        <li>${dots(95)}<br/>${dots(100)}</li>
+      </ol>
+    </div>
+
+    <div class="sig">
+      <p>Teachers&rsquo; name and signature</p>
+      <div class="ln">${teacherName ? `${escHtml(teacherName)} &nbsp;` : ''}${dots(teacherName ? 50 : 75)}</div>
+      <p>Parent&rsquo;s name and signature</p>
+      <div class="ln">${dots(75)}</div>
+      <p>School stamp and &nbsp;Signature</p>
+      <div class="ln">${dots(75)}</div>
+    </div>
+  </div>
+  </body></html>`;
 }
 
 async function resolveReportParams(classId, body) {
