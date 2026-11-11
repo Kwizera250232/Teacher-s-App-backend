@@ -16,7 +16,7 @@ function say(text) {
   } catch { /* no voice */ }
 }
 
-export default function Mbaza() {
+export default function Mbaza({ onClose }) {
   const { user, token } = useAuth();
   const navigate = useNavigate();
   const [weak, setWeak] = useState([]);
@@ -26,6 +26,7 @@ export default function Mbaza() {
   const [busy, setBusy] = useState(false);
   const [quiz, setQuiz] = useState(null); // {questions, i, score, picked, done}
   const bottomRef = useRef(null);
+  const didInit = useRef(false);
 
   useEffect(() => {
     api.get('/mbaza/weak-marks', token).then(d => setWeak(d.weak || [])).catch(() => {});
@@ -35,7 +36,10 @@ export default function Mbaza() {
     return () => window.speechSynthesis?.cancel();
   }, []);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs, quiz]);
+  useEffect(() => {
+    if (!didInit.current) { didInit.current = true; return; } // no auto-jump on open
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [msgs, quiz]);
 
   const showMarks = () => {
     setStage('marks');
@@ -98,7 +102,7 @@ export default function Mbaza() {
     <div style={{ minHeight: '100vh', background: `linear-gradient(160deg, ${C.blue}15, ${C.yellow}12, ${C.green}12)`, paddingBottom: 40 }}>
       {/* Header with muse */}
       <div style={{ background: `linear-gradient(135deg, ${C.blue}, ${C.green})`, color: '#fff', padding: '20px 18px 60px', textAlign: 'center', position: 'relative' }}>
-        <button onClick={() => navigate(-1)} style={{ position: 'absolute', left: 12, top: 16, background: 'rgba(255,255,255,.2)', border: 'none', color: '#fff', borderRadius: 8, padding: '6px 12px', cursor: 'pointer' }}>← Back</button>
+        <button onClick={() => (onClose ? onClose() : navigate('/student/dashboard'))} style={{ position: 'absolute', left: 12, top: 16, background: 'rgba(255,255,255,.2)', border: 'none', color: '#fff', borderRadius: 8, padding: '6px 12px', cursor: 'pointer' }}>← Back</button>
         <div style={{ fontSize: 56, filter: 'drop-shadow(0 4px 8px rgba(0,0,0,.3))' }}>🎓</div>
         <h1 style={{ margin: '6px 0 2px', fontSize: 30, letterSpacing: 2 }}>MBAZA</h1>
         <div style={{ fontSize: 13, opacity: .9 }}>Your personal teacher at home — UClass</div>

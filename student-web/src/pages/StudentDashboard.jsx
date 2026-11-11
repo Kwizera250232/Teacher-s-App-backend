@@ -315,7 +315,7 @@ export default function StudentDashboard() {
         <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(2,6,23,.65)",display:"flex",justifyContent:"center",alignItems:"center",padding:10}} onClick={e => { if (e.target === e.currentTarget) setShowMbaza(false); }}>
           <div style={{background:"#fff",borderRadius:18,width:"min(700px,96vw)",maxHeight:"92vh",overflow:"auto",position:"relative"}}>
             <button onClick={() => setShowMbaza(false)} style={{position:"sticky",top:8,float:"right",marginRight:10,zIndex:9,border:"none",background:"#0b2447",color:"#fff",borderRadius:999,width:30,height:30,cursor:"pointer"}}>✕</button>
-            <Mbaza />
+            <Mbaza onClose={() => setShowMbaza(false)} />
           </div>
         </div>
       )}
