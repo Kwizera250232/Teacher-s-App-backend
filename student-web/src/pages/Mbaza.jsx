@@ -25,11 +25,13 @@ export default function Mbaza({ onClose }) {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [quiz, setQuiz] = useState(null); // {questions, i, score, picked, done}
+  const [books, setBooks] = useState([]);
   const bottomRef = useRef(null);
   const didInit = useRef(false);
 
   useEffect(() => {
     api.get('/mbaza/weak-marks', token).then(d => setWeak(d.weak || [])).catch(() => {});
+    api.get('/mbaza/books', token).then(d => setBooks(d.books || [])).catch(() => {});
     const g = `Hello, welcome ${user?.name?.split(' ')[0] || 'student'}! I am MBAZA, your personal teacher when you are home.`;
     setMsgs([{ who: 'mbaza', text: g }]);
     say(g);
@@ -101,14 +103,14 @@ export default function Mbaza({ onClose }) {
   return (
     <div style={{ minHeight: '100vh', background: `linear-gradient(160deg, ${C.blue}15, ${C.yellow}12, ${C.green}12)`, paddingBottom: 40 }}>
       {/* Header with muse */}
-      <div style={{ background: `linear-gradient(135deg, ${C.blue}, ${C.green})`, color: '#fff', padding: '20px 18px 60px', textAlign: 'center', position: 'relative' }}>
-        <button onClick={() => (onClose ? onClose() : navigate('/student/dashboard'))} style={{ position: 'absolute', left: 12, top: 16, background: 'rgba(255,255,255,.2)', border: 'none', color: '#fff', borderRadius: 8, padding: '6px 12px', cursor: 'pointer' }}>← Back</button>
-        <div style={{ fontSize: 56, filter: 'drop-shadow(0 4px 8px rgba(0,0,0,.3))' }}>🎓</div>
-        <h1 style={{ margin: '6px 0 2px', fontSize: 30, letterSpacing: 2 }}>MBAZA</h1>
-        <div style={{ fontSize: 13, opacity: .9 }}>Your personal teacher at home — UClass</div>
+      <div style={{ background: `linear-gradient(135deg, ${C.blue}, ${C.green})`, color: '#fff', padding: '12px 18px 30px', textAlign: 'center', position: 'relative' }}>
+        <button onClick={() => (onClose ? onClose() : navigate('/student/dashboard'))} style={{ position: 'absolute', left: 12, top: 12, background: 'rgba(255,255,255,.2)', border: 'none', color: '#fff', borderRadius: 8, padding: '5px 10px', fontSize: 12, cursor: 'pointer' }}>← Back</button>
+        <span style={{ fontSize: 30, verticalAlign: 'middle' }}>🎓</span>
+        <span style={{ margin: '0 8px', fontSize: 24, letterSpacing: 2, fontWeight: 800, verticalAlign: 'middle' }}>MBAZA</span>
+        <div style={{ fontSize: 12, opacity: .9 }}>Your personal teacher at home — UClass</div>
       </div>
 
-      <div style={{ maxWidth: 640, margin: '-40px auto 0', padding: '0 14px' }}>
+      <div style={{ maxWidth: 640, margin: '-20px auto 0', padding: '0 14px' }}>
         {/* Conversation */}
         {msgs.map((m, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: m.who === 'you' ? 'flex-end' : 'flex-start', marginBottom: 10 }}>
@@ -161,6 +163,13 @@ export default function Mbaza({ onClose }) {
                 <button onClick={() => setQuiz(null)} style={{ marginTop: 8, padding: '8px 20px', borderRadius: 10, border: 'none', background: C.blue, color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Continue</button>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Books hint */}
+        {books.length > 0 && stage !== 'hello' && (
+          <div style={{ ...card, padding: '10px 14px', fontSize: 12, color: '#475569' }}>
+            📚 I can teach from your books: {books.slice(0, 3).map(b => b.subject).join(', ')} — ask me <i>"explain Unit 1 of {books[0]?.subject}"</i>
           </div>
         )}
 

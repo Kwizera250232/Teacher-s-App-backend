@@ -19,7 +19,49 @@ async function callGroq(messages, maxTokens = 3000, temperature = 0.4) {
   return d.choices?.[0]?.message?.content || null;
 }
 
-const PERSONA = `You are MBAZA, a kind personal teacher for a Rwandan school student. Speak like a warm human teacher, simple English, encouraging, short paragraphs. Use markdown: **bold** for key terms, bullet lists, and formulas written clearly (e.g. "Area = length × width").`;
+const PERSONA = `You are MBAZA, a kind personal teacher for a Rwandan school student. Speak like a warm human teacher, simple English, encouraging, short paragraphs. Teach SLOWLY like a real teacher at the board: small steps, simple words, then 1-2 worked examples and a tip to remember. Use markdown: **bold** for key terms, bullet lists, and formulas written clearly (e.g. "Area = length × width").`;
+
+// GET /api/mbaza/books — the AI textbooks MBAZA can teach from
+router.get('/books', authenticateToken, requireRole('student'), async (req, res) => {
+  try {
+    const rows = (await pool.query(
+      `SELECT id, title, subject, grade_level FROM textbooks ORDER BY grade_level, subject LIMIT 60`
+    )).rows;
+    res.json({ books: rows });
+  } catch (e) { res.status(500).json({ error: 'Could not load books.' }); }
+});
+
+// Pull the real unit text out of a book's stored content (pages split on blank lines)
+function textbookPages(book) {
+  return String(book.content || '').split(/\n\s*\n/).map(p => p.replace(/\s+$/, '')).filter(p => p.trim().length > 0);
+}
+
+async function findUnitText(question) {
+  const m = question.match(/unit\s*(\d+)|umutwe\s*(?:wa\s*)?(\d+)/i);
+  const unitNo = m ? parseInt(m[1] || m[2], 10) : null;
+  const books = (await pool.query(
+    `SELECT id, title, subject, grade_level, content FROM textbooks WHERE content IS NOT NULL AND content <> '' ORDER BY id LIMIT 60`
+  )).rows;
+  if (!books.length) return null;
+  const q = question.toLowerCase();
+  const book = books.find(b =>
+    (b.subject || '').toLowerCase().split(/\W+/).some(w => w.length > 2 && q.includes(w)) ||
+    (b.title || '').toLowerCase().split(/\W+/).some(w => w.length > 4 && q.includes(w))
+  ) || books[0];
+  const pages = textbookPages(book);
+  const units = (await pool.query(
+    `SELECT title, start_page, end_page FROM textbook_units WHERE textbook_id=$1 ORDER BY start_page NULLS LAST, id`,
+    [book.id]
+  )).rows.filter(u => u.start_page != null);
+  if (unitNo) {
+    const unit = units.find(u => new RegExp('(unit|umutwe)\\D*' + unitNo, 'i').test(u.title || '')) || units[unitNo - 1];
+    if (unit) {
+      const text = pages.slice(unit.start_page - 1, Math.min(unit.end_page || pages.length, unit.start_page + 13)).join('\n\n');
+      return { book, unit, text };
+    }
+  }
+  return { book, unit: null, text: pages.slice(0, 2).join('\n\n'), unitList: units.map(u => u.title).slice(0, 12) };
+}
 
 // GET /api/mbaza/weak-marks — quiz results below 90%
 router.get('/weak-marks', authenticateToken, requireRole('student'), async (req, res) => {
@@ -39,8 +81,12 @@ router.post('/ask', authenticateToken, requireRole('student'), async (req, res) 
   const q = String(req.body.question || '').slice(0, 2000);
   if (!q.trim()) return res.status(400).json({ error: 'question is required.' });
   try {
+    const unitCtx = /unit|book|lesson|umutwe|chapter/i.test(q) ? await findUnitText(q).catch(() => null) : null;
+    const bookInfo = unitCtx
+      ? `\nUse THIS real textbook content ("${unitCtx.unit?.title || unitCtx.book.title}" of ${unitCtx.book.title} — ${unitCtx.book.subject} ${unitCtx.book.grade_level}) as the source for your teaching. Teach exactly from it, step by step, like a teacher reading the book aloud and explaining slowly with examples.${unitCtx.unitList?.length ? `\nThe book's units are: ${unitCtx.unitList.join(' | ')} — tell the student which unit to ask for if they want another.` : ''}\nBOOK TEXT:\n${(unitCtx.text || '').slice(0, 8000)}`
+      : '';
     const answer = await callGroq([
-      { role: 'system', content: PERSONA + ' The student asked to explain or help with a lesson. Search your knowledge and give correct, real school-level content: definition, explanation, steps, formulas if needed, and one short example.' },
+      { role: 'system', content: PERSONA + ' The student asked to explain or help with a lesson. Search your knowledge and give correct, real school-level content.' + bookInfo },
       { role: 'user', content: q },
     ]);
     res.json({ answer: answer || 'Sorry, my teaching notes are unavailable right now — try again in a moment.' });
