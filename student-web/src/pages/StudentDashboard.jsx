@@ -37,6 +37,7 @@ export default function StudentDashboard() {
   const [searchParams] = useSearchParams();
   
   const [showMbaza, setShowMbaza] = useState(false);
+  const [momentPreview, setMomentPreview] = useState(null);
   const [classes, setClasses] = useState([]);
   const [showJoin, setShowJoin] = useState(false);
   const [error, setError] = useState('');
