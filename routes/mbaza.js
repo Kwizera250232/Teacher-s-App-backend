@@ -63,6 +63,45 @@ async function findUnitText(question) {
   return { book, unit: null, text: pages.slice(0, 2).join('\n\n'), unitList: units.map(u => u.title).slice(0, 12) };
 }
 
+const STOP = new Set(['what','when','where','which','explain','tell','about','please','with','from','that','this','your','their','them','they','have','does','mean','unit','book','lesson','teach','show','give','marks','score','many','much']);
+
+// Strong search — find the book pages that actually talk about the topic
+async function searchBookText(question) {
+  const words = question.toLowerCase().split(/\W+/).filter(w => w.length > 3 && !STOP.has(w));
+  if (!words.length) return null;
+  const books = (await pool.query(
+    `SELECT id, title, subject, grade_level, content FROM textbooks WHERE content IS NOT NULL AND content <> '' ORDER BY id LIMIT 60`
+  )).rows;
+  let best = null, bestScore = 0;
+  for (const b of books) {
+    const pages = textbookPages(b);
+    const scored = [];
+    pages.forEach((p, i) => {
+      const low = p.toLowerCase();
+      const s = words.reduce((a, w) => a + (low.includes(w) ? 1 : 0), 0);
+      if (s > 0) scored.push([s, i]);
+    });
+    const total = scored.reduce((a, x) => a + x[0], 0);
+    if (total > bestScore) { bestScore = total; best = { book: b, pages, scored }; }
+  }
+  if (!best || bestScore < 2) return null;
+  const top = best.scored.sort((a, b) => b[0] - a[0]).slice(0, 6).map(x => x[1]).sort((a, b) => a - b);
+  return { book: best.book, text: top.map(i => best.pages[i]).join('\n\n') };
+}
+
+// The student's REAL recorded marks — when they ask about their results
+async function findMarksText(question, studentId) {
+  if (!/mark|score|result|percent|grade|perform|pass|fail|got/i.test(question)) return null;
+  const rows = (await pool.query(
+    `SELECT q.title, qa.score, qa.total, ROUND(qa.score::numeric/NULLIF(qa.total,0)*100) AS pct
+     FROM quiz_attempts qa JOIN quizzes q ON q.id = qa.quiz_id
+     WHERE qa.student_id=$1 AND qa.total > 0 ORDER BY qa.created_at DESC LIMIT 40`, [studentId])).rows;
+  if (!rows.length) return null;
+  const q = question.toLowerCase();
+  const hit = rows.filter(r => r.title.toLowerCase().split(/\W+/).some(w => w.length > 3 && q.includes(w)));
+  return (hit.length ? hit : rows).slice(0, 12).map(r => `${r.title}: ${r.score}/${r.total} (${r.pct}%)`).join('; ');
+}
+
 // GET /api/mbaza/weak-marks — quiz results below 90%
 router.get('/weak-marks', authenticateToken, requireRole('student'), async (req, res) => {
   try {
@@ -81,12 +120,21 @@ router.post('/ask', authenticateToken, requireRole('student'), async (req, res) 
   const q = String(req.body.question || '').slice(0, 2000);
   if (!q.trim()) return res.status(400).json({ error: 'question is required.' });
   try {
-    const unitCtx = /unit|book|lesson|umutwe|chapter/i.test(q) ? await findUnitText(q).catch(() => null) : null;
-    const bookInfo = unitCtx
-      ? `\nUse THIS real textbook content ("${unitCtx.unit?.title || unitCtx.book.title}" of ${unitCtx.book.title} — ${unitCtx.book.subject} ${unitCtx.book.grade_level}) as the source for your teaching. Teach exactly from it, step by step, like a teacher reading the book aloud and explaining slowly with examples.${unitCtx.unitList?.length ? `\nThe book's units are: ${unitCtx.unitList.join(' | ')} — tell the student which unit to ask for if they want another.` : ''}\nBOOK TEXT:\n${(unitCtx.text || '').slice(0, 8000)}`
+    const isUnitQ = /unit|book|umutwe|chapter/i.test(q);
+    const [unitCtx, topicCtx, marksText] = await Promise.all([
+      isUnitQ ? findUnitText(q).catch(() => null) : Promise.resolve(null),
+      isUnitQ ? Promise.resolve(null) : searchBookText(q).catch(() => null),
+      findMarksText(q, req.user.id).catch(() => null),
+    ]);
+    const bookCtx = unitCtx || topicCtx;
+    const bookInfo = bookCtx
+      ? `\nUse THIS real textbook content ("${bookCtx.unit?.title || bookCtx.book.title}" of ${bookCtx.book.title} — ${bookCtx.book.subject} ${bookCtx.book.grade_level}) from Rwanda's revised curriculum books as your source. Teach exactly from it, slowly, with worked examples.${bookCtx.unitList?.length ? `\nThe book's units are: ${bookCtx.unitList.join(' | ')} — tell the student which unit to ask for if they want another.` : ''}\nBOOK TEXT:\n${(bookCtx.text || '').slice(0, 8000)}`
+      : '';
+    const marksInfo = marksText
+      ? `\nThe student's REAL marks recorded in UClass quizzes: ${marksText}. Report these exact numbers when they ask about marks — never invent results.`
       : '';
     const answer = await callGroq([
-      { role: 'system', content: PERSONA + ' The student asked to explain or help with a lesson. Search your knowledge and give correct, real school-level content.' + bookInfo },
+      { role: 'system', content: PERSONA + ' The student asked to explain or help with a lesson. Search your knowledge and give correct, real school-level content.' + bookInfo + marksInfo },
       { role: 'user', content: q },
     ]);
     res.json({ answer: answer || 'Sorry, my teaching notes are unavailable right now — try again in a moment.' });

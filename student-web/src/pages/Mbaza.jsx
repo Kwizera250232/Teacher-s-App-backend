@@ -9,9 +9,11 @@ function say(text) {
   try {
     window.speechSynthesis?.cancel();
     const u = new SpeechSynthesisUtterance(String(text).replace(/[*#_`>-]/g, ''));
-    u.rate = 0.95; u.pitch = 1.05;
+    u.rate = 0.9; u.pitch = 0.8;
     const voices = window.speechSynthesis.getVoices();
-    u.voice = voices.find(v => /female|zira|susan|natasha/i.test(v.name)) || voices.find(v => v.lang.startsWith('en')) || null;
+    u.voice = voices.find(v => v.lang.startsWith('en') && /david|daniel|george|james|mark|fred|guy/i.test(v.name))
+      || voices.find(v => v.lang.startsWith('en-GB'))
+      || voices.find(v => v.lang.startsWith('en')) || null;
     window.speechSynthesis.speak(u);
   } catch { /* no voice */ }
 }
