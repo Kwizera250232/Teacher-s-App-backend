@@ -8,6 +8,7 @@ import Register from './pages/Register';
 import TeacherDashboard from './pages/TeacherDashboard';
 import HeadTeacherDashboard from './pages/HeadTeacherDashboard';
 const ParentHub = lazy(() => import('./pages/ParentHub'));
+const Mbaza = lazy(() => import('./pages/Mbaza'));
 const ParentDashboard = lazy(() => import('./pages/ParentDashboard'));
 import StudentDashboard from './pages/StudentDashboard';
 import { dashboardPath } from './utils/roles';
