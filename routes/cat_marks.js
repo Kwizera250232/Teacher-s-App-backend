@@ -714,7 +714,7 @@ const canonSubj = (n) => {
   if (k === 'ssr' || k === 'sst' || k === 'srs' || k.startsWith('socialandreligious')) return 'srs';
   if (k === 'set' || k.startsWith('scienceandelementary')) return 'set';
   if (k.startsWith('physicaleducation') || k === 'pheducation' || k === 'pes') return 'physicaleducation';
-  return k;
+  return k.replace(/s$/, '');
 };
 /** Printed subject name — variants render as the short report name. */
 const displaySubj = (n) => ({ srs: 'SRS', set: 'SET', physicaleducation: 'Physical Education' }[canonSubj(n)] || n);
@@ -1035,7 +1035,7 @@ router.post('/:classId/midterm-report/send-all', authenticateToken, requireRole(
       // totals for the class marks list
       let total = 0; let marked = 0;
       for (const s of p.subjects) {
-        const sc = scores[normSubj(s)];
+        const sc = scores[canonSubj(s)];
         if (sc) { total += sc.score; marked += 1; }
       }
       summary.push({ name: student.name, total: marked ? Math.round(total * 10) / 10 : null, pct: marked ? Math.round(total / (p.subjects.length * 100) * 1000) / 10 : null });
