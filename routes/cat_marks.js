@@ -38,12 +38,109 @@ pool.query(`
     updated_at TIMESTAMP DEFAULT NOW(),
     UNIQUE(class_id, test_number, subject)
   );
+
+  -- Marks sheets: one ACTIVE sheet per class receives new marks; older sheets are archived/read-only
+  CREATE TABLE IF NOT EXISTS cat_mark_sheets (
+    id SERIAL PRIMARY KEY,
+    class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    archived_at TIMESTAMP
+  );
+  ALTER TABLE cat_marks ADD COLUMN IF NOT EXISTS sheet_id INTEGER;
+  CREATE INDEX IF NOT EXISTS idx_cat_marks_sheet ON cat_marks(sheet_id);
 `).catch(e => console.error('[cat_marks] migration error:', e.message));
+
+// Sheets constraint + backfill: marks now unique per (class, student, cat#, subject, sheet)
+(async () => {
+  try {
+    await pool.query(`ALTER TABLE cat_marks ADD COLUMN IF NOT EXISTS sheet_id INTEGER`);
+    await pool.query(`ALTER TABLE cat_marks DROP CONSTRAINT IF EXISTS cat_marks_class_id_student_id_test_number_subject_key`);
+    await pool.query(`ALTER TABLE cat_marks DROP CONSTRAINT IF EXISTS cat_marks_sheet_unique`);
+    await pool.query(`ALTER TABLE cat_marks ADD CONSTRAINT cat_marks_sheet_unique UNIQUE (class_id, student_id, test_number, subject, sheet_id)`);
+    const orphan = await pool.query(`SELECT DISTINCT class_id FROM cat_marks WHERE sheet_id IS NULL`);
+    for (const r of orphan.rows) {
+      let sid = (await pool.query(`SELECT id FROM cat_mark_sheets WHERE class_id = $1 ORDER BY id LIMIT 1`, [r.class_id])).rows[0]?.id;
+      if (!sid) sid = (await pool.query(`INSERT INTO cat_mark_sheets (class_id, name, active) VALUES ($1, 'Term I', TRUE) RETURNING id`, [r.class_id])).rows[0].id;
+      await pool.query(`UPDATE cat_marks SET sheet_id = $2 WHERE class_id = $1 AND sheet_id IS NULL`, [r.class_id, sid]);
+    }
+  } catch (e) { console.error('[cat_marks sheets] migration error:', e.message); }
+})();
+
+/** Active sheet for a class — creates 'Term I' on first use and adopts legacy marks. */
+async function getActiveSheet(classId) {
+  let sheet = (await pool.query(
+    `SELECT * FROM cat_mark_sheets WHERE class_id = $1 AND active = TRUE ORDER BY id DESC LIMIT 1`, [classId]
+  )).rows[0];
+  if (!sheet) {
+    sheet = (await pool.query(
+      `INSERT INTO cat_mark_sheets (class_id, name, active) VALUES ($1, 'Term I', TRUE) RETURNING *`, [classId]
+    )).rows[0];
+    await pool.query(`UPDATE cat_marks SET sheet_id = $2 WHERE class_id = $1 AND sheet_id IS NULL`, [classId, sheet.id]);
+  }
+  return sheet;
+}
+
+// List sheets for a class (active + archived) with mark counts
+router.get('/:classId/sheets', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = req.params.classId;
+  try {
+    const access = await userCanManageClass(req.user, classId);
+    if (!access?.ok) return res.status(403).json({ error: 'Not your class.' });
+    const active = await getActiveSheet(classId);
+    const sheets = (await pool.query(
+      `SELECT s.id, s.name, s.active, s.created_at, s.archived_at,
+              (SELECT COUNT(*) FROM cat_marks m WHERE m.sheet_id = s.id)::int AS mark_count
+       FROM cat_mark_sheets s WHERE s.class_id = $1 ORDER BY s.id`,
+      [classId]
+    )).rows;
+    res.json({ sheets, active_id: active.id });
+  } catch (err) {
+    console.error('[cat_marks sheets] list error:', err.message);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// Create a new sheet — the current active one is archived immediately
+router.post('/:classId/sheets', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = req.params.classId;
+  try {
+    const access = await userCanManageClass(req.user, classId);
+    if (!access?.ok) return res.status(403).json({ error: 'Not your class.' });
+    const count = (await pool.query(
+      `SELECT COUNT(*)::int AS n FROM cat_mark_sheets WHERE class_id = $1`, [classId]
+    )).rows[0].n;
+    const name = String(req.body?.name || '').trim()
+      || `Term ${['I', 'II', 'III', 'IV', 'V', 'VI'][count] || count + 1}`;
+    await pool.query(
+      `UPDATE cat_mark_sheets SET active = FALSE, archived_at = NOW() WHERE class_id = $1 AND active = TRUE`, [classId]
+    );
+    const sheet = (await pool.query(
+      `INSERT INTO cat_mark_sheets (class_id, name, active) VALUES ($1, $2, TRUE) RETURNING *`, [classId, name]
+    )).rows[0];
+    res.json({ sheet });
+  } catch (err) {
+    console.error('[cat_marks sheets] create error:', err.message);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
 
 router.get('/:classId/overview', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const classId = req.params.classId;
   const subject = req.query.subject || '';
   try {
+    // Sheet to display: requested archived sheet, else the active one
+    let sheet;
+    if (req.query.sheet_id) {
+      sheet = (await pool.query(
+        `SELECT * FROM cat_mark_sheets WHERE id = $1 AND class_id = $2`, [req.query.sheet_id, classId]
+      )).rows[0] || (await getActiveSheet(classId));
+    } else {
+      sheet = await getActiveSheet(classId);
+    }
+    const sid = sheet.id;
+
     const roster = await pool.query(
       `SELECT u.id AS student_id, u.name
        FROM class_members cm
@@ -53,26 +150,26 @@ router.get('/:classId/overview', authenticateToken, requireRole('teacher', 'head
       [classId]
     );
 
-    // Get marks — optionally filtered by subject
+    // Get marks for this sheet — optionally filtered by subject
     let marksRows;
     if (subject) {
       marksRows = await pool.query(
         `SELECT student_id, test_number, marks_obtained, total_marks, subject
-         FROM cat_marks WHERE class_id = $1 AND subject = $2`,
-        [classId, subject]
+         FROM cat_marks WHERE class_id = $1 AND subject = $2 AND sheet_id = $3`,
+        [classId, subject, sid]
       );
     } else {
       marksRows = await pool.query(
         `SELECT student_id, test_number, marks_obtained, total_marks, subject
-         FROM cat_marks WHERE class_id = $1`,
-        [classId]
+         FROM cat_marks WHERE class_id = $1 AND sheet_id = $2`,
+        [classId, sid]
       );
     }
 
-    // Get list of subjects that have marks
+    // Get list of subjects that have marks in this sheet
     const subjectsResult = await pool.query(
-      `SELECT DISTINCT subject FROM cat_marks WHERE class_id = $1 ORDER BY subject`,
-      [classId]
+      `SELECT DISTINCT subject FROM cat_marks WHERE class_id = $1 AND sheet_id = $2 ORDER BY subject`,
+      [classId, sid]
     );
 
     const marksByStudent = new Map();
@@ -132,8 +229,8 @@ router.get('/:classId/overview', authenticateToken, requireRole('teacher', 'head
 
     const classAvg = await pool.query(
       `SELECT COALESCE(ROUND(AVG(100.0 * marks_obtained / NULLIF(total_marks, 1)), 1), 0) AS avg
-       FROM cat_marks WHERE class_id = $1`,
-      [classId]
+       FROM cat_marks WHERE class_id = $1 AND sheet_id = $2`,
+      [classId, sid]
     );
 
     res.json({
@@ -141,6 +238,7 @@ router.get('/:classId/overview', authenticateToken, requireRole('teacher', 'head
       class_average: classAvg.rows[0]?.avg || 0,
       subjects: subjectsResult.rows.map(r => r.subject),
       cat_totals: catTotals,
+      sheet: { id: sheet.id, name: sheet.name, active: sheet.active },
     });
   } catch (err) {
     console.error('[cat_marks] summary error:', err.message);
@@ -178,13 +276,15 @@ router.post('/:classId/entry', authenticateToken, requireRole('teacher', 'head_t
       );
       finalTotal = configRes.rows[0]?.total_marks || 100;
     }
+    // Marks always land in the ACTIVE sheet — archived sheets are read-only
+    const sheet = await getActiveSheet(classId);
     const result = await pool.query(
-      `INSERT INTO cat_marks (class_id, student_id, test_number, marks_obtained, total_marks, subject)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (class_id, student_id, test_number, subject)
+      `INSERT INTO cat_marks (class_id, student_id, test_number, marks_obtained, total_marks, subject, sheet_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (class_id, student_id, test_number, subject, sheet_id)
        DO UPDATE SET marks_obtained = $4, total_marks = $5, updated_at = NOW()
        RETURNING *`,
-      [classId, student_id, test_number, marks_obtained, finalTotal, subj]
+      [classId, student_id, test_number, marks_obtained, finalTotal, subj, sheet.id]
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -210,11 +310,12 @@ router.put('/:classId/cat-total', authenticateToken, requireRole('teacher', 'hea
        DO UPDATE SET total_marks = $3, updated_at = NOW()`,
       [classId, test_number, total_marks, subj]
     );
-    // Also update all existing marks for this CAT
+    // Also update existing marks for this CAT — only on the ACTIVE sheet (archived sheets stay untouched)
+    const sheet = await getActiveSheet(classId);
     const result = await pool.query(
       `UPDATE cat_marks SET total_marks = $4, updated_at = NOW()
-       WHERE class_id = $1 AND test_number = $2 AND subject = $3`,
-      [classId, test_number, subj, total_marks]
+       WHERE class_id = $1 AND test_number = $2 AND subject = $3 AND sheet_id = $5`,
+      [classId, test_number, subj, total_marks, sheet.id]
     );
     res.json({ updated: result.rowCount, test_number, total_marks, subject: subj });
   } catch (err) {
@@ -240,13 +341,14 @@ router.post('/:classId/fromquiz', authenticateToken, requireRole('teacher', 'hea
       [quiz_id, classId]
     );
 
+    const sheet = await getActiveSheet(classId);
     for (const att of attempts.rows) {
       await pool.query(
-        `INSERT INTO cat_marks (class_id, student_id, test_number, marks_obtained, total_marks, subject)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (class_id, student_id, test_number, subject)
+        `INSERT INTO cat_marks (class_id, student_id, test_number, marks_obtained, total_marks, subject, sheet_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (class_id, student_id, test_number, subject, sheet_id)
          DO UPDATE SET marks_obtained = $4, total_marks = $5, updated_at = NOW()`,
-        [classId, att.student_id, test_number, att.score, att.total, subj]
+        [classId, att.student_id, test_number, att.score, att.total, subj, sheet.id]
       );
     }
 
@@ -272,9 +374,10 @@ router.delete('/:classId/entry/:markId', authenticateToken, requireRole('teacher
 router.delete('/:classId/entry/:studentId/:testNumber', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   try {
     const subject = req.query.subject || 'General';
+    const sheet = await getActiveSheet(req.params.classId);
     await pool.query(
-      `DELETE FROM cat_marks WHERE class_id = $1 AND student_id = $2 AND test_number = $3 AND subject = $4`,
-      [req.params.classId, req.params.studentId, req.params.testNumber, subject]
+      `DELETE FROM cat_marks WHERE class_id = $1 AND student_id = $2 AND test_number = $3 AND subject = $4 AND sheet_id = $5`,
+      [req.params.classId, req.params.studentId, req.params.testNumber, subject, sheet.id]
     );
     res.json({ success: true });
   } catch (err) {
@@ -313,16 +416,18 @@ router.post('/:classId/notify-parents', authenticateToken, requireRole('teacher'
       [classId]
     );
 
+    // Only the ACTIVE sheet goes to parents — archived sheets never leak into reports
+    const sheet = await getActiveSheet(classId);
     const marksRes = subj
       ? await pool.query(
           `SELECT student_id, test_number, marks_obtained, total_marks, subject, test_date
-           FROM cat_marks WHERE class_id = $1 AND subject = $2 ORDER BY subject, test_number`,
-          [classId, subj]
+           FROM cat_marks WHERE class_id = $1 AND subject = $2 AND sheet_id = $3 ORDER BY subject, test_number`,
+          [classId, subj, sheet.id]
         )
       : await pool.query(
           `SELECT student_id, test_number, marks_obtained, total_marks, subject, test_date
-           FROM cat_marks WHERE class_id = $1 ORDER BY subject, test_number`,
-          [classId]
+           FROM cat_marks WHERE class_id = $1 AND sheet_id = $2 ORDER BY subject, test_number`,
+          [classId, sheet.id]
         );
     const marksByStudent = {};
     for (const m of marksRes.rows) {
@@ -620,11 +725,12 @@ const gradeFor = (pct) => (pct >= 80 ? 'A' : pct >= 65 ? 'B' : pct >= 50 ? 'C' :
 const normSubj = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 const escHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-/** Per-subject score out of 100 from cat_marks (sum marks / sum totals). */
+/** Per-subject score out of 100 from cat_marks — ACTIVE sheet only (archived sheets never count). */
 async function subjectScores(classId, studentId) {
+  const sheet = await getActiveSheet(classId);
   const rows = (await pool.query(
     `SELECT subject, SUM(marks_obtained)::float AS m, SUM(COALESCE(NULLIF(total_marks,0),100))::float AS t
-     FROM cat_marks WHERE class_id = $1 AND student_id = $2 GROUP BY subject`, [classId, studentId]
+     FROM cat_marks WHERE class_id = $1 AND student_id = $2 AND sheet_id = $3 GROUP BY subject`, [classId, studentId, sheet.id]
   )).rows;
   const out = {};
   for (const r of rows) out[canonSubj(r.subject)] = { name: r.subject, score: Math.round((r.m / r.t) * 1000) / 10 };
@@ -655,9 +761,10 @@ async function loadSettings(classId) {
   const level = saved?.level || (/^s|sec/i.test(cls.class_name || '') ? 'Secondary' : 'Primary');
   const levelDefaults = DEFAULT_SUBJECTS[level] || [];
 
-  // Subjects the teacher actually recorded marks for in this class
+  // Subjects the teacher actually recorded marks for — ACTIVE sheet only
+  const activeSheet = await getActiveSheet(classId);
   const recorded = (await pool.query(
-    `SELECT DISTINCT subject FROM cat_marks WHERE class_id = $1 AND subject IS NOT NULL ORDER BY subject`, [classId]
+    `SELECT DISTINCT subject FROM cat_marks WHERE class_id = $1 AND subject IS NOT NULL AND sheet_id = $2 ORDER BY subject`, [classId, activeSheet.id]
   )).rows.map((r) => r.subject).filter(Boolean);
 
   const savedList = (Array.isArray(saved?.subjects) ? saved.subjects : [])
