@@ -27,7 +27,7 @@ pool.query(`
   CREATE INDEX IF NOT EXISTS idx_cat_marks_student ON cat_marks(student_id);
   ALTER TABLE cat_marks ADD COLUMN IF NOT EXISTS test_date DATE DEFAULT CURRENT_DATE;
   ALTER TABLE cat_marks ADD COLUMN IF NOT EXISTS subject TEXT DEFAULT 'General';
-  DROP CONSTRAINT IF EXISTS cat_marks_class_id_student_id_test_number_key;
+  ALTER TABLE cat_marks DROP CONSTRAINT IF EXISTS cat_marks_class_id_student_id_test_number_key;
 
   CREATE TABLE IF NOT EXISTS cat_totals_config (
     id SERIAL PRIMARY KEY,
@@ -39,8 +39,9 @@ pool.query(`
     UNIQUE(class_id, test_number, subject)
   );
 
-  -- Marks sheets: one ACTIVE sheet per class receives new marks; older sheets are archived/read-only
-  CREATE TABLE IF NOT EXISTS cat_mark_sheets (
+  -- Term sheets: one ACTIVE sheet per class receives new marks; older sheets are archived/read-only
+  -- (name cat_term_sheets — cat_mark_sheets already exists for a different feature)
+  CREATE TABLE IF NOT EXISTS cat_term_sheets (
     id SERIAL PRIMARY KEY,
     class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
@@ -61,8 +62,8 @@ pool.query(`
     await pool.query(`ALTER TABLE cat_marks ADD CONSTRAINT cat_marks_sheet_unique UNIQUE (class_id, student_id, test_number, subject, sheet_id)`);
     const orphan = await pool.query(`SELECT DISTINCT class_id FROM cat_marks WHERE sheet_id IS NULL`);
     for (const r of orphan.rows) {
-      let sid = (await pool.query(`SELECT id FROM cat_mark_sheets WHERE class_id = $1 ORDER BY id LIMIT 1`, [r.class_id])).rows[0]?.id;
-      if (!sid) sid = (await pool.query(`INSERT INTO cat_mark_sheets (class_id, name, active) VALUES ($1, 'Term I', TRUE) RETURNING id`, [r.class_id])).rows[0].id;
+      let sid = (await pool.query(`SELECT id FROM cat_term_sheets WHERE class_id = $1 ORDER BY id LIMIT 1`, [r.class_id])).rows[0]?.id;
+      if (!sid) sid = (await pool.query(`INSERT INTO cat_term_sheets (class_id, name, active) VALUES ($1, 'Term I', TRUE) RETURNING id`, [r.class_id])).rows[0].id;
       await pool.query(`UPDATE cat_marks SET sheet_id = $2 WHERE class_id = $1 AND sheet_id IS NULL`, [r.class_id, sid]);
     }
   } catch (e) { console.error('[cat_marks sheets] migration error:', e.message); }
@@ -71,11 +72,11 @@ pool.query(`
 /** Active sheet for a class — creates 'Term I' on first use and adopts legacy marks. */
 async function getActiveSheet(classId) {
   let sheet = (await pool.query(
-    `SELECT * FROM cat_mark_sheets WHERE class_id = $1 AND active = TRUE ORDER BY id DESC LIMIT 1`, [classId]
+    `SELECT * FROM cat_term_sheets WHERE class_id = $1 AND active = TRUE ORDER BY id DESC LIMIT 1`, [classId]
   )).rows[0];
   if (!sheet) {
     sheet = (await pool.query(
-      `INSERT INTO cat_mark_sheets (class_id, name, active) VALUES ($1, 'Term I', TRUE) RETURNING *`, [classId]
+      `INSERT INTO cat_term_sheets (class_id, name, active) VALUES ($1, 'Term I', TRUE) RETURNING *`, [classId]
     )).rows[0];
     await pool.query(`UPDATE cat_marks SET sheet_id = $2 WHERE class_id = $1 AND sheet_id IS NULL`, [classId, sheet.id]);
   }
@@ -92,7 +93,7 @@ router.get('/:classId/sheets', authenticateToken, requireRole('teacher', 'head_t
     const sheets = (await pool.query(
       `SELECT s.id, s.name, s.active, s.created_at, s.archived_at,
               (SELECT COUNT(*) FROM cat_marks m WHERE m.sheet_id = s.id)::int AS mark_count
-       FROM cat_mark_sheets s WHERE s.class_id = $1 ORDER BY s.id`,
+       FROM cat_term_sheets s WHERE s.class_id = $1 ORDER BY s.id`,
       [classId]
     )).rows;
     res.json({ sheets, active_id: active.id });
@@ -109,15 +110,15 @@ router.post('/:classId/sheets', authenticateToken, requireRole('teacher', 'head_
     const access = await userCanManageClass(req.user, classId);
     if (!access?.ok) return res.status(403).json({ error: 'Not your class.' });
     const count = (await pool.query(
-      `SELECT COUNT(*)::int AS n FROM cat_mark_sheets WHERE class_id = $1`, [classId]
+      `SELECT COUNT(*)::int AS n FROM cat_term_sheets WHERE class_id = $1`, [classId]
     )).rows[0].n;
     const name = String(req.body?.name || '').trim()
       || `Term ${['I', 'II', 'III', 'IV', 'V', 'VI'][count] || count + 1}`;
     await pool.query(
-      `UPDATE cat_mark_sheets SET active = FALSE, archived_at = NOW() WHERE class_id = $1 AND active = TRUE`, [classId]
+      `UPDATE cat_term_sheets SET active = FALSE, archived_at = NOW() WHERE class_id = $1 AND active = TRUE`, [classId]
     );
     const sheet = (await pool.query(
-      `INSERT INTO cat_mark_sheets (class_id, name, active) VALUES ($1, $2, TRUE) RETURNING *`, [classId, name]
+      `INSERT INTO cat_term_sheets (class_id, name, active) VALUES ($1, $2, TRUE) RETURNING *`, [classId, name]
     )).rows[0];
     res.json({ sheet });
   } catch (err) {
@@ -134,7 +135,7 @@ router.get('/:classId/overview', authenticateToken, requireRole('teacher', 'head
     let sheet;
     if (req.query.sheet_id) {
       sheet = (await pool.query(
-        `SELECT * FROM cat_mark_sheets WHERE id = $1 AND class_id = $2`, [req.query.sheet_id, classId]
+        `SELECT * FROM cat_term_sheets WHERE id = $1 AND class_id = $2`, [req.query.sheet_id, classId]
       )).rows[0] || (await getActiveSheet(classId));
     } else {
       sheet = await getActiveSheet(classId);
