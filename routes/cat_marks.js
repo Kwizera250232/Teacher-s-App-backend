@@ -1,4 +1,7 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { userCanManageClass } = require('../lib/classAccess');
@@ -99,6 +102,104 @@ async function getActiveSheet(classId) {
   }
   return sheet;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REPORT FOLDER — emailed reports live in ONE folder the recipient opens like a
+// computer folder: press the link → a folder page lists every Word report →
+// press a file → it downloads to the PC/phone and opens in Word. No ZIP.
+// ═══════════════════════════════════════════════════════════════════════════
+const REPORT_FOLDERS_DIR = path.join(__dirname, '..', 'report-folders');
+const REPORT_FOLDER_TTL_MS = 45 * 24 * 60 * 60 * 1000; // folders live 45 days
+
+function publicApiBase(req) {
+  return (process.env.PUBLIC_API_URL || process.env.API_PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+}
+
+function saveReportFolder(files, meta) {
+  const token = crypto.randomBytes(16).toString('hex');
+  const dir = path.join(REPORT_FOLDERS_DIR, token);
+  fs.mkdirSync(dir, { recursive: true });
+  for (const f of files) fs.writeFileSync(path.join(dir, f.name), f.data);
+  fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({ ...meta, created: Date.now() }));
+  // lazy cleanup of expired folders
+  try {
+    for (const d of fs.readdirSync(REPORT_FOLDERS_DIR)) {
+      const mp = path.join(REPORT_FOLDERS_DIR, d, 'meta.json');
+      try {
+        const m = JSON.parse(fs.readFileSync(mp, 'utf8'));
+        if (Date.now() - (m.created || 0) > REPORT_FOLDER_TTL_MS) fs.rmSync(path.join(REPORT_FOLDERS_DIR, d), { recursive: true, force: true });
+      } catch { /* keep folders without meta */ }
+    }
+  } catch { /* ignore */ }
+  return token;
+}
+
+function loadReportFolder(token) {
+  if (!/^[a-f0-9]{32}$/.test(String(token || ''))) return null;
+  const dir = path.join(REPORT_FOLDERS_DIR, token);
+  if (!fs.existsSync(dir)) return null;
+  let meta = {};
+  try { meta = JSON.parse(fs.readFileSync(path.join(dir, 'meta.json'), 'utf8')); } catch { /* ok */ }
+  const files = fs.readdirSync(dir).filter((f) => f.toLowerCase().endsWith('.doc')).sort();
+  return { dir, meta, files };
+}
+
+// GET /report-folder/:token — the "computer folder" page listing all Word reports
+router.get('/report-folder/:token', (req, res) => {
+  const folder = loadReportFolder(req.params.token);
+  if (!folder) return res.status(404).send('<h3 style="font-family:Arial">This reports folder has expired or does not exist.</h3>');
+  const { meta, files } = folder;
+  const base = publicApiBase(req);
+  const rows = files.map((f) => {
+    const sizeKb = Math.max(1, Math.round(fs.statSync(path.join(folder.dir, f)).size / 1024));
+    const href = `${base}/api/catmarks/report-folder/${req.params.token}/${encodeURIComponent(f)}`;
+    return `<a class="file" href="${href}" download>
+      <span class="ico">W</span>
+      <span class="fname">${escHtml(f)}</span>
+      <span class="fsize">${sizeKb} KB</span>
+      <span class="fdl">Download ⤓</span>
+    </a>`;
+  }).join('');
+  res.type('html').send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>📁 ${escHtml(meta.className || 'Reports')} — Mid-Term ${escHtml(meta.term || '')}</title>
+<style>
+  body{margin:0;font-family:'Segoe UI',Arial,sans-serif;background:#e8eef5;}
+  .bar{background:#f5f6f7;border-bottom:1px solid #d0d7de;padding:14px 18px;display:flex;align-items:center;gap:12px;}
+  .folder-ico{font-size:34px;}
+  .bar h1{font-size:17px;margin:0;color:#1f2937;}
+  .bar p{margin:2px 0 0;font-size:12.5px;color:#6b7280;}
+  .win{max-width:860px;margin:18px auto;background:#fff;border:1px solid #d0d7de;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);}
+  .head{display:grid;grid-template-columns:auto 1fr 90px 110px;padding:10px 16px;font-size:11.5px;font-weight:600;color:#6b7280;text-transform:uppercase;border-bottom:1px solid #e5e7eb;background:#fafbfc;}
+  .file{display:grid;grid-template-columns:auto 1fr 90px 110px;align-items:center;gap:10px;padding:11px 16px;text-decoration:none;color:#111827;border-bottom:1px solid #f1f3f5;}
+  .file:hover{background:#e8f1fd;}
+  .ico{background:#2b579a;color:#fff;font-weight:700;font-size:13px;width:28px;height:28px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-family:Georgia,serif;}
+  .fname{font-size:14px;word-break:break-all;}
+  .fsize{font-size:12px;color:#6b7280;text-align:right;}
+  .fdl{font-size:12.5px;color:#0b5cad;font-weight:600;}
+  .note{max-width:860px;margin:0 auto 26px;padding:0 6px;font-size:12.5px;color:#6b7280;}
+</style></head><body>
+  <div class="bar"><span class="folder-ico">📁</span><div>
+    <h1>${escHtml(meta.className || 'Class')} — Mid-Term ${escHtml(meta.term || '')} Reports</h1>
+    <p>${escHtml(meta.schoolName || '')} · ${files.length} Word documents · opens like a folder on your computer — press any file to download it, then open and print in Word.</p>
+  </div></div>
+  <div class="win">
+    <div class="head"><span></span><span>Name</span><span style="text-align:right;">Size</span><span></span></div>
+    ${rows}
+  </div>
+  <p class="note">Tip: on a computer the files save to your <strong>Downloads</strong> folder. Each file opens directly in Microsoft Word — nothing to unzip.</p>
+</body></html>`);
+});
+
+// GET /report-folder/:token/:file — download one Word report from the folder
+router.get('/report-folder/:token/:file', (req, res) => {
+  const folder = loadReportFolder(req.params.token);
+  if (!folder) return res.status(404).send('Folder expired.');
+  const fname = path.basename(String(req.params.file || ''));
+  if (!fname.toLowerCase().endsWith('.doc') || !folder.files.includes(fname)) return res.status(404).send('File not found.');
+  res.setHeader('Content-Type', 'application/msword');
+  res.setHeader('Content-Disposition', `attachment; filename="${fname.replace(/"/g, '')}"`);
+  fs.createReadStream(path.join(folder.dir, fname)).pipe(res);
+});
 
 // List sheets for a class (active + archived) with mark counts
 router.get('/:classId/sheets', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
@@ -1134,11 +1235,23 @@ router.post('/:classId/midterm-report/send-all', authenticateToken, requireRole(
       teacherName, schoolName: p.schoolName, district: p.district, level: p.level, year: p.year,
       term: p.term, logo: p.logo, className: p.className, subjects: p.subjects, students: summary,
     });
-    files.unshift({ name: `00-Class-Marks-List-MidTerm-${p.term}.doc`, data: Buffer.from('﻿' + summaryDoc, 'utf8') });
+    files.unshift({ name: `01-Class-Marks-List-MidTerm-${p.term}.doc`, data: Buffer.from('﻿' + summaryDoc, 'utf8') });
 
-    // Individual Word documents attached directly — recipients save them to a folder
-    // and open/print each report like normal files; no ZIP/unzip needed
-    const attachments = files.map((f) => ({ filename: f.name, content: f.data, type: 'application/msword' }));
+    // Class proclamation list — ranked, every subject /100, totals, %, class average
+    const sheet = await getActiveSheet(classId);
+    const procRows = await proclamationRows(classId, p.subjects, picked);
+    const procDoc = buildProclamationHtml({
+      teacherName, schoolName: p.schoolName, district: p.district, level: p.level,
+      year: p.year, term: p.term, logo: p.logo, className: p.className,
+      sheetName: sheet.name, subjects: p.subjects, students: procRows, classAvg: classAvgOf(procRows),
+    });
+    files.unshift({ name: `00-Proclamation-${p.className.replace(/[^\w]+/g, '-')}-MidTerm-${p.term}.doc`, data: Buffer.from('﻿' + procDoc, 'utf8') });
+
+    // ONE folder holding every Word report — the email carries a single folder link.
+    // Recipient presses it → a folder page opens (like a folder on a PC) → each
+    // file downloads straight to their device and opens in Word. No ZIP at all.
+    const folderToken = saveReportFolder(files, { className: p.className, term: p.term, schoolName: p.schoolName });
+    const folderUrl = `${publicApiBase(req)}/api/catmarks/report-folder/${folderToken}`;
 
     const subject = `Mid-Term ${p.term} Reports — ${p.className} (${roster.length} students)`;
     const html = `<div style="font-family:Arial,sans-serif;max-width:560px;">
@@ -1147,16 +1260,22 @@ router.post('/:classId/midterm-report/send-all', authenticateToken, requireRole(
         <strong>${escHtml(p.schoolName || 'School')}</strong>${p.district ? ` · ${escHtml(p.district)} District` : ''}<br/>
         Class: <strong>${escHtml(p.className)}</strong> · Academic Year: <strong>${escHtml(p.year)}</strong>
       </p>
-      <p style="color:#334155;">Attached are <strong>${files.length} Word documents</strong>: a <strong>class marks list</strong> (students ranked by marks) plus <strong>${roster.length}</strong> mid-term report cards (one per student), prepared by <strong>${escHtml(teacherName)}</strong>. Save the attachments to a folder, then open and print each report directly — no ZIP needed.</p>
+      <p style="color:#334155;"><strong>${escHtml(teacherName)}</strong> prepared <strong>${files.length} Word documents</strong>: the <strong>class proclamation</strong> (ranked marks list), a class marks summary, and <strong>${roster.length}</strong> mid-term report cards — all inside <strong>one folder</strong>.</p>
+      <p style="text-align:center;margin:26px 0;">
+        <a href="${folderUrl}" style="background:#075e54;color:#ffffff;padding:14px 26px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px;display:inline-block;">📁 Open the reports folder</a>
+      </p>
+      <p style="color:#334155;font-size:14px;">Press the button — the folder opens like a folder on a computer. Inside, press any report to download it to your phone or PC, then open and print it in Word. <strong>No ZIP file</strong> — nothing to extract.</p>
+      <p style="color:#64748b;font-size:12.5px;word-break:break-all;">Folder link: <a href="${folderUrl}" style="color:#0b5cad;">${folderUrl}</a><br/>The folder stays available for 45 days.</p>
       <p style="color:#64748b;font-size:13px;margin-top:22px;">Sent from UClass — this is an automated delivery, please do not reply.</p>
     </div>`;
+    const text = `Mid-Term ${p.term} reports for ${p.className} — open the folder (${files.length} Word documents inside, no ZIP): ${folderUrl}`;
     let sentTo = 0; let lastReason = '';
     for (const to of recipients) {
-      const r = await sendMail({ to, subject, html, text: `Mid-Term ${p.term} reports for ${p.className} — ${roster.length} reports attached.`, attachments });
+      const r = await sendMail({ to, subject, html, text });
       if (r?.sent) sentTo += 1; else lastReason = r?.reason || '';
     }
     if (!sentTo) return res.status(502).json({ error: lastReason || 'Email could not be sent. Check the school email settings.' });
-    res.json({ ok: true, sent: roster.length, to: recipients.join(', '), delivered: sentTo, total_recipients: recipients.length });
+    res.json({ ok: true, sent: roster.length, to: recipients.join(', '), delivered: sentTo, total_recipients: recipients.length, folder_url: folderUrl });
   } catch (err) {
     console.error('[midterm send-all]', err.message);
     res.status(500).json({ error: 'Could not email the reports right now.' });

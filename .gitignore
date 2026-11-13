@@ -6,3 +6,6 @@ uploads/*
 .deploy-frontend/
 github-deploy-key
 github-deploy-key.pub
+
+report-folders/*
+!report-folders/.gitkeep
