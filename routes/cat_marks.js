@@ -230,7 +230,33 @@ router.get('/report-folder/:token', (req, res) => {
   <div class="bar"><span class="folder-ico">📁</span><div>
     <h1>${escHtml(meta.className || 'Class')} — Mid-Term ${escHtml(meta.term || '')} Reports</h1>
     <p>${escHtml(meta.schoolName || '')} · ${files.length} Word documents</p>
-  </div><a class="dlall" style="margin-left:auto;display:inline-block;" href="${base}/api/catmarks/report-folder/${req.params.token}/all" download>⬇ Download folder</a></div>
+  </div><button class="dlall" id="dlreal" onclick="saveRealFolder()" style="margin-left:auto;">📁 Save folder to PC</button></div>
+<script>
+const DIR_NAME = ${JSON.stringify(`${meta.className || 'Class'}-MidTerm-${meta.term || ''}-Reports`)}.replace(/[^\\w .-]+/g, '-');
+async function saveRealFolder(){
+  const btn = document.getElementById('dlreal');
+  const links = [...document.querySelectorAll('a.file')];
+  if (!window.showDirectoryPicker) { btn.textContent = '⚠ Open this page in Microsoft Edge or updated Chrome'; return; }
+  try {
+    btn.disabled = true;
+    btn.textContent = '📁 Choose where to save…';
+    const root = await window.showDirectoryPicker({ mode: 'readwrite' });
+    const dir = await root.getDirectoryHandle(DIR_NAME, { create: true });
+    for (let i = 0; i < links.length; i++) {
+      btn.textContent = '⬇ Saving ' + (i + 1) + '/' + links.length + '…';
+      const name = decodeURIComponent(links[i].href.split('/').pop()).replace(/[\\/:*?"<>|]+/g, '-');
+      const blob = await (await fetch(links[i].href)).blob();
+      const fh = await dir.getFileHandle(name, { create: true });
+      const w = await fh.createWritable();
+      await w.write(blob); await w.close();
+    }
+    btn.textContent = '✅ Folder saved — open it on your PC';
+  } catch (e) {
+    btn.textContent = e && e.name === 'AbortError' ? '📁 Save folder to PC' : ('⚠ ' + (e && e.message ? e.message : 'failed'));
+  }
+  btn.disabled = false;
+}
+</script>
   <p class="crumb">📁 Reports folder — press a file to download it to this device, then open it in Word and print.</p>
   <div class="win">${tiles}</div>
   <p class="note">On a computer the downloaded folder opens directly in Explorer and every file inside opens in Microsoft Word — nothing to unzip.</p>
