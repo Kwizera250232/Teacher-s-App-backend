@@ -150,43 +150,46 @@ router.get('/report-folder/:token', (req, res) => {
   if (!folder) return res.status(404).send('<h3 style="font-family:Arial">This reports folder has expired or does not exist.</h3>');
   const { meta, files } = folder;
   const base = publicApiBase(req);
-  const rows = files.map((f) => {
+  const tiles = files.map((f) => {
     const sizeKb = Math.max(1, Math.round(fs.statSync(path.join(folder.dir, f)).size / 1024));
     const href = `${base}/api/catmarks/report-folder/${req.params.token}/${encodeURIComponent(f)}`;
-    return `<a class="file" href="${href}" download>
-      <span class="ico">W</span>
+    return `<a class="file" href="${href}" download title="${escHtml(f)} — ${sizeKb} KB — press to download">
+      <span class="doc">
+        <span class="doc-lines"></span>
+        <span class="w">W</span>
+      </span>
       <span class="fname">${escHtml(f)}</span>
       <span class="fsize">${sizeKb} KB</span>
-      <span class="fdl">Download ⤓</span>
     </a>`;
   }).join('');
   res.type('html').send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>📁 ${escHtml(meta.className || 'Reports')} — Mid-Term ${escHtml(meta.term || '')}</title>
 <style>
-  body{margin:0;font-family:'Segoe UI',Arial,sans-serif;background:#e8eef5;}
-  .bar{background:#f5f6f7;border-bottom:1px solid #d0d7de;padding:14px 18px;display:flex;align-items:center;gap:12px;}
-  .folder-ico{font-size:34px;}
-  .bar h1{font-size:17px;margin:0;color:#1f2937;}
+  body{margin:0;font-family:'Segoe UI',Arial,sans-serif;background:#eceff4;}
+  .bar{background:#f5f6f7;border-bottom:1px solid #d0d7de;padding:12px 18px;display:flex;align-items:center;gap:12px;}
+  .folder-ico{font-size:32px;}
+  .bar h1{font-size:16px;margin:0;color:#1f2937;}
   .bar p{margin:2px 0 0;font-size:12.5px;color:#6b7280;}
-  .win{max-width:860px;margin:18px auto;background:#fff;border:1px solid #d0d7de;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);}
-  .head{display:grid;grid-template-columns:auto 1fr 90px 110px;padding:10px 16px;font-size:11.5px;font-weight:600;color:#6b7280;text-transform:uppercase;border-bottom:1px solid #e5e7eb;background:#fafbfc;}
-  .file{display:grid;grid-template-columns:auto 1fr 90px 110px;align-items:center;gap:10px;padding:11px 16px;text-decoration:none;color:#111827;border-bottom:1px solid #f1f3f5;}
-  .file:hover{background:#e8f1fd;}
-  .ico{background:#2b579a;color:#fff;font-weight:700;font-size:13px;width:28px;height:28px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-family:Georgia,serif;}
-  .fname{font-size:14px;word-break:break-all;}
-  .fsize{font-size:12px;color:#6b7280;text-align:right;}
-  .fdl{font-size:12.5px;color:#0b5cad;font-weight:600;}
-  .note{max-width:860px;margin:0 auto 26px;padding:0 6px;font-size:12.5px;color:#6b7280;}
+  .crumb{max-width:1080px;margin:14px auto 0;padding:0 14px;font-size:12.5px;color:#6b7280;}
+  .win{max-width:1080px;margin:8px auto 18px;background:#fff;border:1px solid #d0d7de;border-radius:8px;min-height:200px;box-shadow:0 2px 8px rgba(0,0,0,.08);padding:18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:6px;align-content:start;}
+  .file{display:flex;flex-direction:column;align-items:center;gap:7px;padding:12px 6px 10px;border-radius:5px;text-decoration:none;color:#111;text-align:center;}
+  .file:hover{background:#cce4fc;outline:1px solid #99d1ff;}
+  .file:active{background:#b3d9fd;}
+  .doc{position:relative;width:56px;height:66px;background:linear-gradient(160deg,#ffffff 0%,#e9eef5 100%);border:1px solid #c3ccd9;border-radius:4px 10px 4px 4px;box-shadow:1px 2px 3px rgba(0,0,0,.15);}
+  .doc:after{content:'';position:absolute;top:-1px;right:-1px;border-style:solid;border-width:0 12px 12px 0;border-color:transparent #c3ccd9 transparent transparent;border-radius:0 0 0 3px;}
+  .doc-lines{position:absolute;top:10px;left:8px;right:10px;height:22px;background:repeating-linear-gradient(180deg,#d6dde8 0 2px,transparent 2px 5px);}
+  .w{position:absolute;left:8px;bottom:6px;background:#2b579a;color:#fff;font-weight:700;font-size:13px;width:20px;height:20px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-family:Georgia,serif;}
+  .fname{font-size:12px;line-height:1.25;word-break:break-word;max-height:45px;overflow:hidden;}
+  .fsize{font-size:10.5px;color:#8a94a6;}
+  .note{max-width:1080px;margin:0 auto 26px;padding:0 14px;font-size:12.5px;color:#6b7280;}
 </style></head><body>
   <div class="bar"><span class="folder-ico">📁</span><div>
     <h1>${escHtml(meta.className || 'Class')} — Mid-Term ${escHtml(meta.term || '')} Reports</h1>
-    <p>${escHtml(meta.schoolName || '')} · ${files.length} Word documents · opens like a folder on your computer — press any file to download it, then open and print in Word.</p>
+    <p>${escHtml(meta.schoolName || '')} · ${files.length} Word documents</p>
   </div></div>
-  <div class="win">
-    <div class="head"><span></span><span>Name</span><span style="text-align:right;">Size</span><span></span></div>
-    ${rows}
-  </div>
-  <p class="note">Tip: on a computer the files save to your <strong>Downloads</strong> folder. Each file opens directly in Microsoft Word — nothing to unzip.</p>
+  <p class="crumb">📁 Reports folder — press a file to download it to this device, then open it in Word and print.</p>
+  <div class="win">${tiles}</div>
+  <p class="note">On a computer the files land in your <strong>Downloads</strong> folder and open directly in Microsoft Word — nothing to unzip.</p>
 </body></html>`);
 });
 
