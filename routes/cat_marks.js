@@ -182,14 +182,32 @@ router.get('/report-folder/:token', (req, res) => {
   .fname{font-size:12px;line-height:1.25;word-break:break-word;max-height:45px;overflow:hidden;}
   .fsize{font-size:10.5px;color:#8a94a6;}
   .note{max-width:1080px;margin:0 auto 26px;padding:0 14px;font-size:12.5px;color:#6b7280;}
+  .dlall{margin-left:auto;background:#075e54;color:#fff;border:none;border-radius:7px;padding:10px 18px;font-size:13.5px;font-weight:700;cursor:pointer;white-space:nowrap;}
+  .dlall:hover{background:#0a7a6c;}
+  .dlall:disabled{opacity:.6;cursor:default;}
 </style></head><body>
   <div class="bar"><span class="folder-ico">📁</span><div>
     <h1>${escHtml(meta.className || 'Class')} — Mid-Term ${escHtml(meta.term || '')} Reports</h1>
     <p>${escHtml(meta.schoolName || '')} · ${files.length} Word documents</p>
-  </div></div>
+  </div><button class="dlall" id="dlall" onclick="downloadAll()">⬇ Download all</button></div>
   <p class="crumb">📁 Reports folder — press a file to download it to this device, then open it in Word and print.</p>
   <div class="win">${tiles}</div>
   <p class="note">On a computer the files land in your <strong>Downloads</strong> folder and open directly in Microsoft Word — nothing to unzip.</p>
+<script>
+async function downloadAll(){
+  const btn = document.getElementById('dlall');
+  const links = [...document.querySelectorAll('a.file')];
+  btn.disabled = true;
+  for (let i = 0; i < links.length; i++) {
+    btn.textContent = '⬇ Downloading ' + (i + 1) + '/' + links.length + '…';
+    const a = document.createElement('a');
+    a.href = links[i].href; a.download = '';
+    document.body.appendChild(a); a.click(); a.remove();
+    await new Promise(r => setTimeout(r, 700));
+  }
+  btn.textContent = '✅ All ' + links.length + ' files downloaded — check your Downloads folder';
+}
+</script>
 </body></html>`);
 });
 
@@ -1186,14 +1204,73 @@ router.post('/:classId/midterm-report', authenticateToken, requireRole('teacher'
   }
 });
 
+/** Build every report file for the class: proclamation + marks list + one .doc per student. */
+async function collectReportFiles(classId, body, user) {
+  const manage = await userCanManageClass(user, classId);
+  if (!manage?.ok) return { error: 'You cannot generate reports for this class.', status: 403 };
+
+  const p = await resolveReportParams(classId, body);
+  let roster = (await pool.query(
+    `SELECT u.id, u.name FROM class_members cm JOIN users u ON u.id = cm.student_id
+     WHERE cm.class_id = $1 ORDER BY u.name`, [classId]
+  )).rows;
+  const picked = Array.isArray(body.student_ids) ? body.student_ids.map((x) => parseInt(x, 10)).filter(Boolean) : null;
+  if (picked) roster = roster.filter((s) => picked.includes(s.id));
+  if (!roster.length) return { error: 'No students selected.', status: 400 };
+
+  const teacherName = (await pool.query('SELECT name FROM users WHERE id=$1', [user.id])).rows[0]?.name || '';
+  const files = [];
+  const summary = [];
+  for (const student of roster) {
+    const scores = await subjectScores(classId, student.id);
+    const doc = buildReportHtml({ student, teacherName, schoolName: p.schoolName, district: p.district, level: p.level, year: p.year, term: p.term, logo: p.logo, comment: p.comment, subjects: p.subjects, scores });
+    const safe = String(student.name || 'student').replace(/[^\w]+/g, '-').slice(0, 60);
+    files.push({ name: `MidTerm-${p.term}-Report-${safe}.doc`, data: Buffer.from('﻿' + doc, 'utf8') });
+    let total = 0; let marked = 0;
+    for (const s of p.subjects) {
+      const sc = scores[canonSubj(s)];
+      if (sc) { total += sc.score; marked += 1; }
+    }
+    summary.push({ name: student.name, total: marked ? Math.round(total * 10) / 10 : null, pct: marked ? Math.round(total / (p.subjects.length * 100) * 1000) / 10 : null });
+  }
+  summary.sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1));
+  const summaryDoc = buildClassSummaryHtml({
+    teacherName, schoolName: p.schoolName, district: p.district, level: p.level, year: p.year,
+    term: p.term, logo: p.logo, className: p.className, subjects: p.subjects, students: summary,
+  });
+  files.unshift({ name: `01-Class-Marks-List-MidTerm-${p.term}.doc`, data: Buffer.from('﻿' + summaryDoc, 'utf8') });
+
+  const sheet = await getActiveSheet(classId);
+  const procRows = await proclamationRows(classId, p.subjects, picked);
+  const procDoc = buildProclamationHtml({
+    teacherName, schoolName: p.schoolName, district: p.district, level: p.level,
+    year: p.year, term: p.term, logo: p.logo, className: p.className,
+    sheetName: sheet.name, subjects: p.subjects, students: procRows, classAvg: classAvgOf(procRows),
+  });
+  files.unshift({ name: `00-Proclamation-${p.className.replace(/[^\w]+/g, '-')}-MidTerm-${p.term}.doc`, data: Buffer.from('﻿' + procDoc, 'utf8') });
+
+  return { files, roster, p, teacherName, picked };
+}
+
+// POST /:classId/midterm-report/folder — build the reports folder and return its link (no email)
+router.post('/:classId/midterm-report/folder', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = req.params.classId;
+  try {
+    const out = await collectReportFiles(classId, req.body, req.user);
+    if (out.error) return res.status(out.status || 500).json({ error: out.error });
+    await saveSettings(classId, out.p);
+    const folderToken = saveReportFolder(out.files, { className: out.p.className, term: out.p.term, schoolName: out.p.schoolName });
+    res.json({ ok: true, count: out.files.length, students: out.roster.length, folder_url: `${publicApiBase(req)}/api/catmarks/report-folder/${folderToken}` });
+  } catch (err) {
+    console.error('[midterm folder]', err.message);
+    res.status(500).json({ error: 'Could not build the reports folder right now.' });
+  }
+});
+
 // POST /:classId/midterm-report/send-all — emails every student's report to the school authority
 router.post('/:classId/midterm-report/send-all', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const classId = req.params.classId;
   try {
-    const manage = await userCanManageClass(req.user, classId);
-    if (!manage?.ok) return res.status(403).json({ error: 'You cannot generate reports for this class.' });
-
-    const p = await resolveReportParams(classId, req.body);
     // Multiple recipients: authority_emails[] and/or comma/semicolon list in authority_email
     const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const recipients = [...new Set(
@@ -1205,50 +1282,12 @@ router.post('/:classId/midterm-report/send-all', authenticateToken, requireRole(
     if (!recipients.length) {
       return res.status(400).json({ error: 'Add at least one valid email address.' });
     }
+
+    const out = await collectReportFiles(classId, req.body, req.user);
+    if (out.error) return res.status(out.status || 500).json({ error: out.error });
+    const { files, roster, p, teacherName } = out;
     p.authorityEmail = recipients.join(', '); // persisted so the list is remembered next time
     await saveSettings(classId, p);
-
-    let roster = (await pool.query(
-      `SELECT u.id, u.name FROM class_members cm JOIN users u ON u.id = cm.student_id
-       WHERE cm.class_id = $1 ORDER BY u.name`, [classId]
-    )).rows;
-    const picked = Array.isArray(req.body.student_ids) ? req.body.student_ids.map((x) => parseInt(x, 10)).filter(Boolean) : null;
-    if (picked) roster = roster.filter((s) => picked.includes(s.id));
-    if (!roster.length) return res.status(400).json({ error: 'No students selected.' });
-
-    const teacherName = (await pool.query('SELECT name FROM users WHERE id=$1', [req.user.id])).rows[0]?.name || '';
-    const files = [];
-    const summary = [];
-    for (const student of roster) {
-      const scores = await subjectScores(classId, student.id);
-      const doc = buildReportHtml({ student, teacherName, schoolName: p.schoolName, district: p.district, level: p.level, year: p.year, term: p.term, logo: p.logo, comment: p.comment, subjects: p.subjects, scores });
-      const safe = String(student.name || 'student').replace(/[^\w]+/g, '-').slice(0, 60);
-      files.push({ name: `MidTerm-${p.term}-Report-${safe}.doc`, data: Buffer.from('﻿' + doc, 'utf8') });
-      // totals for the class marks list
-      let total = 0; let marked = 0;
-      for (const s of p.subjects) {
-        const sc = scores[canonSubj(s)];
-        if (sc) { total += sc.score; marked += 1; }
-      }
-      summary.push({ name: student.name, total: marked ? Math.round(total * 10) / 10 : null, pct: marked ? Math.round(total / (p.subjects.length * 100) * 1000) / 10 : null });
-    }
-    // Class marks list doc — students ranked best → last
-    summary.sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1));
-    const summaryDoc = buildClassSummaryHtml({
-      teacherName, schoolName: p.schoolName, district: p.district, level: p.level, year: p.year,
-      term: p.term, logo: p.logo, className: p.className, subjects: p.subjects, students: summary,
-    });
-    files.unshift({ name: `01-Class-Marks-List-MidTerm-${p.term}.doc`, data: Buffer.from('﻿' + summaryDoc, 'utf8') });
-
-    // Class proclamation list — ranked, every subject /100, totals, %, class average
-    const sheet = await getActiveSheet(classId);
-    const procRows = await proclamationRows(classId, p.subjects, picked);
-    const procDoc = buildProclamationHtml({
-      teacherName, schoolName: p.schoolName, district: p.district, level: p.level,
-      year: p.year, term: p.term, logo: p.logo, className: p.className,
-      sheetName: sheet.name, subjects: p.subjects, students: procRows, classAvg: classAvgOf(procRows),
-    });
-    files.unshift({ name: `00-Proclamation-${p.className.replace(/[^\w]+/g, '-')}-MidTerm-${p.term}.doc`, data: Buffer.from('﻿' + procDoc, 'utf8') });
 
     // ONE folder holding every Word report — the email carries a single folder link.
     // Recipient presses it → a folder page opens (like a folder on a PC) → each
