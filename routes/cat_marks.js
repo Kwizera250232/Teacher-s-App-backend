@@ -189,14 +189,40 @@ router.get('/report-folder/:token', (req, res) => {
   <div class="bar"><span class="folder-ico">📁</span><div>
     <h1>${escHtml(meta.className || 'Class')} — Mid-Term ${escHtml(meta.term || '')} Reports</h1>
     <p>${escHtml(meta.schoolName || '')} · ${files.length} Word documents</p>
-  </div><button class="dlall" id="dlall" onclick="downloadAll()">⬇ Download all</button></div>
+  </div><button class="dlall" id="dlall" onclick="downloadFolder()">⬇ Download folder</button></div>
   <p class="crumb">📁 Reports folder — press a file to download it to this device, then open it in Word and print.</p>
   <div class="win">${tiles}</div>
   <p class="note">On a computer the files land in your <strong>Downloads</strong> folder and open directly in Microsoft Word — nothing to unzip.</p>
 <script>
-async function downloadAll(){
+const DIR_NAME = ${JSON.stringify(`${meta.className || 'Class'}-MidTerm-${meta.term || ''}-Reports`)}.replace(/[^\w .-]+/g, '-');
+async function downloadFolder(){
   const btn = document.getElementById('dlall');
   const links = [...document.querySelectorAll('a.file')];
+  // Chrome/Edge on PC: save the WHOLE folder to disk in one go — user picks where,
+  // all Word files land inside a real folder that opens like any PC folder.
+  if (window.showDirectoryPicker) {
+    try {
+      btn.disabled = true;
+      btn.textContent = '📁 Choose where to save the folder…';
+      const root = await window.showDirectoryPicker({ mode: 'readwrite' });
+      const dir = await root.getDirectoryHandle(DIR_NAME, { create: true });
+      for (let i = 0; i < links.length; i++) {
+        btn.textContent = '⬇ Saving ' + (i + 1) + '/' + links.length + '…';
+        const name = decodeURIComponent(links[i].href.split('/').pop());
+        const resp = await fetch(links[i].href);
+        const blob = await resp.blob();
+        const fh = await dir.getFileHandle(name, { create: true });
+        const w = await fh.createWritable();
+        await w.write(blob); await w.close();
+      }
+      btn.textContent = '✅ Folder saved — open it on your PC';
+      return;
+    } catch (e) {
+      if (e && e.name === 'AbortError') { btn.disabled = false; btn.textContent = '⬇ Download folder'; return; }
+      // fall through to sequential downloads
+    }
+  }
+  // Fallback (mobile/other browsers): download each file into Downloads
   btn.disabled = true;
   for (let i = 0; i < links.length; i++) {
     btn.textContent = '⬇ Downloading ' + (i + 1) + '/' + links.length + '…';
