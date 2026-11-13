@@ -66,6 +66,17 @@ pool.query(`
       if (!sid) sid = (await pool.query(`INSERT INTO cat_term_sheets (class_id, name, active) VALUES ($1, 'Term I', TRUE) RETURNING id`, [r.class_id])).rows[0].id;
       await pool.query(`UPDATE cat_marks SET sheet_id = $2 WHERE class_id = $1 AND sheet_id IS NULL`, [r.class_id, sid]);
     }
+    // Self-heal: collapse duplicate active sheets (keep lowest id), re-point marks
+    // whose sheet belongs to a different class, then enforce one active sheet/class
+    await pool.query(`UPDATE cat_term_sheets s SET active = FALSE, archived_at = NOW()
+      WHERE s.active = TRUE AND EXISTS (
+        SELECT 1 FROM cat_term_sheets o WHERE o.class_id = s.class_id AND o.active = TRUE AND o.id < s.id)`);
+    await pool.query(`UPDATE cat_marks m SET sheet_id = s.id
+      FROM cat_term_sheets s
+      WHERE s.class_id = m.class_id AND s.active = TRUE
+      AND NOT EXISTS (SELECT 1 FROM cat_term_sheets x WHERE x.id = m.sheet_id AND x.class_id = m.class_id)`);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS cat_term_sheets_one_active
+      ON cat_term_sheets(class_id) WHERE active`);
   } catch (e) { console.error('[cat_marks sheets] migration error:', e.message); }
 })();
 
@@ -75,10 +86,16 @@ async function getActiveSheet(classId) {
     `SELECT * FROM cat_term_sheets WHERE class_id = $1 AND active = TRUE ORDER BY id DESC LIMIT 1`, [classId]
   )).rows[0];
   if (!sheet) {
-    sheet = (await pool.query(
-      `INSERT INTO cat_term_sheets (class_id, name, active) VALUES ($1, 'Term I', TRUE) RETURNING *`, [classId]
-    )).rows[0];
-    await pool.query(`UPDATE cat_marks SET sheet_id = $2 WHERE class_id = $1 AND sheet_id IS NULL`, [classId, sheet.id]);
+    try {
+      sheet = (await pool.query(
+        `INSERT INTO cat_term_sheets (class_id, name, active) VALUES ($1, 'Term I', TRUE) RETURNING *`, [classId]
+      )).rows[0];
+      await pool.query(`UPDATE cat_marks SET sheet_id = $2 WHERE class_id = $1 AND sheet_id IS NULL`, [classId, sheet.id]);
+    } catch {
+      sheet = (await pool.query(
+        `SELECT * FROM cat_term_sheets WHERE class_id = $1 AND active = TRUE ORDER BY id DESC LIMIT 1`, [classId]
+      )).rows[0];
+    }
   }
   return sheet;
 }
