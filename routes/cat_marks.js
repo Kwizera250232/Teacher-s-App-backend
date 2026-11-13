@@ -223,49 +223,41 @@ router.get('/report-folder/:token', (req, res) => {
   .fname{font-size:12px;line-height:1.25;word-break:break-word;max-height:45px;overflow:hidden;}
   .fsize{font-size:10.5px;color:#8a94a6;}
   .note{max-width:1080px;margin:0 auto 26px;padding:0 14px;font-size:12.5px;color:#6b7280;}
-  .dlall{margin-left:auto;background:#075e54;color:#fff;border:none;border-radius:7px;padding:10px 18px;font-size:13.5px;font-weight:700;cursor:pointer;white-space:nowrap;}
+  .dlall{background:#075e54;color:#fff;border:none;border-radius:7px;padding:10px 18px;font-size:13.5px;font-weight:700;cursor:pointer;white-space:nowrap;text-decoration:none;font-family:inherit;}
   .dlall:hover{background:#0a7a6c;}
   .dlall:disabled{opacity:.6;cursor:default;}
 </style></head><body>
   <div class="bar"><span class="folder-ico">📁</span><div>
     <h1>${escHtml(meta.className || 'Class')} — Mid-Term ${escHtml(meta.term || '')} Reports</h1>
     <p>${escHtml(meta.schoolName || '')} · ${files.length} Word documents</p>
-  </div><button class="dlall" id="dlall" onclick="downloadFolder()">⬇ Download folder</button></div>
+  </div><div style="margin-left:auto;display:flex;gap:8px;">
+    <a class="dlall" style="display:inline-block;" href="${base}/api/catmarks/report-folder/${req.params.token}/all" download>⬇ Download folder</a>
+    <button class="dlall" style="background:#1d4ed8;" id="dlreal" onclick="saveRealFolder()">📁 Save as PC folder</button>
+  </div></div>
 <script>
 const DIR_NAME = ${JSON.stringify(`${meta.className || 'Class'}-MidTerm-${meta.term || ''}-Reports`)}.replace(/[^\\w .-]+/g, '-');
-async function downloadFolder(){
-  const btn = document.getElementById('dlall');
+async function saveRealFolder(){
+  const btn = document.getElementById('dlreal');
   const links = [...document.querySelectorAll('a.file')];
-  // Chrome/Edge (v86+) on PC: saves a REAL folder — user picks the place once,
-  // a folder full of the Word files is created there immediately.
-  if (window.showDirectoryPicker) {
-    try {
-      btn.disabled = true;
-      btn.textContent = '📁 Choose where to save…';
-      const root = await window.showDirectoryPicker({ mode: 'readwrite' });
-      const dir = await root.getDirectoryHandle(DIR_NAME, { create: true });
-      for (let i = 0; i < links.length; i++) {
-        btn.textContent = '⬇ Saving ' + (i + 1) + '/' + links.length + '…';
-        const name = decodeURIComponent(links[i].href.split('/').pop()).replace(/[\\/:*?"<>|]+/g, '-');
-        const blob = await (await fetch(links[i].href)).blob();
-        const fh = await dir.getFileHandle(name, { create: true });
-        const w = await fh.createWritable();
-        await w.write(blob); await w.close();
-      }
-      btn.textContent = '✅ Folder saved — open it on your PC';
-      btn.disabled = false;
-      return;
-    } catch (e) {
-      btn.disabled = false;
-      if (e && e.name === 'AbortError') { btn.textContent = '⬇ Download folder'; return; }
-      btn.textContent = '⚠ ' + (e && e.message ? e.message : 'save failed') + ' — downloading as one file…';
-      await new Promise(r => setTimeout(r, 1500));
+  if (!window.showDirectoryPicker) { btn.textContent = '⚠ Use ⬇ Download folder instead'; return; }
+  try {
+    btn.disabled = true;
+    btn.textContent = '📁 Choose where to save…';
+    const root = await window.showDirectoryPicker({ mode: 'readwrite' });
+    const dir = await root.getDirectoryHandle(DIR_NAME, { create: true });
+    for (let i = 0; i < links.length; i++) {
+      btn.textContent = '⬇ Saving ' + (i + 1) + '/' + links.length + '…';
+      const name = decodeURIComponent(links[i].href.split('/').pop()).replace(/[\\/:*?"<>|]+/g, '-');
+      const blob = await (await fetch(links[i].href)).blob();
+      const fh = await dir.getFileHandle(name, { create: true });
+      const w = await fh.createWritable();
+      await w.write(blob); await w.close();
     }
+    btn.textContent = '✅ Folder saved — open it on your PC';
+  } catch (e) {
+    btn.textContent = e && e.name === 'AbortError' ? '📁 Save as PC folder' : ('⚠ ' + (e && e.message ? e.message : 'failed') + ' — use ⬇ Download folder');
   }
-  // Fallback: ONE file holding the whole folder — opens like a folder on Windows.
-  btn.textContent = '⬇ Downloading folder…';
-  window.location.href = location.pathname.replace(/\/$/, '') + '/all';
-  setTimeout(() => { btn.textContent = '⬇ Download folder'; }, 2500);
+  btn.disabled = false;
 }
 </script>
   <p class="crumb">📁 Reports folder — press a file to download it to this device, then open it in Word and print.</p>
