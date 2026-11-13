@@ -233,49 +233,64 @@ router.get('/report-folder/:token', (req, res) => {
     <p>${escHtml(meta.schoolName || '')} · ${files.length} Word documents</p>
   </div><div style="margin-left:auto;display:flex;gap:8px;">
     <button class="dlall" id="dlsave" onclick="saveFolder()">⬇ Save reports folder</button>
+    <button class="dlall" style="background:#1d4ed8;" id="dlpick" onclick="pickFolder()">📁 Pick a folder place</button>
   </div></div>
-<p class="crumb" id="hint" style="color:#075e54;font-weight:600;">Press the button once. A window opens → pick where to save (e.g. Desktop) → the reports folder is created there.</p>
+<p class="crumb" id="hint" style="color:#075e54;font-weight:600;">Press the green button once — all reports start saving to your Downloads folder immediately. The blue button saves them into one new folder you choose.</p>
 <script>
 const DIR_NAME = ${JSON.stringify(`${meta.className || 'Class'}-MidTerm-${meta.term || ''}-Reports`)}.replace(/[^\\w .-]+/g, '-');
-// One press saves everything: a real folder (where the browser supports it),
-// otherwise every file pours straight into the ordinary Downloads folder.
-async function saveFolder(){
+// Green button: every file downloads straight into Downloads — visible in
+// one second, works on every browser, no dialogs.
+function saveFolder(){
   const btn = document.getElementById('dlsave');
   const hint = document.getElementById('hint');
   const links = [...document.querySelectorAll('a.file')];
   btn.disabled = true;
-  if (window.showDirectoryPicker) {
-    try {
-      btn.textContent = '📁 Choose where to save the folder…';
-      hint.textContent = 'A save window is open — click a place like Desktop, then press "Select Folder".';
-      const root = await window.showDirectoryPicker({ mode: 'readwrite' });
-      const dir = await root.getDirectoryHandle(DIR_NAME, { create: true });
-      for (let i = 0; i < links.length; i++) {
-        btn.textContent = '💾 Saving ' + (i + 1) + '/' + links.length + '…';
-        const name = decodeURIComponent(links[i].href.split('/').pop()).replace(/[^\\w .-]+/g, '-');
-        const blob = await (await fetch(links[i].href)).blob();
-        const fh = await dir.getFileHandle(name, { create: true });
-        const w = await fh.createWritable();
-        await w.write(blob); await w.close();
-      }
+  hint.textContent = 'Saving all ' + links.length + ' files into your Downloads folder — watch the bottom of Chrome.';
+  let i = 0;
+  const tick = () => {
+    if (i >= links.length) {
       btn.disabled = false;
-      btn.textContent = '✅ Folder saved — open it where you chose';
-      hint.textContent = 'Done. The folder "' + DIR_NAME + '" now sits where you picked — open it like any folder.';
+      btn.textContent = '✅ Done — open your Downloads folder';
+      hint.textContent = 'All reports are now in Downloads, grouped together. If a "Save As" window appeared instead, it may be behind Chrome — check the taskbar.';
       return;
-    } catch (e) { /* cancelled or refused — fall through to Downloads */ }
-  }
-  btn.textContent = '⬇ Saving now — press Allow if asked…';
-  hint.textContent = 'Files are going to your Downloads folder. If nothing arrives, click the small download icon at the RIGHT END of the address bar and choose "Always allow".';
-  for (let i = 0; i < links.length; i++) {
-    btn.textContent = '⬇ ' + (i + 1) + '/' + links.length + ' → Downloads';
+    }
     const a = document.createElement('a');
     a.href = links[i].href; a.download = '';
     document.body.appendChild(a); a.click(); a.remove();
-    await new Promise(r => setTimeout(r, 500));
+    i++;
+    btn.textContent = '⬇ ' + i + '/' + links.length + ' → Downloads';
+    setTimeout(tick, 400);
+  };
+  tick();
+}
+// Blue button: asks where once, then creates a REAL new folder there with
+// every file inside (needs a current Chrome/Edge).
+async function pickFolder(){
+  const btn = document.getElementById('dlpick');
+  const hint = document.getElementById('hint');
+  const links = [...document.querySelectorAll('a.file')];
+  if (!window.showDirectoryPicker) { hint.textContent = 'This Chrome cannot save a folder directly — press the green button; files go to Downloads.'; return; }
+  try {
+    btn.disabled = true;
+    btn.textContent = '📁 Choose where…';
+    hint.textContent = 'A save window has opened — if you cannot see it, it is BEHIND Chrome: check the taskbar or minimize Chrome. Pick a place, then press Select Folder.';
+    const root = await window.showDirectoryPicker({ mode: 'readwrite' });
+    const dir = await root.getDirectoryHandle(DIR_NAME, { create: true });
+    for (let i = 0; i < links.length; i++) {
+      btn.textContent = '💾 ' + (i + 1) + '/' + links.length + '…';
+      const name = decodeURIComponent(links[i].href.split('/').pop()).replace(/[^\\w .-]+/g, '-');
+      const blob = await (await fetch(links[i].href)).blob();
+      const fh = await dir.getFileHandle(name, { create: true });
+      const w = await fh.createWritable();
+      await w.write(blob); await w.close();
+    }
+    btn.textContent = '✅ Folder saved';
+    hint.textContent = 'Done — the folder "' + DIR_NAME + '" is where you picked. Open it like any folder.';
+  } catch (e) {
+    btn.textContent = '📁 Pick a folder place';
+    hint.textContent = 'Save window was closed — press the green button to put all reports in Downloads instead.';
   }
   btn.disabled = false;
-  btn.textContent = '✅ Done — files are in your Downloads folder';
-  hint.textContent = 'All reports are now in your Downloads folder — open Downloads and they are grouped together, ready to open in Word.';
 }
 </script>
   <p class="crumb">📁 Reports folder — press a file to download it to this device, then open it in Word and print.</p>
