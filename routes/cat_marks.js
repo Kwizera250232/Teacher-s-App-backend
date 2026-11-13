@@ -1208,4 +1208,148 @@ router.post('/:classId/midterm-report/send-all', authenticateToken, requireRole(
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PROCLAMATION — class marks board (ranked students, per-subject /100, total, %, class avg)
+// Uses ONLY the ACTIVE marks sheet — same data source as the mid-term report.
+// ═══════════════════════════════════════════════════════════════════════════
+
+function parseStudentIds(raw) {
+  if (raw == null || raw === '') return null; // null = whole class
+  const ids = String(raw).split(',').map((x) => parseInt(x, 10)).filter(Boolean);
+  return ids;
+}
+
+/** Ranked proclamation rows for a class: per-subject /100, total, percentage — ACTIVE sheet only. */
+async function proclamationRows(classId, subjects, ids) {
+  const roster = (await pool.query(
+    `SELECT u.id, u.name FROM class_members cm JOIN users u ON u.id = cm.student_id
+     WHERE cm.class_id = $1 ORDER BY u.name`, [classId]
+  )).rows.filter((s) => ids === null || ids.includes(s.id));
+  const outOf = Math.max(subjects.length, 1) * 100;
+  const rows = [];
+  for (const st of roster) {
+    const scores = await subjectScores(classId, st.id);
+    const per = subjects.map((s) => (scores[canonSubj(s)] || {}).score ?? null);
+    const marked = per.filter((x) => x !== null);
+    const sum = marked.reduce((a, b) => a + b, 0);
+    rows.push({
+      id: st.id, name: st.name, scores: per,
+      total: marked.length ? Math.round(sum * 10) / 10 : null,
+      pct: marked.length ? Math.round((sum / outOf) * 1000) / 10 : null,
+    });
+  }
+  rows.sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1) || a.name.localeCompare(b.name));
+  rows.forEach((r, i) => { r.rank = i + 1; });
+  return rows;
+}
+
+function classAvgOf(rows) {
+  const marked = rows.filter((r) => r.pct !== null);
+  return marked.length ? Math.round((marked.reduce((a, r) => a + r.pct, 0) / marked.length) * 10) / 10 : null;
+}
+
+function buildProclamationHtml({ teacherName, schoolName, district, level, year, term, logo, className, sheetName, subjects, students, classAvg }) {
+  const outOf = subjects.length * 100;
+  const subjHeads = subjects.map((s) => `<th>${escHtml(s)}<br/><span style="font-weight:normal;font-size:8.5pt;">/100</span></th>`).join('');
+  const colW = Math.max(6, Math.floor(58 / Math.max(subjects.length, 1)));
+  const rowsHtml = students.map((s) => `<tr>
+      <td class="c b">${s.rank}</td>
+      <td>${escHtml(s.name)}</td>
+      ${s.scores.map((v) => `<td class="c">${v === null ? '—' : v}</td>`).join('')}
+      <td class="c b">${s.total === null ? '—' : s.total}</td>
+      <td class="c b">${s.pct === null ? '—' : s.pct + '%'}</td>
+    </tr>`).join('');
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+    @page { size: A4 landscape; margin: 1.1cm; }
+    body{font-family:'Times New Roman',Times,serif;font-size:11pt;color:#000;margin:0;}
+    .frame{border:3px double #000;padding:14px 20px;}
+    .hdr{width:100%;border-collapse:collapse;}
+    .hdr td{border:none;vertical-align:top;padding:0;}
+    .hdr .lines{font-weight:bold;font-size:12.5pt;line-height:1.4;text-transform:uppercase;}
+    h2{text-align:center;text-decoration:underline;font-size:13.5pt;margin:12px 0 8px;font-family:Arial,Helvetica,sans-serif;}
+    table.m{border-collapse:collapse;margin:0 auto;width:100%;font-size:10.5pt;table-layout:fixed;}
+    table.m th,table.m td{border:1px solid #000;padding:4px 5px;word-wrap:break-word;}
+    table.m th{font-weight:bold;text-align:center;}
+    table.m td.c{text-align:center;}
+    table.m td.b{font-weight:bold;}
+    table.m tr.avg td{background:#eee;font-weight:bold;}
+    .foot{width:100%;margin-top:24px;border-collapse:collapse;font-size:10.5pt;}
+    .foot td{border:none;padding-top:24px;width:50%;}
+    .foot .ln{border-top:1px solid #000;width:220px;padding-top:4px;}
+  </style></head><body>
+  <div class="frame">
+    <table class="hdr"><tr>
+      <td class="lines">
+        ${escHtml(district || '')} DISTRICT<br/>
+        ${escHtml(schoolName || '')}<br/>
+        ${escHtml(level)} ${escHtml(year)}<br/>
+        ${escHtml(className)} — PROCLAMATION (sheet: ${escHtml(sheetName)})
+      </td>
+      <td style="width:110px;text-align:right;">${logo ? `<img src="${logo}" alt="logo" width="90" style="width:90px;max-height:110px;"/>` : ''}</td>
+    </tr></table>
+    <h2>PROCLAMATION — MID-TERM ${escHtml(term)}</h2>
+    <table class="m">
+      <colgroup><col style="width:5%"/><col style="width:18%"/>${subjects.map(() => `<col style="width:${colW}%"/>`).join('')}<col style="width:9%"/><col style="width:8%"/></colgroup>
+      <tr><th>#</th><th>Student Name</th>${subjHeads}<th>Total /${outOf}</th><th>%</th></tr>
+      ${rowsHtml}
+      <tr class="avg"><td colspan="${2 + subjects.length}">CLASS AVERAGE</td><td class="c"></td><td class="c">${classAvg === null ? '—' : classAvg + '%'}</td></tr>
+    </table>
+    <table class="foot"><tr>
+      <td><div class="ln">Class Teacher<br/>${escHtml(teacherName)}</div></td>
+      <td style="text-align:right;"><div class="ln" style="margin-left:auto;">Head Teacher &amp; Stamp</div></td>
+    </tr></table>
+  </div>
+  </body></html>`;
+}
+
+// GET /:classId/proclamation?student_ids=1,2 — ranked proclamation data (JSON)
+router.get('/:classId/proclamation', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = req.params.classId;
+  try {
+    const manage = await userCanManageClass(req.user, classId);
+    if (!manage?.ok) return res.status(403).json({ error: 'Not your class.' });
+    const settings = await loadSettings(classId);
+    const sheet = await getActiveSheet(classId);
+    const rows = await proclamationRows(classId, settings.subjects, parseStudentIds(req.query.student_ids));
+    res.json({
+      class_name: settings.class_name, school_name: settings.school_name,
+      district: settings.district, level: settings.level, term: settings.term,
+      academic_year: settings.academic_year, logo: settings.logo,
+      subjects: settings.subjects, total_max: settings.subjects.length * 100,
+      sheet: { name: sheet.name },
+      students: rows, class_average: classAvgOf(rows),
+    });
+  } catch (err) {
+    console.error('[proclamation]', err.message);
+    res.status(500).json({ error: 'Could not build the proclamation right now.' });
+  }
+});
+
+// GET /:classId/proclamation.doc?student_ids=1,2 — Word proclamation download
+router.get('/:classId/proclamation.doc', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = req.params.classId;
+  try {
+    const manage = await userCanManageClass(req.user, classId);
+    if (!manage?.ok) return res.status(403).json({ error: 'Not your class.' });
+    const settings = await loadSettings(classId);
+    const sheet = await getActiveSheet(classId);
+    const rows = await proclamationRows(classId, settings.subjects, parseStudentIds(req.query.student_ids));
+    if (!rows.length) return res.status(400).json({ error: 'No students selected.' });
+    const teacherName = (await pool.query('SELECT name FROM users WHERE id=$1', [req.user.id])).rows[0]?.name || '';
+    const doc = buildProclamationHtml({
+      teacherName, schoolName: settings.school_name, district: settings.district,
+      level: settings.level, year: settings.academic_year, term: settings.term,
+      logo: settings.logo, className: settings.class_name, sheetName: sheet.name,
+      subjects: settings.subjects, students: rows, classAvg: classAvgOf(rows),
+    });
+    const safe = String(settings.class_name || 'class').replace(/[^\w]+/g, '-').slice(0, 40);
+    res.setHeader('Content-Type', 'application/msword; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="Proclamation-MidTerm-${settings.term}-${safe}.doc"`);
+    res.send('﻿' + doc);
+  } catch (err) {
+    console.error('[proclamation doc]', err.message);
+    res.status(500).json({ error: 'Could not build the proclamation right now.' });
+  }
+});
+
 module.exports = router;
