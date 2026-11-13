@@ -231,68 +231,44 @@ router.get('/report-folder/:token', (req, res) => {
     <h1>${escHtml(meta.className || 'Class')} — Mid-Term ${escHtml(meta.term || '')} Reports</h1>
     <p>${escHtml(meta.schoolName || '')} · ${files.length} Word documents</p>
   </div><div style="margin-left:auto;display:flex;gap:8px;">
-    <button class="dlall" id="dlfiles" onclick="downloadAllFiles()">⬇ Download all files</button>
-    <button class="dlall" style="background:#7c2d12;" id="mkfolder" onclick="makeDesktopFolder()">📂 Make folder on Desktop</button>
-    <button class="dlall" style="background:#1d4ed8;" id="dlreal" onclick="saveRealFolder()">📁 Save folder to PC</button>
+    <button class="dlall" id="dlsave" onclick="saveFolder()">⬇ Save reports folder</button>
   </div></div>
 <script>
 const DIR_NAME = ${JSON.stringify(`${meta.className || 'Class'}-MidTerm-${meta.term || ''}-Reports`)}.replace(/[^\\w .-]+/g, '-');
-// Every file downloads straight into the ordinary Downloads folder — works on
-// any browser. Chrome may ask once to allow multiple downloads: press Allow.
-async function downloadAllFiles(){
-  const btn = document.getElementById('dlfiles');
+// One press saves everything: a real folder (where the browser supports it),
+// otherwise every file pours straight into the ordinary Downloads folder.
+async function saveFolder(){
+  const btn = document.getElementById('dlsave');
   const links = [...document.querySelectorAll('a.file')];
   btn.disabled = true;
-  btn.textContent = '⬇ Starting — press Allow if Chrome asks…';
+  if (window.showDirectoryPicker) {
+    try {
+      btn.textContent = '📁 Choose where to save the folder…';
+      const root = await window.showDirectoryPicker({ mode: 'readwrite' });
+      const dir = await root.getDirectoryHandle(DIR_NAME, { create: true });
+      for (let i = 0; i < links.length; i++) {
+        btn.textContent = '💾 Saving ' + (i + 1) + '/' + links.length + '…';
+        const name = decodeURIComponent(links[i].href.split('/').pop()).replace(/[^\\w .-]+/g, '-');
+        const blob = await (await fetch(links[i].href)).blob();
+        const fh = await dir.getFileHandle(name, { create: true });
+        const w = await fh.createWritable();
+        await w.write(blob); await w.close();
+      }
+      btn.disabled = false;
+      btn.textContent = '✅ Folder saved — open it where you chose';
+      return;
+    } catch (e) { /* cancelled or refused — fall through to Downloads */ }
+  }
+  btn.textContent = '⬇ Saving now — press Allow if asked…';
   for (let i = 0; i < links.length; i++) {
-    btn.textContent = '⬇ ' + (i + 1) + '/' + links.length + ' → Downloads folder…';
+    btn.textContent = '⬇ ' + (i + 1) + '/' + links.length + ' → Downloads';
     const a = document.createElement('a');
     a.href = links[i].href; a.download = '';
     document.body.appendChild(a); a.click(); a.remove();
-    await new Promise(r => setTimeout(r, 600));
+    await new Promise(r => setTimeout(r, 500));
   }
   btn.disabled = false;
-  btn.textContent = '✅ Done — open your Downloads folder';
-}
-// Downloads a one-click helper: double-click it and a REAL folder appears on
-// the Desktop holding every downloaded report — ordinary folder like any other.
-function makeDesktopFolder(){
-  const bat = '@echo off\r\n'
-    + 'mkdir "%USERPROFILE%\\\\Desktop\\\\' + DIR_NAME + '" 2>nul\r\n'
-    + 'move /y "%USERPROFILE%\\\\Downloads\\\\MidTerm-*.doc" "%USERPROFILE%\\\\Desktop\\\\' + DIR_NAME + '\\\\" >nul 2>nul\r\n'
-    + 'move /y "%USERPROFILE%\\\\Downloads\\\\00-Proclamation*.doc" "%USERPROFILE%\\\\Desktop\\\\' + DIR_NAME + '\\\\" >nul 2>nul\r\n'
-    + 'move /y "%USERPROFILE%\\\\Downloads\\\\01-Class-Marks*.doc" "%USERPROFILE%\\\\Desktop\\\\' + DIR_NAME + '\\\\" >nul 2>nul\r\n'
-    + 'explorer "%USERPROFILE%\\\\Desktop\\\\' + DIR_NAME + '"\r\n'
-    + 'echo Done - folder created on your Desktop.\r\npause\r\n';
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([bat], { type: 'text/plain' }));
-  a.download = 'Make-Reports-Folder.bat';
-  document.body.appendChild(a); a.click(); a.remove();
-  const btn = document.getElementById('mkfolder');
-  btn.textContent = '✅ Downloaded — open Downloads and double-click Make-Reports-Folder.bat';
-}
-async function saveRealFolder(){
-  const btn = document.getElementById('dlreal');
-  const links = [...document.querySelectorAll('a.file')];
-  if (!window.showDirectoryPicker) { btn.textContent = '⚠ Needs updated Chrome — use ⬇ Download all files'; return; }
-  try {
-    btn.disabled = true;
-    btn.textContent = '📁 Choose where to save…';
-    const root = await window.showDirectoryPicker({ mode: 'readwrite' });
-    const dir = await root.getDirectoryHandle(DIR_NAME, { create: true });
-    for (let i = 0; i < links.length; i++) {
-      btn.textContent = '⬇ Saving ' + (i + 1) + '/' + links.length + '…';
-      const name = decodeURIComponent(links[i].href.split('/').pop()).replace(/[\\/:*?"<>|]+/g, '-');
-      const blob = await (await fetch(links[i].href)).blob();
-      const fh = await dir.getFileHandle(name, { create: true });
-      const w = await fh.createWritable();
-      await w.write(blob); await w.close();
-    }
-    btn.textContent = '✅ Folder saved — open it on your PC';
-  } catch (e) {
-    btn.textContent = e && e.name === 'AbortError' ? '📁 Save folder to PC' : ('⚠ ' + (e && e.message ? e.message : 'failed'));
-  }
-  btn.disabled = false;
+  btn.textContent = '✅ Done — files are in your Downloads folder';
 }
 </script>
   <p class="crumb">📁 Reports folder — press a file to download it to this device, then open it in Word and print.</p>
