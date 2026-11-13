@@ -1136,9 +1136,18 @@ router.post('/:classId/midterm-report/send-all', authenticateToken, requireRole(
     if (!manage?.ok) return res.status(403).json({ error: 'You cannot generate reports for this class.' });
 
     const p = await resolveReportParams(classId, req.body);
-    if (!p.authorityEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p.authorityEmail)) {
-      return res.status(400).json({ error: 'A valid school authority email is required.' });
+    // Multiple recipients: authority_emails[] and/or comma/semicolon list in authority_email
+    const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const recipients = [...new Set(
+      (Array.isArray(req.body.authority_emails) ? req.body.authority_emails : [])
+        .concat(String(req.body.authority_email || '').split(/[,;\s]+/))
+        .map((e) => String(e).trim().toLowerCase())
+        .filter((e) => emailRx.test(e))
+    )];
+    if (!recipients.length) {
+      return res.status(400).json({ error: 'Add at least one valid email address.' });
     }
+    p.authorityEmail = recipients.join(', '); // persisted so the list is remembered next time
     await saveSettings(classId, p);
 
     let roster = (await pool.query(
@@ -1186,9 +1195,13 @@ router.post('/:classId/midterm-report/send-all', authenticateToken, requireRole(
       <p style="color:#334155;">Attached is <strong>one ZIP folder</strong> containing a <strong>class marks list</strong> (students ranked by marks) plus <strong>${roster.length}</strong> mid-term report cards (one Word document per student), prepared by <strong>${escHtml(teacherName)}</strong>. Download the ZIP, then open it to see each report.</p>
       <p style="color:#64748b;font-size:13px;margin-top:22px;">Sent from UClass — this is an automated delivery, please do not reply.</p>
     </div>`;
-    const r = await sendMail({ to: p.authorityEmail, subject, html, text: `Mid-Term ${p.term} reports for ${p.className} — ${roster.length} reports attached.`, attachments });
-    if (!r?.sent) return res.status(502).json({ error: r?.reason || 'Email could not be sent. Check the school email settings.' });
-    res.json({ ok: true, sent: roster.length, to: p.authorityEmail });
+    let sentTo = 0; let lastReason = '';
+    for (const to of recipients) {
+      const r = await sendMail({ to, subject, html, text: `Mid-Term ${p.term} reports for ${p.className} — ${roster.length} reports attached.`, attachments });
+      if (r?.sent) sentTo += 1; else lastReason = r?.reason || '';
+    }
+    if (!sentTo) return res.status(502).json({ error: lastReason || 'Email could not be sent. Check the school email settings.' });
+    res.json({ ok: true, sent: roster.length, to: recipients.join(', '), delivered: sentTo, total_recipients: recipients.length });
   } catch (err) {
     console.error('[midterm send-all]', err.message);
     res.status(500).json({ error: 'Could not email the reports right now.' });
