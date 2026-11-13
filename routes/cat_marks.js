@@ -232,11 +232,38 @@ router.get('/report-folder/:token', (req, res) => {
     <p>${escHtml(meta.schoolName || '')} · ${files.length} Word documents</p>
   </div><button class="dlall" id="dlall" onclick="downloadFolder()">⬇ Download folder</button></div>
 <script>
-function downloadFolder(){
+const DIR_NAME = ${JSON.stringify(`${meta.className || 'Class'}-MidTerm-${meta.term || ''}-Reports`)}.replace(/[^\\w .-]+/g, '-');
+async function downloadFolder(){
   const btn = document.getElementById('dlall');
+  const links = [...document.querySelectorAll('a.file')];
+  // Chrome/Edge (v86+) on PC: saves a REAL folder — user picks the place once,
+  // a folder full of the Word files is created there immediately.
+  if (window.showDirectoryPicker) {
+    try {
+      btn.disabled = true;
+      btn.textContent = '📁 Choose where to save…';
+      const root = await window.showDirectoryPicker({ mode: 'readwrite' });
+      const dir = await root.getDirectoryHandle(DIR_NAME, { create: true });
+      for (let i = 0; i < links.length; i++) {
+        btn.textContent = '⬇ Saving ' + (i + 1) + '/' + links.length + '…';
+        const name = decodeURIComponent(links[i].href.split('/').pop()).replace(/[\\/:*?"<>|]+/g, '-');
+        const blob = await (await fetch(links[i].href)).blob();
+        const fh = await dir.getFileHandle(name, { create: true });
+        const w = await fh.createWritable();
+        await w.write(blob); await w.close();
+      }
+      btn.textContent = '✅ Folder saved — open it on your PC';
+      btn.disabled = false;
+      return;
+    } catch (e) {
+      btn.disabled = false;
+      if (e && e.name === 'AbortError') { btn.textContent = '⬇ Download folder'; return; }
+      btn.textContent = '⚠ ' + (e && e.message ? e.message : 'save failed') + ' — downloading as one file…';
+      await new Promise(r => setTimeout(r, 1500));
+    }
+  }
+  // Fallback: ONE file holding the whole folder — opens like a folder on Windows.
   btn.textContent = '⬇ Downloading folder…';
-  // ONE file holding the whole folder — downloads immediately on one press.
-  // On Windows it opens exactly like a normal folder (all Word files inside).
   window.location.href = location.pathname.replace(/\/$/, '') + '/all';
   setTimeout(() => { btn.textContent = '⬇ Download folder'; }, 2500);
 }
