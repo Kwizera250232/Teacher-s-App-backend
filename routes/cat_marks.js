@@ -232,6 +232,7 @@ router.get('/report-folder/:token', (req, res) => {
     <p>${escHtml(meta.schoolName || '')} · ${files.length} Word documents</p>
   </div><div style="margin-left:auto;display:flex;gap:8px;">
     <button class="dlall" id="dlfiles" onclick="downloadAllFiles()">⬇ Download all files</button>
+    <button class="dlall" style="background:#7c2d12;" id="mkfolder" onclick="makeDesktopFolder()">📂 Make folder on Desktop</button>
     <button class="dlall" style="background:#1d4ed8;" id="dlreal" onclick="saveRealFolder()">📁 Save folder to PC</button>
   </div></div>
 <script>
@@ -252,6 +253,23 @@ async function downloadAllFiles(){
   }
   btn.disabled = false;
   btn.textContent = '✅ Done — open your Downloads folder';
+}
+// Downloads a one-click helper: double-click it and a REAL folder appears on
+// the Desktop holding every downloaded report — ordinary folder like any other.
+function makeDesktopFolder(){
+  const bat = '@echo off\r\n'
+    + 'mkdir "%USERPROFILE%\\\\Desktop\\\\' + DIR_NAME + '" 2>nul\r\n'
+    + 'move /y "%USERPROFILE%\\\\Downloads\\\\MidTerm-*.doc" "%USERPROFILE%\\\\Desktop\\\\' + DIR_NAME + '\\\\" >nul 2>nul\r\n'
+    + 'move /y "%USERPROFILE%\\\\Downloads\\\\00-Proclamation*.doc" "%USERPROFILE%\\\\Desktop\\\\' + DIR_NAME + '\\\\" >nul 2>nul\r\n'
+    + 'move /y "%USERPROFILE%\\\\Downloads\\\\01-Class-Marks*.doc" "%USERPROFILE%\\\\Desktop\\\\' + DIR_NAME + '\\\\" >nul 2>nul\r\n'
+    + 'explorer "%USERPROFILE%\\\\Desktop\\\\' + DIR_NAME + '"\r\n'
+    + 'echo Done - folder created on your Desktop.\r\npause\r\n';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([bat], { type: 'text/plain' }));
+  a.download = 'Make-Reports-Folder.bat';
+  document.body.appendChild(a); a.click(); a.remove();
+  const btn = document.getElementById('mkfolder');
+  btn.textContent = '✅ Downloaded — open Downloads and double-click Make-Reports-Folder.bat';
 }
 async function saveRealFolder(){
   const btn = document.getElementById('dlreal');
