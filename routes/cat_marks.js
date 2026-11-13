@@ -192,6 +192,10 @@ router.get('/report-folder/:token', (req, res) => {
   const { meta, files } = folder;
   const base = publicApiBase(req);
   res.setHeader('Cache-Control', 'no-store, must-revalidate');
+  // helmet's API-wide CSP blocks inline scripts and onclick handlers, which
+  // silently kills every button on this standalone page — allow them here.
+  res.setHeader('Content-Security-Policy', "default-src 'self';base-uri 'self';font-src 'self' https: data:;form-action 'self';frame-ancestors 'self';img-src 'self' data:;object-src 'none';script-src 'self' 'unsafe-inline';script-src-attr 'self' 'unsafe-inline';style-src 'self' https: 'unsafe-inline'");
+  res.setHeader('Content-Security-Policy-Report-Only', "default-src 'self';img-src 'self' data: blob:;script-src 'self' 'unsafe-inline';base-uri 'self';font-src 'self' https: data:;form-action 'self';frame-ancestors 'self';object-src 'none';script-src-attr 'unsafe-inline';style-src 'self' https: 'unsafe-inline'");
   const tiles = files.map((f) => {
     const sizeKb = Math.max(1, Math.round(fs.statSync(path.join(folder.dir, f)).size / 1024));
     const href = `${base}/api/catmarks/report-folder/${req.params.token}/${encodeURIComponent(f)}`;
