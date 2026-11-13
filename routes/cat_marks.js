@@ -231,46 +231,19 @@ router.get('/report-folder/:token', (req, res) => {
     <h1>${escHtml(meta.className || 'Class')} — Mid-Term ${escHtml(meta.term || '')} Reports</h1>
     <p>${escHtml(meta.schoolName || '')} · ${files.length} Word documents</p>
   </div><button class="dlall" id="dlall" onclick="downloadFolder()">⬇ Download folder</button></div>
-  <p class="crumb">📁 Reports folder — press a file to download it to this device, then open it in Word and print.</p>
-  <div class="win">${tiles}</div>
-  <p class="note">On a computer the files land in your <strong>Downloads</strong> folder and open directly in Microsoft Word — nothing to unzip.</p>
 <script>
-const DIR_NAME = ${JSON.stringify(`${meta.className || 'Class'}-MidTerm-${meta.term || ''}-Reports`)}.replace(/[^\\w .-]+/g, '-');
-async function downloadFolder(){
+function downloadFolder(){
   const btn = document.getElementById('dlall');
-  const links = [...document.querySelectorAll('a.file')];
-  // Chrome/Edge on PC: save the WHOLE folder to disk in one go — user picks where,
-  // all Word files land inside a real folder that opens like any PC folder.
-  if (window.showDirectoryPicker) {
-    try {
-      btn.disabled = true;
-      btn.textContent = '📁 Choose where to save the folder…';
-      const root = await window.showDirectoryPicker({ mode: 'readwrite' });
-      const dir = await root.getDirectoryHandle(DIR_NAME, { create: true });
-      for (let i = 0; i < links.length; i++) {
-        btn.textContent = '⬇ Saving ' + (i + 1) + '/' + links.length + '…';
-        const name = decodeURIComponent(links[i].href.split('/').pop());
-        const resp = await fetch(links[i].href);
-        const blob = await resp.blob();
-        const fh = await dir.getFileHandle(name.replace(/[\\/:*?"<>|]+/g, '-'), { create: true });
-        const w = await fh.createWritable();
-        await w.write(blob); await w.close();
-      }
-      btn.textContent = '✅ Folder saved — open it on your PC';
-      return;
-    } catch (e) {
-      if (e && e.name === 'AbortError') { btn.disabled = false; btn.textContent = '⬇ Download folder'; return; }
-      btn.textContent = '⚠ ' + (e && e.message ? e.message : 'save failed') + ' — trying simple download…';
-      await new Promise(r => setTimeout(r, 1200));
-    }
-  }
-  // Fallback (browsers without folder-save): fetch ONE file holding the whole
-  // folder — on Windows it opens exactly like a normal folder.
   btn.textContent = '⬇ Downloading folder…';
+  // ONE file holding the whole folder — downloads immediately on one press.
+  // On Windows it opens exactly like a normal folder (all Word files inside).
   window.location.href = location.pathname.replace(/\/$/, '') + '/all';
-  setTimeout(() => { btn.disabled = false; btn.textContent = '⬇ Download folder'; }, 3000);
+  setTimeout(() => { btn.textContent = '⬇ Download folder'; }, 2500);
 }
 </script>
+  <p class="crumb">📁 Reports folder — press a file to download it to this device, then open it in Word and print.</p>
+  <div class="win">${tiles}</div>
+  <p class="note">On a computer the downloaded folder opens directly in Explorer and every file inside opens in Microsoft Word — nothing to unzip.</p>
 </body></html>`);
 });
 
