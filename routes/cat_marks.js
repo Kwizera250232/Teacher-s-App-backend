@@ -277,8 +277,8 @@ async function pickFolder(){
   try {
     btn.disabled = true;
     btn.textContent = '📁 Choose where…';
-    hint.textContent = 'A save window has opened — if you cannot see it, it is BEHIND Chrome: check the taskbar or minimize Chrome. Pick a place, then press Select Folder.';
-    const root = await window.showDirectoryPicker({ mode: 'readwrite' });
+    hint.textContent = 'A save window is open — it may be behind Chrome. Inside it, open Downloads or Documents (NOT C:\\ or Windows), then press Select Folder.';
+    const root = await window.showDirectoryPicker({ mode: 'readwrite', startIn: 'downloads', id: 'uclass-reports' });
     const dir = await root.getDirectoryHandle(DIR_NAME, { create: true });
     for (let i = 0; i < links.length; i++) {
       btn.textContent = '💾 ' + (i + 1) + '/' + links.length + '…';
@@ -292,7 +292,7 @@ async function pickFolder(){
     hint.textContent = 'Done — the folder "' + DIR_NAME + '" is where you picked. Open it like any folder.';
   } catch (e) {
     btn.textContent = '📁 Pick a folder place';
-    hint.textContent = 'Save window was closed — press the green button to put all reports in Downloads instead.';
+    hint.textContent = 'That folder was refused or closed — press again and pick Downloads or Documents (not C:\\ or Windows), or press the green button to save everything into Downloads now.';
   }
   btn.disabled = false;
 }
