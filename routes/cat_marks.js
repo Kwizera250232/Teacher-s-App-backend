@@ -191,6 +191,7 @@ router.get('/report-folder/:token', (req, res) => {
   if (!folder) return res.status(404).send('<h3 style="font-family:Arial">This reports folder has expired or does not exist.</h3>');
   const { meta, files } = folder;
   const base = publicApiBase(req);
+  res.setHeader('Cache-Control', 'no-store, must-revalidate');
   const tiles = files.map((f) => {
     const sizeKb = Math.max(1, Math.round(fs.statSync(path.join(folder.dir, f)).size / 1024));
     const href = `${base}/api/catmarks/report-folder/${req.params.token}/${encodeURIComponent(f)}`;
@@ -233,17 +234,20 @@ router.get('/report-folder/:token', (req, res) => {
   </div><div style="margin-left:auto;display:flex;gap:8px;">
     <button class="dlall" id="dlsave" onclick="saveFolder()">⬇ Save reports folder</button>
   </div></div>
+<p class="crumb" id="hint" style="color:#075e54;font-weight:600;">Press the button once. A window opens → pick where to save (e.g. Desktop) → the reports folder is created there.</p>
 <script>
 const DIR_NAME = ${JSON.stringify(`${meta.className || 'Class'}-MidTerm-${meta.term || ''}-Reports`)}.replace(/[^\\w .-]+/g, '-');
 // One press saves everything: a real folder (where the browser supports it),
 // otherwise every file pours straight into the ordinary Downloads folder.
 async function saveFolder(){
   const btn = document.getElementById('dlsave');
+  const hint = document.getElementById('hint');
   const links = [...document.querySelectorAll('a.file')];
   btn.disabled = true;
   if (window.showDirectoryPicker) {
     try {
       btn.textContent = '📁 Choose where to save the folder…';
+      hint.textContent = 'A save window is open — click a place like Desktop, then press "Select Folder".';
       const root = await window.showDirectoryPicker({ mode: 'readwrite' });
       const dir = await root.getDirectoryHandle(DIR_NAME, { create: true });
       for (let i = 0; i < links.length; i++) {
@@ -256,10 +260,12 @@ async function saveFolder(){
       }
       btn.disabled = false;
       btn.textContent = '✅ Folder saved — open it where you chose';
+      hint.textContent = 'Done. The folder "' + DIR_NAME + '" now sits where you picked — open it like any folder.';
       return;
     } catch (e) { /* cancelled or refused — fall through to Downloads */ }
   }
   btn.textContent = '⬇ Saving now — press Allow if asked…';
+  hint.textContent = 'Files are going to your Downloads folder. If nothing arrives, click the small download icon at the RIGHT END of the address bar and choose "Always allow".';
   for (let i = 0; i < links.length; i++) {
     btn.textContent = '⬇ ' + (i + 1) + '/' + links.length + ' → Downloads';
     const a = document.createElement('a');
@@ -269,6 +275,7 @@ async function saveFolder(){
   }
   btn.disabled = false;
   btn.textContent = '✅ Done — files are in your Downloads folder';
+  hint.textContent = 'All reports are now in your Downloads folder — open Downloads and they are grouped together, ready to open in Word.';
 }
 </script>
   <p class="crumb">📁 Reports folder — press a file to download it to this device, then open it in Word and print.</p>
