@@ -194,7 +194,7 @@ router.get('/report-folder/:token', (req, res) => {
   <div class="win">${tiles}</div>
   <p class="note">On a computer the files land in your <strong>Downloads</strong> folder and open directly in Microsoft Word — nothing to unzip.</p>
 <script>
-const DIR_NAME = ${JSON.stringify(`${meta.className || 'Class'}-MidTerm-${meta.term || ''}-Reports`)}.replace(/[^\w .-]+/g, '-');
+const DIR_NAME = ${JSON.stringify(`${meta.className || 'Class'}-MidTerm-${meta.term || ''}-Reports`)}.replace(/[^\\w .-]+/g, '-');
 async function downloadFolder(){
   const btn = document.getElementById('dlall');
   const links = [...document.querySelectorAll('a.file')];
@@ -211,7 +211,7 @@ async function downloadFolder(){
         const name = decodeURIComponent(links[i].href.split('/').pop());
         const resp = await fetch(links[i].href);
         const blob = await resp.blob();
-        const fh = await dir.getFileHandle(name, { create: true });
+        const fh = await dir.getFileHandle(name.replace(/[\\/:*?"<>|]+/g, '-'), { create: true });
         const w = await fh.createWritable();
         await w.write(blob); await w.close();
       }
@@ -219,19 +219,20 @@ async function downloadFolder(){
       return;
     } catch (e) {
       if (e && e.name === 'AbortError') { btn.disabled = false; btn.textContent = '⬇ Download folder'; return; }
-      // fall through to sequential downloads
+      btn.textContent = '⚠ ' + (e && e.message ? e.message : 'save failed') + ' — trying simple download…';
+      await new Promise(r => setTimeout(r, 1200));
     }
   }
   // Fallback (mobile/other browsers): download each file into Downloads
-  btn.disabled = true;
   for (let i = 0; i < links.length; i++) {
     btn.textContent = '⬇ Downloading ' + (i + 1) + '/' + links.length + '…';
     const a = document.createElement('a');
     a.href = links[i].href; a.download = '';
     document.body.appendChild(a); a.click(); a.remove();
-    await new Promise(r => setTimeout(r, 700));
+    await new Promise(r => setTimeout(r, 900));
   }
-  btn.textContent = '✅ All ' + links.length + ' files downloaded — check your Downloads folder';
+  btn.disabled = false;
+  btn.textContent = '✅ Done — check your Downloads folder (press again if files are missing)';
 }
 </script>
 </body></html>`);
