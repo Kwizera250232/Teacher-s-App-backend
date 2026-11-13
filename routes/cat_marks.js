@@ -144,6 +144,47 @@ function loadReportFolder(token) {
   return { dir, meta, files };
 }
 
+// Minimal stored (uncompressed) ZIP writer — used so the whole folder can be
+// fetched as ONE file; on Windows it opens exactly like a normal folder.
+const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(buf) { let c = 0xFFFFFFFF; for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function zipStore(entries) {
+  const chunks = []; const central = []; let offset = 0;
+  for (const { name, data } of entries) {
+    const nameBuf = Buffer.from(name, 'utf8');
+    const crc = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(0x0800, 6);
+    local.writeUInt16LE(0, 8); local.writeUInt16LE(0, 10); local.writeUInt16LE(0, 12); local.writeUInt16LE(0, 14);
+    local.writeUInt32LE(crc, 14); local.writeUInt32LE(data.length, 18); local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBuf.length, 26); local.writeUInt16LE(0, 28);
+    chunks.push(local, nameBuf, data);
+    const cd = Buffer.alloc(46);
+    cd.writeUInt32LE(0x02014b50, 0); cd.writeUInt16LE(20, 4); cd.writeUInt16LE(20, 6); cd.writeUInt16LE(0x0800, 8);
+    cd.writeUInt16LE(0, 10); cd.writeUInt16LE(0, 12); cd.writeUInt16LE(0, 14); cd.writeUInt16LE(0, 16);
+    cd.writeUInt32LE(crc, 16); cd.writeUInt32LE(data.length, 20); cd.writeUInt32LE(data.length, 24);
+    cd.writeUInt16LE(nameBuf.length, 28); cd.writeUInt32LE(offset, 42);
+    central.push(cd, nameBuf);
+    offset += 30 + nameBuf.length + data.length;
+  }
+  const cdBuf = Buffer.concat(central);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0); eocd.writeUInt16LE(entries.length, 8); eocd.writeUInt16LE(entries.length, 10);
+  eocd.writeUInt32LE(cdBuf.length, 12); eocd.writeUInt32LE(offset, 16);
+  return Buffer.concat([...chunks, cdBuf, eocd]);
+}
+
+// GET /report-folder/:token/all — the whole folder as ONE file (opens like a folder on PC)
+router.get('/report-folder/:token/all', (req, res) => {
+  const folder = loadReportFolder(req.params.token);
+  if (!folder) return res.status(404).send('Folder expired.');
+  const entries = folder.files.map((f) => ({ name: f, data: fs.readFileSync(path.join(folder.dir, f)) }));
+  const zipName = `${(folder.meta.className || 'Reports')}-MidTerm-${folder.meta.term || ''}-Reports`.replace(/[^\w .-]+/g, '-') + '.zip';
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
+  res.send(zipStore(entries));
+});
+
 // GET /report-folder/:token — the "computer folder" page listing all Word reports
 router.get('/report-folder/:token', (req, res) => {
   const folder = loadReportFolder(req.params.token);
@@ -223,16 +264,11 @@ async function downloadFolder(){
       await new Promise(r => setTimeout(r, 1200));
     }
   }
-  // Fallback (mobile/other browsers): download each file into Downloads
-  for (let i = 0; i < links.length; i++) {
-    btn.textContent = '⬇ Downloading ' + (i + 1) + '/' + links.length + '…';
-    const a = document.createElement('a');
-    a.href = links[i].href; a.download = '';
-    document.body.appendChild(a); a.click(); a.remove();
-    await new Promise(r => setTimeout(r, 900));
-  }
-  btn.disabled = false;
-  btn.textContent = '✅ Done — check your Downloads folder (press again if files are missing)';
+  // Fallback (browsers without folder-save): fetch ONE file holding the whole
+  // folder — on Windows it opens exactly like a normal folder.
+  btn.textContent = '⬇ Downloading folder…';
+  window.location.href = location.pathname.replace(/\/$/, '') + '/all';
+  setTimeout(() => { btn.disabled = false; btn.textContent = '⬇ Download folder'; }, 3000);
 }
 </script>
 </body></html>`);
