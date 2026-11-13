@@ -230,13 +230,33 @@ router.get('/report-folder/:token', (req, res) => {
   <div class="bar"><span class="folder-ico">📁</span><div>
     <h1>${escHtml(meta.className || 'Class')} — Mid-Term ${escHtml(meta.term || '')} Reports</h1>
     <p>${escHtml(meta.schoolName || '')} · ${files.length} Word documents</p>
-  </div><button class="dlall" id="dlreal" onclick="saveRealFolder()" style="margin-left:auto;">📁 Save folder to PC</button></div>
+  </div><div style="margin-left:auto;display:flex;gap:8px;">
+    <button class="dlall" id="dlfiles" onclick="downloadAllFiles()">⬇ Download all files</button>
+    <button class="dlall" style="background:#1d4ed8;" id="dlreal" onclick="saveRealFolder()">📁 Save folder to PC</button>
+  </div></div>
 <script>
 const DIR_NAME = ${JSON.stringify(`${meta.className || 'Class'}-MidTerm-${meta.term || ''}-Reports`)}.replace(/[^\\w .-]+/g, '-');
+// Every file downloads straight into the ordinary Downloads folder — works on
+// any browser. Chrome may ask once to allow multiple downloads: press Allow.
+async function downloadAllFiles(){
+  const btn = document.getElementById('dlfiles');
+  const links = [...document.querySelectorAll('a.file')];
+  btn.disabled = true;
+  btn.textContent = '⬇ Starting — press Allow if Chrome asks…';
+  for (let i = 0; i < links.length; i++) {
+    btn.textContent = '⬇ ' + (i + 1) + '/' + links.length + ' → Downloads folder…';
+    const a = document.createElement('a');
+    a.href = links[i].href; a.download = '';
+    document.body.appendChild(a); a.click(); a.remove();
+    await new Promise(r => setTimeout(r, 600));
+  }
+  btn.disabled = false;
+  btn.textContent = '✅ Done — open your Downloads folder';
+}
 async function saveRealFolder(){
   const btn = document.getElementById('dlreal');
   const links = [...document.querySelectorAll('a.file')];
-  if (!window.showDirectoryPicker) { btn.textContent = '⚠ Open this page in Microsoft Edge or updated Chrome'; return; }
+  if (!window.showDirectoryPicker) { btn.textContent = '⚠ Needs updated Chrome — use ⬇ Download all files'; return; }
   try {
     btn.disabled = true;
     btn.textContent = '📁 Choose where to save…';
