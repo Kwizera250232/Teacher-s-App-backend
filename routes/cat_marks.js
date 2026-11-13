@@ -692,52 +692,6 @@ const DEFAULT_SUBJECTS = {
   Secondary: ['Geography', 'History', 'Literature in English', 'Entrepreneurship', 'English', 'French', 'Kinyarwanda',
     'General Studies and Communication', 'Computer', 'Library', 'Sports / Clubs'],
 };
-// Minimal ZIP (store method — no compression, no dependencies)
-const CRC_TABLE = (() => {
-  const t = new Uint32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
-    t[n] = c >>> 0;
-  }
-  return t;
-})();
-const crc32 = (buf) => {
-  let c = 0xFFFFFFFF;
-  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xFF] ^ (c >>> 8);
-  return (c ^ 0xFFFFFFFF) >>> 0;
-};
-function zipStore(files) { // files: [{name, data:Buffer}]
-  const chunks = []; const central = []; let offset = 0;
-  for (const f of files) {
-    const name = Buffer.from(String(f.name), 'utf8');
-    const data = Buffer.isBuffer(f.data) ? f.data : Buffer.from(f.data);
-    const crc = crc32(data);
-    const lh = Buffer.alloc(30);
-    lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(20, 4); lh.writeUInt16LE(0x0800, 6);
-    lh.writeUInt16LE(0, 8); lh.writeUInt16LE(0, 10); lh.writeUInt16LE(0x21, 12);
-    lh.writeUInt32LE(crc, 14); lh.writeUInt32LE(data.length, 18); lh.writeUInt32LE(data.length, 22);
-    lh.writeUInt16LE(name.length, 26); lh.writeUInt16LE(0, 28);
-    chunks.push(lh, name, data);
-    central.push({ name, crc, size: data.length, offset });
-    offset += 30 + name.length + data.length;
-  }
-  const cdStart = offset; const cdParts = [];
-  for (const e of central) {
-    const ch = Buffer.alloc(46);
-    ch.writeUInt32LE(0x02014b50, 0); ch.writeUInt16LE(20, 4); ch.writeUInt16LE(20, 6);
-    ch.writeUInt16LE(0x0800, 8); ch.writeUInt16LE(0, 10); ch.writeUInt16LE(0, 12); ch.writeUInt16LE(0x21, 14);
-    ch.writeUInt32LE(e.crc, 16); ch.writeUInt32LE(e.size, 20); ch.writeUInt32LE(e.size, 24);
-    ch.writeUInt16LE(e.name.length, 28); ch.writeUInt32LE(0, 38); ch.writeUInt32LE(e.offset, 42);
-    cdParts.push(ch, e.name);
-    offset += 46 + e.name.length;
-  }
-  const eocd = Buffer.alloc(22);
-  eocd.writeUInt32LE(0x06054b50, 0);
-  eocd.writeUInt16LE(central.length, 8); eocd.writeUInt16LE(central.length, 10);
-  eocd.writeUInt32LE(offset - cdStart, 12); eocd.writeUInt32LE(cdStart, 16);
-  return Buffer.concat([...chunks, ...cdParts, eocd]);
-}
 
 const gradeFor = (pct) => (pct >= 80 ? 'A' : pct >= 65 ? 'B' : pct >= 50 ? 'C' : pct >= 40 ? 'D' : 'E');
 const normSubj = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
@@ -1182,8 +1136,9 @@ router.post('/:classId/midterm-report/send-all', authenticateToken, requireRole(
     });
     files.unshift({ name: `00-Class-Marks-List-MidTerm-${p.term}.doc`, data: Buffer.from('﻿' + summaryDoc, 'utf8') });
 
-    const zipName = `MidTerm-${p.term}-Reports-${String(p.className || 'class').replace(/[^\w]+/g, '-')}.zip`;
-    const attachments = [{ filename: zipName, content: zipStore(files), type: 'application/zip' }];
+    // Individual Word documents attached directly — recipients save them to a folder
+    // and open/print each report like normal files; no ZIP/unzip needed
+    const attachments = files.map((f) => ({ filename: f.name, content: f.data, type: 'application/msword' }));
 
     const subject = `Mid-Term ${p.term} Reports — ${p.className} (${roster.length} students)`;
     const html = `<div style="font-family:Arial,sans-serif;max-width:560px;">
@@ -1192,7 +1147,7 @@ router.post('/:classId/midterm-report/send-all', authenticateToken, requireRole(
         <strong>${escHtml(p.schoolName || 'School')}</strong>${p.district ? ` · ${escHtml(p.district)} District` : ''}<br/>
         Class: <strong>${escHtml(p.className)}</strong> · Academic Year: <strong>${escHtml(p.year)}</strong>
       </p>
-      <p style="color:#334155;">Attached is <strong>one ZIP folder</strong> containing a <strong>class marks list</strong> (students ranked by marks) plus <strong>${roster.length}</strong> mid-term report cards (one Word document per student), prepared by <strong>${escHtml(teacherName)}</strong>. Download the ZIP, then open it to see each report.</p>
+      <p style="color:#334155;">Attached are <strong>${files.length} Word documents</strong>: a <strong>class marks list</strong> (students ranked by marks) plus <strong>${roster.length}</strong> mid-term report cards (one per student), prepared by <strong>${escHtml(teacherName)}</strong>. Save the attachments to a folder, then open and print each report directly — no ZIP needed.</p>
       <p style="color:#64748b;font-size:13px;margin-top:22px;">Sent from UClass — this is an automated delivery, please do not reply.</p>
     </div>`;
     let sentTo = 0; let lastReason = '';
