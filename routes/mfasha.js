@@ -576,7 +576,7 @@ router.post('/inspire', ...staffOnly, async (req, res) => {
     const out = await groqChat([
       { role: 'system', content: `You are MFASHA inspiring a Rwandan teacher just before class. ${replyLangRule(req.body.lang)}
 Return ONLY JSON:
-{"title":"short catchy lesson title","imagePrompt":"DETAILED English image prompt: a confident, warm African teacher in smart professional teacher attire (shirt/blouse, tidy) standing in a bright Rwandan classroom, holding hands-on teaching aids specific to THIS topic, a chalkboard behind them with the topic title written in chalk, students' desks ready, uplifting digital illustration style","intro":"2-3 warm sentences welcoming the teacher to this lesson and why it matters to Rwandan children","aids":["a concrete teaching aid for this topic + one line on how to use it (4-6 items, prefer low-cost local materials: bottle tops, beans, sticks, chalk, paper, Rwanda map...)"],"preparation":["what the teacher should prepare/check before the lesson (3-5 bullets)"],"flow":["lesson flow step 1..5, short"],"encouragement":"one inspiring sentence for the teacher"}
+{"title":"short catchy lesson title","imagePrompt":"DETAILED English image prompt: a confident, warm African teacher in smart professional teacher attire (shirt/blouse, tidy) standing centered in a bright Rwandan classroom, their head in the upper-center area of the picture, holding hands-on teaching aids specific to THIS topic, a chalkboard behind them with the topic title written in chalk, students' desks ready, uplifting digital illustration style","intro":"2-3 warm sentences welcoming the teacher to this lesson and why it matters to Rwandan children","aids":["a concrete teaching aid for this topic + one line on how to use it (4-6 items, prefer low-cost local materials: bottle tops, beans, sticks, chalk, paper, Rwanda map...)"],"preparation":["what the teacher should prepare/check before the lesson (3-5 bullets)"],"flow":["lesson flow step 1..5, short"],"encouragement":"one inspiring sentence for the teacher"}
 Make everything specific to the topic — never generic.` },
       { role: 'user', content: `Topic: ${topic}${subject ? `\nSubject: ${subject}` : ''}${grade ? `\nLevel: ${grade}` : ''}` },
     ], { maxTokens: 2800, temperature: 0.7 });
@@ -587,6 +587,22 @@ Make everything specific to the topic — never generic.` },
   } catch (e) {
     console.error('[mfasha/inspire]', e.message);
     res.status(502).json({ error: 'Could not create the inspiration — try again in a moment.' });
+  }
+});
+
+// GET /api/mfasha/image?url= — proxy generated images so canvas compositing stays untainted
+router.get('/image', ...staffOnly, async (req, res) => {
+  const u = String(req.query.url || '');
+  if (!/^https:\/\/image\.pollinations\.ai\//.test(u)) return res.status(400).json({ error: 'bad url' });
+  try {
+    const r = await fetch(u);
+    if (!r.ok) return res.status(502).json({ error: 'image fetch failed' });
+    res.set('Content-Type', r.headers.get('content-type') || 'image/jpeg');
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(Buffer.from(await r.arrayBuffer()));
+  } catch (e) {
+    console.error('[mfasha/image]', e.message);
+    res.status(502).json({ error: 'image fetch failed' });
   }
 });
 
