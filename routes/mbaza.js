@@ -95,7 +95,7 @@ async function findMarksText(question, studentId) {
   const rows = (await pool.query(
     `SELECT q.title, qa.score, qa.total, ROUND(qa.score::numeric/NULLIF(qa.total,0)*100) AS pct
      FROM quiz_attempts qa JOIN quizzes q ON q.id = qa.quiz_id
-     WHERE qa.student_id=$1 AND qa.total > 0 ORDER BY qa.created_at DESC LIMIT 40`, [studentId])).rows;
+     WHERE qa.student_id=$1 AND qa.total > 0 ORDER BY qa.attempted_at DESC LIMIT 40`, [studentId])).rows;
   if (!rows.length) return null;
   const q = question.toLowerCase();
   const hit = rows.filter(r => r.title.toLowerCase().split(/\W+/).some(w => w.length > 3 && q.includes(w)));
@@ -106,10 +106,10 @@ async function findMarksText(question, studentId) {
 router.get('/weak-marks', authenticateToken, requireRole('student'), async (req, res) => {
   try {
     const rows = (await pool.query(
-      `SELECT q.title, qa.score, qa.total, qa.created_at, ROUND(qa.score::numeric / NULLIF(qa.total,0) * 100) AS pct
+      `SELECT q.title, qa.score, qa.total, qa.attempted_at, ROUND(qa.score::numeric / NULLIF(qa.total,0) * 100) AS pct
        FROM quiz_attempts qa JOIN quizzes q ON q.id = qa.quiz_id
        WHERE qa.student_id = $1 AND qa.total > 0 AND (qa.score::numeric / qa.total) < 0.9
-       ORDER BY pct ASC, qa.created_at DESC LIMIT 15`, [req.user.id]
+       ORDER BY pct ASC, qa.attempted_at DESC LIMIT 15`, [req.user.id]
     )).rows;
     res.json({ weak: rows });
   } catch (e) { res.status(500).json({ error: 'Could not load marks.' }); }

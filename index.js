@@ -172,6 +172,7 @@ app.use('/uploads/msg_images', express.static(require('path').join(__dirname, 'u
 
 app.use('/api/pwa', require('./routes/pwa_push'));
 app.use('/api/mbaza', require('./routes/mbaza'));
+app.use('/api/mfasha', require('./routes/mfasha'));
 
 // PWA install tracking (public, no auth)
 app.post('/api/pwa/install', async (req, res) => {
