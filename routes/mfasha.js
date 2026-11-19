@@ -358,6 +358,9 @@ router.post('/parent-drafts', ...staffOnly, async (req, res) => {
       `SELECT pc.student_id, p.id, p.name, p.phone FROM parent_children pc JOIN users p ON p.id = pc.parent_id
        WHERE pc.student_id = ANY($1::int[])`, [students.map((s) => s.id)]
     ).catch(() => ({ rows: [] }))).rows;
+    const direct = (Array.isArray(req.body.contacts) ? req.body.contacts : [])
+      .map((c) => ({ student_id: parseInt(c.student_id, 10), name: String(c.name || 'Parent').slice(0, 80), phone: String(c.phone || '').replace(/\D/g, '').slice(0, 15) }))
+      .filter((c) => c.phone.length >= 10 && studentIds.includes(c.student_id));
     const marks = (await pool.query(
       `SELECT qa.student_id, q.title, qa.score, qa.total FROM quiz_attempts qa JOIN quizzes q ON q.id = qa.quiz_id
        WHERE qa.student_id = ANY($1::int[]) AND q.class_id = ANY($2::int[]) AND qa.total > 0
@@ -376,7 +379,10 @@ router.post('/parent-drafts', ...staffOnly, async (req, res) => {
     res.json({
       drafts: students.map((s) => ({
         student: { id: s.id, name: s.name, class_id: s.class_id, class_name: s.class_name },
-        parents: parents.filter((p) => p.student_id === s.id).map((p) => ({ id: p.id, name: p.name, phone: p.phone })),
+        parents: [
+          ...parents.filter((p) => p.student_id === s.id).map((p) => ({ id: p.id, name: p.name, phone: p.phone })),
+          ...direct.filter((c) => c.student_id === s.id).map((c) => ({ id: null, name: c.name, phone: c.phone, whatsappOnly: true })),
+        ],
         message: map[s.id] || '',
       })),
     });
@@ -411,6 +417,30 @@ router.post('/send-parent', ...staffOnly, async (req, res) => {
   } catch (e) {
     console.error('[mfasha/send-parent]', e.message);
     res.status(500).json({ error: 'Could not send the message.' });
+  }
+});
+
+// GET /api/mfasha/class/:classId/parents — roster with linked parents (for one-tap messaging)
+router.get('/class/:classId/parents', ...staffOnly, async (req, res) => {
+  const classId = parseInt(req.params.classId, 10);
+  try {
+    const classes = await staffClasses(req.user);
+    const cls = classes.find((c) => c.id === classId);
+    if (!cls) return res.status(403).json({ error: 'You do not manage this class.' });
+    const students = (await pool.query(
+      `SELECT u.id, u.name,
+         COALESCE((
+           SELECT json_agg(json_build_object('id', p.id, 'name', p.name, 'phone', p.phone))
+           FROM parent_children pc JOIN users p ON p.id = pc.parent_id
+           WHERE pc.student_id = u.id), '[]') AS parents
+       FROM class_members cm JOIN users u ON u.id = cm.student_id
+       WHERE cm.class_id = $1 AND u.role = 'student'
+       ORDER BY u.name`, [classId]
+    ).catch(() => ({ rows: [] }))).rows;
+    res.json({ class: cls, students });
+  } catch (e) {
+    console.error('[mfasha/parents]', e);
+    res.status(500).json({ error: 'Could not load parents.' });
   }
 });
 
