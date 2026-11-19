@@ -235,7 +235,7 @@ async function buildContext(user, classes, alerts, question) {
 const PERSONA = `You are MFASHA, the personal AI assistant of a teacher in Rwanda inside the UClass app — like Meta's Muse, but for teachers.
 You are warm, practical and brief. You help with: lesson planning (Rwanda CBC), explaining topics, classroom management, marking and reports, parent communication, and how to use UClass.
 Use the REAL class data given to you; never invent marks or student names. If data is missing, say so and suggest what to do in UClass.
-Format with short paragraphs, **bold** key points and bullet lists. End with one helpful next step when useful.`;
+FORMATTING RULES — strictly obey: never use markdown headings (#, ##, ###), never use horizontal rules (--- or ***), never start a line with #. Write clean, well-arranged text: short paragraphs, **bold** labels like **Name:**, and • bullet lists. Keep answers tidy and scannable. End with one helpful next step when useful.`;
 
 // GET /api/mfasha/overview — classes + smart alerts
 router.get('/overview', ...staffOnly, async (req, res) => {
@@ -411,6 +411,96 @@ router.post('/send-parent', ...staffOnly, async (req, res) => {
   } catch (e) {
     console.error('[mfasha/send-parent]', e.message);
     res.status(500).json({ error: 'Could not send the message.' });
+  }
+});
+
+// GET /api/mfasha/stats — marks-sheet + auto-quiz statistics per class
+router.get('/stats', ...staffOnly, async (req, res) => {
+  try {
+    const classes = await staffClasses(req.user);
+    const ids = classes.map((c) => c.id);
+    if (!ids.length) return res.json({ classes: [] });
+    const byId = Object.fromEntries(classes.map((c) => [c.id, { ...c, quizzes: [], cat: null }]));
+
+    // Quiz stats — latest attempt per student per quiz
+    const quizRows = (await pool.query(
+      `SELECT q.id, q.class_id, q.title, q.subject, q.created_at,
+         COUNT(*)::int AS students,
+         ROUND(AVG(t.pct))::int AS avg,
+         MAX(t.pct)::int AS high,
+         MIN(t.pct)::int AS low,
+         (SELECT COUNT(*) FROM class_members m WHERE m.class_id = q.class_id)::int AS members
+       FROM quizzes q
+       JOIN (
+         SELECT DISTINCT ON (qa.quiz_id, qa.student_id)
+           qa.quiz_id, qa.student_id, qa.score * 100.0 / qa.total AS pct
+         FROM quiz_attempts qa WHERE qa.total > 0
+         ORDER BY qa.quiz_id, qa.student_id, qa.attempted_at DESC
+       ) t ON t.quiz_id = q.id
+       WHERE q.class_id = ANY($1::int[])
+       GROUP BY q.id, q.class_id, q.title, q.subject, q.created_at
+       ORDER BY q.created_at DESC`, [ids]
+    ).catch(() => ({ rows: [] }))).rows;
+    for (const r of quizRows) {
+      byId[r.class_id]?.quizzes.push({
+        id: r.id, title: r.title, subject: r.subject, date: r.created_at,
+        students: r.students, members: r.members, avg: r.avg, high: r.high, low: r.low,
+        pass: null, // filled below
+      });
+    }
+
+    // Top/bottom students per quiz (for the drill-down)
+    const leaders = (await pool.query(
+      `SELECT t.quiz_id, u.name, ROUND(t.pct)::int AS pct,
+         ROW_NUMBER() OVER (PARTITION BY t.quiz_id ORDER BY t.pct DESC) AS rk,
+         COUNT(*) OVER (PARTITION BY t.quiz_id) AS n
+       FROM (
+         SELECT DISTINCT ON (qa.quiz_id, qa.student_id)
+           qa.quiz_id, qa.student_id, qa.score * 100.0 / qa.total AS pct
+         FROM quiz_attempts qa
+         JOIN quizzes q ON q.id = qa.quiz_id AND q.class_id = ANY($1::int[])
+         WHERE qa.total > 0
+         ORDER BY qa.quiz_id, qa.student_id, qa.attempted_at DESC
+       ) t JOIN users u ON u.id = t.student_id`, [ids]
+    ).catch(() => ({ rows: [] }))).rows;
+    const byQuiz = {};
+    for (const r of leaders) (byQuiz[r.quiz_id] ||= []).push(r);
+    for (const c of Object.values(byId)) {
+      for (const q of c.quizzes) {
+        const list = byQuiz[q.id] || [];
+        q.top = list.filter((x) => x.rk <= 3).map((x) => ({ name: x.name, pct: x.pct }));
+        q.bottom = list.filter((x) => x.rk > x.n - 3).reverse().map((x) => ({ name: x.name, pct: x.pct }));
+        q.pass = Math.round((list.filter((x) => x.pct >= 50).length / Math.max(list.length, 1)) * 100);
+      }
+    }
+
+    // CAT marks — active sheet stats per class
+    const catRows = (await pool.query(
+      `SELECT cm.class_id, s.name AS sheet,
+         COUNT(DISTINCT cm.student_id)::int AS students,
+         COUNT(DISTINCT cm.test_number)::int AS tests,
+         ROUND(AVG(cm.marks_obtained * 100.0 / NULLIF(cm.total_marks,0)))::int AS avg,
+         ROUND(MAX(tot.obt * 100.0 / NULLIF(tot.tot,0)))::int AS high,
+         ROUND(MIN(tot.obt * 100.0 / NULLIF(tot.tot,0)))::int AS low
+       FROM cat_marks cm
+       JOIN cat_term_sheets s ON s.id = cm.sheet_id AND s.active = TRUE
+       JOIN (
+         SELECT class_id, student_id, SUM(marks_obtained) AS obt, SUM(total_marks) AS tot
+         FROM cat_marks cm2 JOIN cat_term_sheets s2 ON s2.id = cm2.sheet_id AND s2.active = TRUE
+         WHERE cm2.class_id = ANY($1::int[])
+         GROUP BY cm2.class_id, cm2.student_id
+       ) tot ON tot.class_id = cm.class_id AND tot.student_id = cm.student_id
+       WHERE cm.class_id = ANY($1::int[])
+       GROUP BY cm.class_id, s.name`, [ids]
+    ).catch(() => ({ rows: [] }))).rows;
+    for (const r of catRows) {
+      if (byId[r.class_id]) byId[r.class_id].cat = { sheet: r.sheet, students: r.students, tests: r.tests, avg: r.avg, high: r.high, low: r.low };
+    }
+
+    res.json({ classes: Object.values(byId) });
+  } catch (e) {
+    console.error('[mfasha/stats]', e);
+    res.status(500).json({ error: 'Could not load statistics.' });
   }
 });
 
