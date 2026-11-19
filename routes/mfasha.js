@@ -566,4 +566,28 @@ Make 6 to 9 slides: introduction, key ideas, Rwandan examples, diagram, practice
   }
 });
 
+// POST /api/mfasha/inspire — topic → inspiring illustration + teaching guide
+router.post('/inspire', ...staffOnly, async (req, res) => {
+  const topic = String(req.body.topic || '').slice(0, 300).trim();
+  if (!topic) return res.status(400).json({ error: 'topic is required.' });
+  const subject = String(req.body.subject || '').slice(0, 80);
+  const grade = String(req.body.grade || '').slice(0, 40);
+  try {
+    const out = await groqChat([
+      { role: 'system', content: `You are MFASHA inspiring a Rwandan teacher just before class. ${replyLangRule(req.body.lang)}
+Return ONLY JSON:
+{"title":"short catchy lesson title","imagePrompt":"DETAILED English image prompt: a confident, warm African teacher in smart professional teacher attire (shirt/blouse, tidy) standing in a bright Rwandan classroom, holding hands-on teaching aids specific to THIS topic, a chalkboard behind them with the topic title written in chalk, students' desks ready, uplifting digital illustration style","intro":"2-3 warm sentences welcoming the teacher to this lesson and why it matters to Rwandan children","aids":["a concrete teaching aid for this topic + one line on how to use it (4-6 items, prefer low-cost local materials: bottle tops, beans, sticks, chalk, paper, Rwanda map...)"],"preparation":["what the teacher should prepare/check before the lesson (3-5 bullets)"],"flow":["lesson flow step 1..5, short"],"encouragement":"one inspiring sentence for the teacher"}
+Make everything specific to the topic — never generic.` },
+      { role: 'user', content: `Topic: ${topic}${subject ? `\nSubject: ${subject}` : ''}${grade ? `\nLevel: ${grade}` : ''}` },
+    ], { maxTokens: 2800, temperature: 0.7 });
+    const insp = parseJson(out);
+    if (!insp?.imagePrompt || !insp?.title) return res.status(422).json({ error: 'Could not create the inspiration — try again.' });
+    insp.imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(String(insp.imagePrompt).slice(0, 800))}?width=1024&height=720&seed=${Math.floor(Math.random() * 99999)}&nologo=true&model=flux`;
+    res.json({ inspiration: insp });
+  } catch (e) {
+    console.error('[mfasha/inspire]', e.message);
+    res.status(502).json({ error: 'Could not create the inspiration — try again in a moment.' });
+  }
+});
+
 module.exports = router;
