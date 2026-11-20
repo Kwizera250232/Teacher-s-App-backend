@@ -261,12 +261,54 @@ router.post('/ask', ...staffOnly, async (req, res) => {
     const classes = await staffClasses(req.user);
     const alerts = await buildAlerts(classes).catch(() => []);
     const ctx = await buildContext(req.user, classes, alerts, question);
+    const ids = classes.map((c) => c.id);
+    const attachments = [];
+
+    // Fetch real lists when the teacher asks for them
+    if (ids.length) {
+      const wantsMarks = /proclamation|amahirwe|amanota|marks|urutonde rw.?amanota|results?|ranking|top students|report list/i.test(question);
+      const wantsRoster = /(list|liste|urutonde|names?|all|banyeshuri|abanyeshuri|bose).*(student|abanyeshuri|member|mwana)|students? (list|names?)|class list|roster/i.test(question);
+      if (wantsMarks) {
+        const rows = (await pool.query(
+          `SELECT cm.class_id, c.name AS class_name, s.name AS sheet, u.name AS student_name,
+             SUM(cm.marks_obtained)::numeric AS obt, SUM(cm.total_marks)::numeric AS tot
+           FROM cat_marks cm
+           JOIN cat_term_sheets s ON s.id = cm.sheet_id AND s.active = TRUE
+           JOIN classes c ON c.id = cm.class_id
+           JOIN users u ON u.id = cm.student_id
+           WHERE cm.class_id = ANY($1::int[])
+           GROUP BY cm.class_id, c.name, s.name, u.name
+           ORDER BY c.name, obt * 1.0 / NULLIF(tot,0) DESC NULLS LAST`, [ids]
+        ).catch(() => ({ rows: [] }))).rows;
+        const byClass = {};
+        for (const r of rows) (byClass[r.class_id] ||= { name: r.class_name, sheet: r.sheet, rows: [] }).rows.push({
+          name: r.student_name, obt: Number(r.obt), tot: Number(r.tot),
+          pct: r.tot > 0 ? Math.round((r.obt / r.tot) * 100) : null,
+        });
+        const clsList = Object.values(byClass);
+        clsList.forEach((c) => c.rows.forEach((r, i) => { r.rank = i + 1; }));
+        if (clsList.length) attachments.push({ type: 'marks', title: 'Proclamation — marks list', classes: clsList });
+      }
+      if (wantsRoster || (wantsMarks && !attachments.length)) {
+        const rows = (await pool.query(
+          `SELECT c.name AS class_name, u.name
+           FROM class_members cm JOIN classes c ON c.id = cm.class_id JOIN users u ON u.id = cm.student_id
+           WHERE cm.class_id = ANY($1::int[]) AND u.role = 'student'
+           ORDER BY c.name, u.name`, [ids]
+        ).catch(() => ({ rows: [] }))).rows;
+        const byClass = {};
+        for (const r of rows) (byClass[r.class_name] ||= []).push(r.name);
+        const clsList = Object.entries(byClass).map(([name, students]) => ({ name, students }));
+        if (clsList.length) attachments.push({ type: 'roster', title: 'Class list', classes: clsList });
+      }
+    }
+
     const answer = await groqChat([
-      { role: 'system', content: `${PERSONA}\n${replyLangRule(req.body.lang)}\n\n${APP_GUIDE}\n\nREAL DATA FROM THIS TEACHER'S UCLASS ACCOUNT:\n${ctx}` },
+      { role: 'system', content: `${PERSONA}\n${replyLangRule(req.body.lang)}\n\n${APP_GUIDE}\n\nREAL DATA FROM THIS TEACHER'S UCLASS ACCOUNT:\n${ctx}${attachments.length ? '\n\nA real data card answering this request is attached below your reply — confirm it briefly (e.g. "Here is your list") and point out anything notable (top/weak students). Do NOT retype the whole list.' : ''}` },
       ...history,
       { role: 'user', content: question },
     ]);
-    res.json({ answer: answer || 'Sorry — I could not think of an answer. Try asking again.' });
+    res.json({ answer: answer || 'Sorry — I could not think of an answer. Try asking again.', data: attachments });
   } catch (e) {
     console.error('[mfasha/ask]', e.message);
     res.status(502).json({ error: 'Mfasha is busy right now — try again in a moment.' });
