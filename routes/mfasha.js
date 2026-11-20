@@ -12,6 +12,18 @@ const GROQ_BASE = 'https://api.groq.com/openai/v1';
 const GROQ_MODEL = 'openai/gpt-oss-120b';
 const LANGS = { rw: 'Kinyarwanda', en: 'English', fr: 'French', sw: 'Kiswahili' };
 
+// ── usage tracking (admin analytics) ──
+pool.query(`CREATE TABLE IF NOT EXISTS mfasha_events (
+  id BIGSERIAL PRIMARY KEY,
+  user_id INT REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+)`).then(() => pool.query('CREATE INDEX IF NOT EXISTS mfasha_events_user ON mfasha_events(user_id, created_at DESC)'))
+  .then(() => pool.query('CREATE INDEX IF NOT EXISTS mfasha_events_time ON mfasha_events(created_at DESC)'))
+  .catch((e) => console.error('[mfasha] events table:', e.message));
+
+const track = (req, kind) => pool.query('INSERT INTO mfasha_events (user_id, kind) VALUES ($1,$2)', [req.user.id, kind]).catch(() => {});
+
 async function groqChat(messages, { maxTokens = 3000, temperature = 0.4, tools } = {}) {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error('AI is not configured (GROQ_API_KEY missing).');
@@ -239,6 +251,7 @@ FORMATTING RULES — strictly obey: never use markdown headings (#, ##, ###), ne
 
 // GET /api/mfasha/overview — classes + smart alerts
 router.get('/overview', ...staffOnly, async (req, res) => {
+  track(req, 'open');
   try {
     const classes = await staffClasses(req.user);
     const alerts = await buildAlerts(classes);
@@ -251,6 +264,7 @@ router.get('/overview', ...staffOnly, async (req, res) => {
 
 // POST /api/mfasha/ask — chat with memory of recent turns
 router.post('/ask', ...staffOnly, async (req, res) => {
+  track(req, 'chat');
   const question = String(req.body.question || '').slice(0, 4000).trim();
   if (!question) return res.status(400).json({ error: 'question is required.' });
   const history = (Array.isArray(req.body.history) ? req.body.history : [])
@@ -317,6 +331,7 @@ router.post('/ask', ...staffOnly, async (req, res) => {
 
 // POST /api/mfasha/transcribe — voice note → text (multipart field "audio")
 router.post('/transcribe', ...staffOnly, upload.single('audio'), async (req, res) => {
+  track(req, 'voice');
   if (!req.file) return res.status(400).json({ error: 'audio file is required.' });
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return res.status(503).json({ error: 'AI is not configured.' });
@@ -339,6 +354,7 @@ router.post('/transcribe', ...staffOnly, upload.single('audio'), async (req, res
 
 // POST /api/mfasha/revision-quiz — 5-question revision quiz saved to the class
 router.post('/revision-quiz', ...staffOnly, async (req, res) => {
+  track(req, 'revision_quiz');
   const classId = parseInt(req.body.class_id, 10);
   const topic = String(req.body.topic || '').slice(0, 300).trim();
   if (!classId || !topic) return res.status(400).json({ error: 'class_id and topic are required.' });
@@ -384,6 +400,7 @@ router.post('/revision-quiz', ...staffOnly, async (req, res) => {
 
 // POST /api/mfasha/parent-drafts — personalised parent messages, waiting for approval
 router.post('/parent-drafts', ...staffOnly, async (req, res) => {
+  track(req, 'parent_drafts');
   const studentIds = (Array.isArray(req.body.student_ids) ? req.body.student_ids : []).map((x) => parseInt(x, 10)).filter(Boolean).slice(0, 30);
   if (!studentIds.length) return res.status(400).json({ error: 'student_ids are required.' });
   const reason = String(req.body.reason || '').slice(0, 500);
@@ -436,6 +453,7 @@ router.post('/parent-drafts', ...staffOnly, async (req, res) => {
 
 // POST /api/mfasha/send-parent — teacher approved: in-app notification + chat message
 router.post('/send-parent', ...staffOnly, async (req, res) => {
+  track(req, 'parent_send');
   const studentId = parseInt(req.body.student_id, 10);
   const parentId = parseInt(req.body.parent_id, 10);
   const message = String(req.body.message || '').slice(0, 2000).trim();
@@ -464,6 +482,7 @@ router.post('/send-parent', ...staffOnly, async (req, res) => {
 
 // GET /api/mfasha/class/:classId/parents — roster with linked parents (for one-tap messaging)
 router.get('/class/:classId/parents', ...staffOnly, async (req, res) => {
+  track(req, 'parents_view');
   const classId = parseInt(req.params.classId, 10);
   try {
     const classes = await staffClasses(req.user);
@@ -488,6 +507,7 @@ router.get('/class/:classId/parents', ...staffOnly, async (req, res) => {
 
 // GET /api/mfasha/stats — marks-sheet + auto-quiz statistics per class
 router.get('/stats', ...staffOnly, async (req, res) => {
+  track(req, 'stats');
   try {
     const classes = await staffClasses(req.user);
     const ids = classes.map((c) => c.id);
@@ -578,6 +598,7 @@ router.get('/stats', ...staffOnly, async (req, res) => {
 
 // POST /api/mfasha/research — web research → ready slide deck (JSON)
 router.post('/research', ...staffOnly, async (req, res) => {
+  track(req, 'research');
   const topic = String(req.body.topic || '').slice(0, 300).trim();
   if (!topic) return res.status(400).json({ error: 'topic is required.' });
   const subject = String(req.body.subject || '').slice(0, 80);
@@ -610,6 +631,7 @@ Make 6 to 9 slides: introduction, key ideas, Rwandan examples, diagram, practice
 
 // POST /api/mfasha/inspire — topic → inspiring illustration + teaching guide
 router.post('/inspire', ...staffOnly, async (req, res) => {
+  track(req, 'inspire');
   const topic = String(req.body.topic || '').slice(0, 300).trim();
   if (!topic) return res.status(400).json({ error: 'topic is required.' });
   const subject = String(req.body.subject || '').slice(0, 80);
@@ -658,6 +680,48 @@ router.get('/image', ...staffOnly, async (req, res) => {
   } catch (e) {
     console.error('[mfasha/image]', e.message);
     res.status(502).json({ error: 'image fetch failed' });
+  }
+});
+
+// ── admin analytics: who uses Mfasha and how ──
+router.get('/admin/usage', authenticateToken, requireRole('admin'), async (req, res) => {
+  try {
+    const [totals, byKind, teachers, kinds, daily] = await Promise.all([
+      pool.query(`SELECT
+        COUNT(DISTINCT user_id) FILTER (WHERE created_at >= CURRENT_DATE) AS active_today,
+        COUNT(DISTINCT user_id) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days') AS active_7d,
+        COUNT(DISTINCT user_id) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') AS active_30d,
+        COUNT(DISTINCT user_id) AS active_lifetime,
+        COUNT(*) AS total_events,
+        COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE) AS events_today
+        FROM mfasha_events`),
+      pool.query(`SELECT kind, COUNT(*)::int AS n FROM mfasha_events GROUP BY kind ORDER BY n DESC`),
+      pool.query(`SELECT u.id, u.name, u.email, s.name AS school,
+            MIN(e.created_at) AS first_used, MAX(e.created_at) AS last_used,
+            COUNT(*)::int AS events,
+            COUNT(DISTINCT e.created_at::date)::int AS days_active,
+            COUNT(*) FILTER (WHERE e.created_at >= CURRENT_DATE)::int AS events_today
+          FROM mfasha_events e
+          JOIN users u ON u.id = e.user_id
+          LEFT JOIN schools s ON s.id = u.school_id
+          GROUP BY u.id, u.name, u.email, s.name
+          ORDER BY last_used DESC`),
+      pool.query(`SELECT user_id, kind, COUNT(*)::int AS n FROM mfasha_events GROUP BY user_id, kind`),
+      pool.query(`SELECT created_at::date AS day, COUNT(DISTINCT user_id)::int AS users, COUNT(*)::int AS events
+          FROM mfasha_events WHERE created_at >= CURRENT_DATE - INTERVAL '29 days'
+          GROUP BY day ORDER BY day`),
+    ]);
+    const kindMap = {};
+    for (const k of kinds.rows) (kindMap[k.user_id] ||= {})[k.kind] = k.n;
+    res.json({
+      totals: totals.rows[0],
+      by_kind: byKind.rows,
+      daily: daily.rows,
+      teachers: teachers.rows.map((t) => ({ ...t, kinds: kindMap[t.id] || {} })),
+    });
+  } catch (e) {
+    console.error('[mfasha/admin]', e.message);
+    res.status(500).json({ error: 'Could not load usage stats.' });
   }
 });
 
