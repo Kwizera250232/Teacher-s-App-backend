@@ -573,12 +573,26 @@ router.post('/inspire', ...staffOnly, async (req, res) => {
   const subject = String(req.body.subject || '').slice(0, 80);
   const grade = String(req.body.grade || '').slice(0, 40);
   try {
+    // Real struggling students from the teacher's own marks/quizzes — for the advice section
+    const classes = await staffClasses(req.user);
+    const ids = classes.map((c) => c.id);
+    const alerts = ids.length ? await buildAlerts(classes).catch(() => []) : [];
+    const struggling = [];
+    for (const a of alerts) {
+      for (const s of (a.students || []).slice(0, 6)) {
+        if (s.pct != null && s.pct < 50) struggling.push(`${s.name} (${s.pct}% — ${a.class_name || 'class'})`);
+      }
+    }
+    const struggleCtx = struggling.length
+      ? `\nThese REAL students recently scored below 50%: ${[...new Set(struggling)].slice(0, 10).join(', ')}. In the "struggling" section give concrete advice for helping THEM in this lesson — name up to 5 of them.`
+      : `\nNo recent low-mark data found — in "struggling" give general advice for weaker learners.`;
+
     const out = await groqChat([
-      { role: 'system', content: `You are MFASHA inspiring a Rwandan teacher just before class. ${replyLangRule(req.body.lang)}
+      { role: 'system', content: `You are MFASHA inspiring and coaching a Rwandan teacher just before class (CBC — Competence-Based Curriculum: learner-centered, hands-on, inclusive). ${replyLangRule(req.body.lang)}
 Return ONLY JSON:
-{"title":"short catchy lesson title","imagePrompt":"DETAILED English image prompt: a confident, warm African teacher in smart professional teacher attire (shirt/blouse, tidy) standing centered in a bright Rwandan classroom, their head in the upper-center area of the picture, holding hands-on teaching aids specific to THIS topic, a chalkboard behind them with the topic title written in chalk, students' desks ready, uplifting digital illustration style","intro":"2-3 warm sentences welcoming the teacher to this lesson and why it matters to Rwandan children","aids":["a concrete teaching aid for this topic + one line on how to use it (4-6 items, prefer low-cost local materials: bottle tops, beans, sticks, chalk, paper, Rwanda map...)"],"preparation":["what the teacher should prepare/check before the lesson (3-5 bullets)"],"flow":["lesson flow step 1..5, short"],"encouragement":"one inspiring sentence for the teacher"}
-Make everything specific to the topic — never generic.` },
-      { role: 'user', content: `Topic: ${topic}${subject ? `\nSubject: ${subject}` : ''}${grade ? `\nLevel: ${grade}` : ''}` },
+{"title":"short catchy lesson title","imagePrompt":"DETAILED English image prompt: a confident, warm African teacher in smart professional teacher attire standing centered in a bright Rwandan classroom, their head in the upper-center area, holding hands-on teaching aids specific to THIS topic, a chalkboard behind with the topic title in chalk, uplifting digital illustration style","intro":"2 warm sentences about why this lesson matters to Rwandan children","aids":["CONCRETE teaching aid + exactly how to use it in THIS lesson (5-7 items; CBC hands-on; low-cost local materials: bottle tops, beans, sticks, chalk, paper, Rwanda map, real objects)"],"conduct":["how the teacher should BEHAVE and present this lesson (4-6 bullets: confident body language, questioning technique, letting learners touch/discuss aids, checking understanding, managing the class, encouragement, CBC learner-centered methods)"],"struggling":["how to treat students who score low marks in THIS topic (3-5 bullets: simple versions of tasks, pairing, praise effort, never shame, quick win first)"],"flow":["lesson flow step 1..5, short"],"encouragement":"one inspiring sentence for the teacher"}
+Focus MOST on aids, conduct and struggling students — be concrete and specific to the topic, never generic.` },
+      { role: 'user', content: `Topic: ${topic}${subject ? `\nSubject: ${subject}` : ''}${grade ? `\nLevel: ${grade}` : ''}${struggleCtx}` },
     ], { maxTokens: 2800, temperature: 0.7 });
     const insp = parseJson(out);
     if (!insp?.imagePrompt || !insp?.title) return res.status(422).json({ error: 'Could not create the inspiration — try again.' });
