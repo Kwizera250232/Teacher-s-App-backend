@@ -281,7 +281,7 @@ router.post('/ask', ...staffOnly, async (req, res) => {
            ORDER BY c.name, obt * 1.0 / NULLIF(tot,0) DESC NULLS LAST`, [ids]
         ).catch(() => ({ rows: [] }))).rows;
         const byClass = {};
-        for (const r of rows) (byClass[r.class_id] ||= { name: r.class_name, sheet: r.sheet, rows: [] }).rows.push({
+        for (const r of rows) (byClass[r.class_id] ||= { id: r.class_id, name: r.class_name, sheet: r.sheet, rows: [] }).rows.push({
           name: r.student_name, obt: Number(r.obt), tot: Number(r.tot),
           pct: r.tot > 0 ? Math.round((r.obt / r.tot) * 100) : null,
         });
