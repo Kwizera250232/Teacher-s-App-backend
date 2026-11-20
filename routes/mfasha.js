@@ -595,9 +595,7 @@ Focus MOST on aids, conduct and struggling students — be concrete and specific
       { role: 'user', content: `Topic: ${topic}${subject ? `\nSubject: ${subject}` : ''}${grade ? `\nLevel: ${grade}` : ''}${struggleCtx}` },
     ], { maxTokens: 2800, temperature: 0.7 });
     const insp = parseJson(out);
-    if (!insp?.imagePrompt || !insp?.title) return res.status(422).json({ error: 'Could not create the inspiration — try again.' });
-    const imgPrompt = `${String(insp.imagePrompt).slice(0, 700)}, award-winning clean digital illustration, soft warm cinematic lighting, crisp fine details, professional educational poster composition, rich warm colors, sharp focus`;
-    insp.imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imgPrompt)}?width=1280&height=800&seed=${Math.floor(Math.random() * 99999)}&nologo=true&model=flux&enhance=true&safe=true`;
+    if (!insp?.title) return res.status(422).json({ error: 'Could not create the inspiration — try again.' });
     res.json({ inspiration: insp });
   } catch (e) {
     console.error('[mfasha/inspire]', e.message);
