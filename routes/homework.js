@@ -7,6 +7,11 @@ const { notifyClassAudiencePush } = require('../lib/classContentNotify');
 
 const router = express.Router();
 const uploadHomework = createUpload('file');
+const uploadAnnotated = createUpload('annotated');
+
+// teacher-corrected copy of the student's work
+pool.query('ALTER TABLE homework_submissions ADD COLUMN IF NOT EXISTS annotated_path VARCHAR(500)')
+  .catch((e) => console.error('[homework] annotated_path:', e.message));
 
 // GET homework for a class
 router.get('/:classId/homework', authenticateToken, async (req, res) => {
@@ -184,6 +189,31 @@ router.post('/:classId/homework/:hwId/submit', authenticateToken, requireRole('s
   }
 });
 
+// POST teacher's pen-annotated copy of the submission image
+router.post('/:classId/homework/:hwId/submissions/:subId/annotate', authenticateToken, requireRole('teacher', 'head_teacher'), (req, res, next) => {
+  uploadAnnotated(req, res, (err) => {
+    if (err) return next(err);
+    next();
+  });
+}, async (req, res) => {
+  const classId = parseInt(req.params.classId, 10);
+  if (Number.isNaN(classId)) return res.status(400).json({ error: 'Invalid class ID.' });
+  if (!req.file) return res.status(400).json({ error: 'Annotated image is required.' });
+  try {
+    const manage = await userCanManageClass(req.user, classId);
+    if (!manage.ok) return res.status(403).json({ error: 'You do not own this class.' });
+    const result = await pool.query(
+      'UPDATE homework_submissions SET annotated_path = $1 WHERE id = $2 AND homework_id = $3 RETURNING id',
+      [req.file.filename, req.params.subId, req.params.hwId]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Submission not found.' });
+    res.json({ ok: true, annotated_path: req.file.filename });
+  } catch (err) {
+    console.error('[homework annotate] error:', err.message);
+    res.status(500).json({ error: 'Could not save the corrected image.' });
+  }
+});
+
 // PUT grade a submission (teacher)
 router.put('/:classId/homework/:hwId/submissions/:subId/grade', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
@@ -204,6 +234,24 @@ router.put('/:classId/homework/:hwId/submissions/:subId/grade', authenticateToke
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Submission not found.' });
     const sub = result.rows[0];
+
+    // tell the student their work was returned with a grade
+    try {
+      const meta = await pool.query(
+        'SELECT h.title, h.class_id FROM homework h WHERE h.id = $1', [req.params.hwId]
+      );
+      const hwTitle = meta.rows[0]?.title || 'homework';
+      const { insertUserNotification } = require('../lib/classMomentNotify');
+      const { sendPushToUser } = require('../lib/pushNotify');
+      const title = `✅ Homework returned — ${gradeNum}/100`;
+      const body = `"${hwTitle}": ${feedback ? feedback : 'your teacher marked your work.'}`.slice(0, 300);
+      await insertUserNotification({
+        userId: sub.student_id, type: 'homework_graded', title, body,
+        payload: { url: `/student/classes/${classId}?tab=homework`, class_id: classId, homework_id: parseInt(req.params.hwId, 10) },
+      });
+      sendPushToUser(sub.student_id, { title, body, url: `/student/classes/${classId}?tab=homework` }).catch(() => {});
+    } catch (e) { console.error('[homework grade notify]', e.message); }
+
     res.json(sub);
   } catch (err) {
     console.error('[homework grade] error:', err.message);
