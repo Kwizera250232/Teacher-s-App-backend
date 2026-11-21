@@ -1,13 +1,18 @@
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
 const pool = require('../db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
-const { createUpload } = require('../lib/uploads');
+const { createUpload, createUploadFields, getUploadsRoot } = require('../lib/uploads');
 const { userCanManageClass } = require('../lib/classAccess');
 const { notifyClassAudiencePush } = require('../lib/classContentNotify');
 
 const router = express.Router();
 const uploadHomework = createUpload('file');
-const uploadAnnotated = createUpload('annotated');
+const uploadCorrection = createUploadFields([
+  { name: 'annotated', maxCount: 1 },
+  { name: 'pages', maxCount: 25 },
+]);
 
 // teacher-corrected copy of the student's work
 pool.query('ALTER TABLE homework_submissions ADD COLUMN IF NOT EXISTS annotated_path VARCHAR(500)')
@@ -189,28 +194,50 @@ router.post('/:classId/homework/:hwId/submit', authenticateToken, requireRole('s
   }
 });
 
-// POST teacher's pen-annotated copy of the submission image
+// POST teacher's pen-annotated copy — one image, or page images merged back into a PDF
 router.post('/:classId/homework/:hwId/submissions/:subId/annotate', authenticateToken, requireRole('teacher', 'head_teacher'), (req, res, next) => {
-  uploadAnnotated(req, res, (err) => {
+  uploadCorrection(req, res, (err) => {
     if (err) return next(err);
     next();
   });
 }, async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   if (Number.isNaN(classId)) return res.status(400).json({ error: 'Invalid class ID.' });
-  if (!req.file) return res.status(400).json({ error: 'Annotated image is required.' });
+  const single = req.files?.annotated?.[0];
+  const pages = req.files?.pages || [];
+  if (!single && !pages.length) return res.status(400).json({ error: 'Annotated image is required.' });
   try {
     const manage = await userCanManageClass(req.user, classId);
     if (!manage.ok) return res.status(403).json({ error: 'You do not own this class.' });
+
+    let annotatedPath;
+    if (pages.length > 1) {
+      // merge corrected page images back into a PDF, page order = filename order
+      const { PDFDocument } = require('pdf-lib');
+      const sorted = [...pages].sort((a, b) => a.originalname.localeCompare(b.originalname));
+      const doc = await PDFDocument.create();
+      for (const f of sorted) {
+        const img = await doc.embedPng(await fs.promises.readFile(f.path));
+        const page = doc.addPage([img.width, img.height]);
+        page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+        fs.promises.unlink(f.path).catch(() => {});
+      }
+      const name = `corrected-${Date.now()}-${Math.round(Math.random() * 1e9)}.pdf`;
+      await fs.promises.writeFile(path.join(getUploadsRoot(), name), await doc.save());
+      annotatedPath = name;
+    } else {
+      annotatedPath = (single || pages[0]).filename;
+    }
+
     const result = await pool.query(
       'UPDATE homework_submissions SET annotated_path = $1 WHERE id = $2 AND homework_id = $3 RETURNING id',
-      [req.file.filename, req.params.subId, req.params.hwId]
+      [annotatedPath, req.params.subId, req.params.hwId]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Submission not found.' });
-    res.json({ ok: true, annotated_path: req.file.filename });
+    res.json({ ok: true, annotated_path: annotatedPath });
   } catch (err) {
     console.error('[homework annotate] error:', err.message);
-    res.status(500).json({ error: 'Could not save the corrected image.' });
+    res.status(500).json({ error: 'Could not save the corrected file.' });
   }
 });
 
