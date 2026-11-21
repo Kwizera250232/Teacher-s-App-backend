@@ -92,6 +92,8 @@ router.get('/:type/:filename', async (req, res) => {
   const { type, filename } = req.params;
   const inline = req.query.inline === '1';
   const view = req.query.view === '1';
+  // files here are embedded cross-origin (image previews, pdf.js, pen annotation)
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   const filePath = path.join(getUploadsRoot(), filename);
   if (!fs.existsSync(filePath)) return res.status(404).send('File not found');
 
