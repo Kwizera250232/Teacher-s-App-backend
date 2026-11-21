@@ -9,8 +9,20 @@ const staffOnly = [authenticateToken, requireRole('teacher', 'head_teacher')];
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 const GROQ_BASE = 'https://api.groq.com/openai/v1';
-const GROQ_MODEL = 'openai/gpt-oss-120b';
 const LANGS = { rw: 'Kinyarwanda', en: 'English', fr: 'French', sw: 'Kiswahili' };
+
+// Free-tier fallback chain — each Groq model has its own daily allowance,
+// so when one hits its limit the next answers instead. No extra cost.
+const GROQ_MODELS = [
+  process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
+  'llama-3.3-70b-versatile',
+  'meta-llama/llama-4-maverick-17b-128e-instruct',
+  'openai/gpt-oss-20b',
+  'llama-3.1-8b-instant',
+];
+const WHISPER_MODELS = ['whisper-large-v3', 'whisper-large-v3-turbo'];
+const groqKeys = () => (process.env.GROQ_API_KEYS || process.env.GROQ_API_KEY || '').split(',').map((s) => s.trim()).filter(Boolean);
+const retryable = (msg) => /429|rate.?limit|tokens per|quota|fetch failed|network|timed? ?out|5\d\d/i.test(String(msg));
 
 // ── usage tracking (admin analytics) ──
 pool.query(`CREATE TABLE IF NOT EXISTS mfasha_events (
@@ -25,18 +37,30 @@ pool.query(`CREATE TABLE IF NOT EXISTS mfasha_events (
 const track = (req, kind) => pool.query('INSERT INTO mfasha_events (user_id, kind) VALUES ($1,$2)', [req.user.id, kind]).catch(() => {});
 
 async function groqChat(messages, { maxTokens = 3000, temperature = 0.4, tools } = {}) {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) throw new Error('AI is not configured (GROQ_API_KEY missing).');
-  const body = { model: GROQ_MODEL, messages, max_tokens: maxTokens, temperature };
-  if (tools) body.tools = tools;
-  const r = await fetch(`${GROQ_BASE}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) throw new Error(`AI error ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  const d = await r.json();
-  return d.choices?.[0]?.message?.content || '';
+  const keys = groqKeys();
+  if (!keys.length) throw new Error('AI is not configured (GROQ_API_KEY missing).');
+  let lastErr;
+  for (const apiKey of keys) {
+    for (const model of GROQ_MODELS) {
+      try {
+        const body = { model, messages, max_tokens: maxTokens, temperature };
+        if (tools && model.includes('gpt-oss')) body.tools = tools;
+        const r = await fetch(`${GROQ_BASE}/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) throw new Error(`AI error ${r.status}: ${(await r.text()).slice(0, 200)}`);
+        const d = await r.json();
+        return d.choices?.[0]?.message?.content || '';
+      } catch (e) {
+        if (!retryable(e.message)) throw e;
+        lastErr = e;
+        console.warn(`[mfasha] ${model} unavailable (${e.message.slice(0, 80)}) — trying next model`);
+      }
+    }
+  }
+  throw lastErr || new Error('AI is busy right now — try again shortly.');
 }
 
 function parseJson(text) {
@@ -333,19 +357,34 @@ router.post('/ask', ...staffOnly, async (req, res) => {
 router.post('/transcribe', ...staffOnly, upload.single('audio'), async (req, res) => {
   track(req, 'voice');
   if (!req.file) return res.status(400).json({ error: 'audio file is required.' });
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) return res.status(503).json({ error: 'AI is not configured.' });
+  const keys = groqKeys();
+  if (!keys.length) return res.status(503).json({ error: 'AI is not configured.' });
   try {
-    const fd = new FormData();
-    fd.append('file', new Blob([req.file.buffer], { type: req.file.mimetype || 'audio/webm' }), req.file.originalname || 'voice.webm');
-    fd.append('model', 'whisper-large-v3');
-    fd.append('response_format', 'verbose_json');
-    const r = await fetch(`${GROQ_BASE}/audio/transcriptions`, {
-      method: 'POST', headers: { Authorization: `Bearer ${apiKey}` }, body: fd,
-    });
-    if (!r.ok) throw new Error(`${r.status} ${(await r.text()).slice(0, 200)}`);
-    const d = await r.json();
-    res.json({ text: String(d.text || '').trim(), language: d.language || null });
+    let text, language, lastErr;
+    outer:
+    for (const apiKey of keys) {
+      for (const model of WHISPER_MODELS) {
+        try {
+          const fd = new FormData();
+          fd.append('file', new Blob([req.file.buffer], { type: req.file.mimetype || 'audio/webm' }), req.file.originalname || 'voice.webm');
+          fd.append('model', model);
+          fd.append('response_format', 'verbose_json');
+          const r = await fetch(`${GROQ_BASE}/audio/transcriptions`, {
+            method: 'POST', headers: { Authorization: `Bearer ${apiKey}` }, body: fd,
+          });
+          if (!r.ok) throw new Error(`${r.status} ${(await r.text()).slice(0, 200)}`);
+          const d = await r.json();
+          text = String(d.text || '').trim();
+          language = d.language || null;
+          break outer;
+        } catch (e) {
+          if (!retryable(e.message)) throw e;
+          lastErr = e;
+        }
+      }
+    }
+    if (text === undefined) throw lastErr || new Error('transcription unavailable');
+    res.json({ text, language });
   } catch (e) {
     console.error('[mfasha/transcribe]', e.message);
     res.status(502).json({ error: 'Could not understand the voice note. Try again or type your question.' });
