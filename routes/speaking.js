@@ -84,11 +84,50 @@ async function transcribe(file) {
 }
 
 const jsonFrom = (raw) => {
-  const m = String(raw || '').match(/\{[\s\S]*\}/);
+  const cleaned = String(raw || '').replace(/```(?:json)?/g, '');
+  const m = cleaned.match(/\{[\s\S]*\}/);
   try { return m ? JSON.parse(m[0]) : null; } catch { return null; }
 };
 
-const READ_PASSAGE_CACHE = new Map(); // "lang:level" -> { text, topic, at }
+// Always-available passages — used when the AI is limited so practice never breaks
+const FALLBACK_PASSAGES = {
+  en: {
+    easy: [
+      ['My School', 'I go to school every morning. My teacher is kind and helps us learn. We read books, write in our books, and play football at break time. I like my school because I learn new things every day.'],
+      ['The Market', 'On Saturday, my mother takes me to the market. We buy fresh tomatoes, bananas, and beans. The market is busy and full of people. I carry the basket and help my mother choose the best fruits.'],
+      ['My Family', 'I live with my family in a small house. My father works in the city and my mother cooks nice food. I have two sisters and one brother. In the evening, we eat dinner together and talk about our day.'],
+    ],
+    medium: [
+      ['A Rainy Morning', 'This morning the rain fell heavily on the metal roof. I put on my boots and walked carefully through the muddy path to school. My friend shared his umbrella with me, and we arrived in class just before the bell rang.'],
+      ['The Football Match', 'Yesterday our school team played against the neighbouring school. The match was exciting and both teams played very well. In the last minute, our captain scored the winning goal and everyone celebrated loudly.'],
+      ['Helping at Home', 'Every evening after school, I help my grandmother in the kitchen garden. We water the vegetables and remove the weeds. She teaches me which plants are good to eat and which ones are medicine.'],
+    ],
+    hard: [
+      ['Rwanda’s Progress', 'Rwanda has made remarkable progress in education and technology over the past two decades. Students now learn digital skills in classrooms across the country, and many young people dream of becoming engineers, doctors, and scientists.'],
+      ['Protecting Nature', 'Environmental conservation is everyone’s responsibility. When communities plant trees, protect water sources, and avoid pollution, they create a healthier future for their children. Small actions taken every day produce extraordinary results over time.'],
+    ],
+  },
+  fr: {
+    easy: [
+      ['Mon école', 'Je vais à l’école tous les matins. Ma maîtresse est gentille et nous aide à apprendre. Nous lisons des livres, écrivons dans nos cahiers et jouons au football à la récréation. J’aime mon école.'],
+      ['Ma famille', 'J’habite avec ma famille dans une petite maison. Mon père travaille en ville et ma mère cuisine de bons plats. J’ai deux sœurs et un frère. Le soir, nous dînons ensemble et parlons de notre journée.'],
+    ],
+    medium: [
+      ['Un matin de pluie', 'Ce matin, la pluie tombait fortement sur le toit de tôle. J’ai mis mes bottes et j’ai marché prudemment sur le chemin boueux jusqu’à l’école. Mon ami a partagé son parapluie avec moi et nous sommes arrivés juste avant la cloche.'],
+      ['Le marché', 'Samedi dernier, ma mère m’a emmené au marché. Nous avons acheté des tomates fraîches, des bananes et des haricots. Le marché était bondé de monde. J’ai porté le panier et j’ai aidé ma mère à choisir les meilleurs fruits.'],
+    ],
+    hard: [
+      ['Le progrès du Rwanda', 'Le Rwanda a fait des progrès remarquables dans l’éducation et la technologie au cours des deux dernières décennies. Les élèves apprennent maintenant les compétences numériques et beaucoup rêvent de devenir ingénieurs, médecins ou scientifiques.'],
+    ],
+  },
+};
+const fallbackPassage = (lang, level) => {
+  const list = (FALLBACK_PASSAGES[lang] && (FALLBACK_PASSAGES[lang][level] || FALLBACK_PASSAGES[lang].medium || FALLBACK_PASSAGES[lang].easy)) || FALLBACK_PASSAGES.en.easy;
+  const [topic, text] = list[Math.floor(Math.random() * list.length)];
+  return { topic, text };
+};
+
+const READ_PASSAGE_CACHE = new Map(); // "lang:level" -> { bank }
 
 // GET /api/speaking/passage?level=easy&lang=en — short read-aloud passage
 router.get('/passage', authenticateToken, async (req, res) => {
@@ -96,7 +135,6 @@ router.get('/passage', authenticateToken, async (req, res) => {
   const lang = LANGS[req.query.lang] ? req.query.lang : 'en';
   const cacheKey = `${lang}:${level}`;
   const cached = READ_PASSAGE_CACHE.get(cacheKey);
-  // 4-minute cache so rapid refreshes don't burn AI quota; rotate between cached passages
   const bank = (cached?.bank || []).filter((p) => Date.now() - p.at < 4 * 60 * 1000);
   try {
     const guide = {
@@ -104,22 +142,27 @@ router.get('/passage', authenticateToken, async (req, res) => {
       medium: 'intermediate school vocabulary; a few longer words; varied sentence length',
       hard: 'advanced academic vocabulary; longer complex sentences; some tricky words to pronounce',
     }[level];
+    // Plain-text response: first line "TOPIC: x", blank line, then the passage.
+    // (JSON was unreliable — models sometimes wrap it in markdown or emit unescaped quotes.)
     const raw = await groqChat([
-      { role: 'system', content: `You write read-aloud practice passages for language learners in Rwanda. Reply ONLY with JSON: {"topic":"2-4 word title","text":"the passage"}.` },
-      { role: 'user', content: `Write ONE ${level} read-aloud passage in ${LANGS[lang]} — exactly 45 to 60 words. Use ${guide}. Make it interesting: nature, school life, markets, football, family, science. No lists, no headings — flowing sentences only.` },
+      { role: 'system', content: `You write read-aloud practice passages for language learners in Rwanda. Reply in EXACTLY this format, nothing else:\nTOPIC: <2-4 word title>\n\n<the passage>` },
+      { role: 'user', content: `Write ONE ${level} read-aloud passage in ${LANGS[lang]} — exactly 45 to 60 words. Use ${guide}. Make it interesting: nature, school life, markets, football, family, science. Flowing sentences only, no lists.` },
     ], { maxTokens: 300, temperature: 0.9 });
-    const out = jsonFrom(raw);
-    if (!out?.text) throw new Error('bad passage');
-    bank.push({ text: out.text.trim(), topic: String(out.topic || 'Practice').trim(), at: Date.now() });
+    const m = String(raw || '').match(/^\s*TOPIC\s*:\s*(.+?)\n+([\s\S]+)$/i);
+    const topic = m ? m[1].trim() : 'Practice';
+    const text = (m ? m[2] : String(raw || '')).trim().replace(/\n{3,}/g, '\n\n');
+    if (text.split(/\s+/).length < 25) throw new Error('bad passage');
+    bank.push({ text, topic, at: Date.now() });
     READ_PASSAGE_CACHE.set(cacheKey, { bank: bank.slice(-6) });
-    res.json({ topic: out.topic, text: out.text.trim(), level, lang });
+    res.json({ topic, text, level, lang });
   } catch (e) {
     console.error('[speaking/passage]', e.message);
     if (bank.length) {
       const p = bank[Math.floor(Math.random() * bank.length)];
       return res.json({ topic: p.topic, text: p.text, level, lang });
     }
-    res.status(502).json({ error: 'Could not prepare a passage — try again.' });
+    const f = fallbackPassage(lang, level);
+    res.json({ topic: f.topic, text: f.text, level, lang });
   }
 });
 
@@ -181,6 +224,10 @@ Rules: score and accuracy are 0-100 integers. Missed/mispronounced are real word
       ]);
       out = jsonFrom(raw) || {};
       if (wpm !== null) out.wpm = wpm;
+      if (out.score == null) {
+        const s = String(raw || '').match(/"score"\s*:\s*(\d+)/);
+        if (s) out.score = +s[1];
+      }
     } else {
       raw = await groqChat([
         { role: 'system', content: `You are a kind ${LANGS[lang]} speaking coach for Rwandan school students. Evaluate this free-talk answer. Reply ONLY with JSON:
@@ -190,10 +237,16 @@ Rules: all scores 0-100 integers. mistakes max 4, real examples from what they s
       ]);
       out = jsonFrom(raw) || {};
       if (wpm !== null) out.wpm = wpm;
+      if (out.score == null) {
+        const s = String(raw || '').match(/"score"\s*:\s*(\d+)/);
+        if (s) out.score = +s[1];
+      }
     }
 
     const score = Math.max(0, Math.min(100, parseInt(out.score, 10) || 0));
     const details = { ...out };
+    if (!details.feedback) details.feedback = 'Your voice was heard clearly — keep practising to grow your score!';
+    if (score === 0) delete details.score_zero_ok;
     const ins = await pool.query(
       `INSERT INTO speaking_attempts (user_id, mode, lang, prompt, transcription, duration_sec, score, details)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, created_at`,
