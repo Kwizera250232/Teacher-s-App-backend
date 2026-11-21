@@ -86,6 +86,25 @@ async function addHeaderToPdf(inputPath, res, inline = false) {
   res.send(Buffer.from(outBytes));
 }
 
+// Same stamp as addHeaderToPdf but writes to a file so the result can be cached
+async function stampPdfToFile(inputPath, outPath) {
+  const pdfBytes = fs.readFileSync(inputPath);
+  const pdfDoc = await PDFDocument.load(pdfBytes);
+  const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const headerText = 'student.umunsi.com   Tel: 0783450859';
+  pdfDoc.getPages().forEach(page => {
+    const { width } = page.getSize();
+    page.drawText(headerText, {
+      x: 40,
+      y: page.getHeight() - 30,
+      size: 12,
+      font,
+      color: rgb(0.1, 0.2, 0.6),
+    });
+  });
+  fs.writeFileSync(outPath, await pdfDoc.save());
+}
+
 // Download with header for PDF files
 // ?inline=1 → show in browser/iframe; default → force download
 router.get('/:type/:filename', async (req, res) => {
@@ -103,7 +122,11 @@ router.get('/:type/:filename', async (req, res) => {
   if (view && OFFICE_EXTS.includes(ext)) {
     try {
       const pdfPath = await convertOfficeToPdf(filePath);
-      await addHeaderToPdf(pdfPath, res, true);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline');
+      res.setHeader('X-Frame-Options', 'ALLOWALL');
+      res.setHeader('Content-Security-Policy', "frame-ancestors *");
+      fs.createReadStream(pdfPath).pipe(res);
     } catch (e) {
       console.error('[download office->pdf]', e.message);
       res.status(500).send('Could not convert document to preview. Please download it and open in Microsoft Word or WPS Office.');
@@ -112,8 +135,31 @@ router.get('/:type/:filename', async (req, res) => {
   }
 
   if (ext === '.pdf') {
+    // In-app preview: stream the raw PDF instantly (no re-stamping — that used to
+    // take minutes on large textbooks). Branding is applied on real downloads.
+    if (inline) {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline');
+      res.setHeader('X-Frame-Options', 'ALLOWALL');
+      res.setHeader('Content-Security-Policy', "frame-ancestors *");
+      fs.createReadStream(filePath).pipe(res);
+      return;
+    }
     try {
-      await addHeaderToPdf(filePath, res, inline);
+      // Stamp once, cache next to the file — big textbooks used to re-stamp on every download
+      const stampedPath = filePath.replace(/\.pdf$/i, '.stamped.pdf');
+      const srcStat = fs.statSync(filePath);
+      const fresh = fs.existsSync(stampedPath) && fs.statSync(stampedPath).mtime >= srcStat.mtime;
+      if (fresh) {
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'attachment; filename="stamped.pdf"');
+        fs.createReadStream(stampedPath).pipe(res);
+        return;
+      }
+      await stampPdfToFile(filePath, stampedPath);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'attachment; filename="stamped.pdf"');
+      fs.createReadStream(stampedPath).pipe(res);
     } catch (e) {
       res.status(500).send('Failed to stamp PDF');
     }
