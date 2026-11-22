@@ -91,6 +91,9 @@ pool.query(`
   ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS question_type VARCHAR(20) DEFAULT 'multiple_choice';
   ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS passage TEXT;
   ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS open_meta JSONB;
+  ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS marks INTEGER DEFAULT 1;
+  UPDATE quiz_questions SET marks = COALESCE((open_meta->>'marks')::int, 5)
+    WHERE question_type = 'open_ended' AND open_meta ? 'marks' AND marks = 1;
   ALTER TABLE quiz_questions ALTER COLUMN correct_answer TYPE TEXT;
   ALTER TABLE quiz_questions DROP CONSTRAINT IF EXISTS quiz_questions_correct_answer_check;
   ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS grading JSONB;
@@ -151,12 +154,13 @@ router.post('/:classId/quizzes', authenticateToken, requireRole('teacher'), asyn
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
       await client.query(
-        `INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, open_meta, order_num)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        `INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, open_meta, marks, order_num)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
         [quiz.id, q.question, q.option_a||null, q.option_b||null, q.option_c||null, q.option_d||null,
          q.question_type === 'open_ended' ? (q.correct_answer || '') : (q.correct_answer||'a').toLowerCase(),
          q.question_type||'multiple_choice', q.passage||null,
-         q.question_type === 'open_ended' ? JSON.stringify(sanitizeOpenMeta(q.open_meta)) : null, i]
+         q.question_type === 'open_ended' ? JSON.stringify(sanitizeOpenMeta(q.open_meta)) : null,
+         Math.min(100, Math.max(1, parseInt(q.marks, 10) || (q.question_type === 'open_ended' ? 5 : 1))), i]
       );
     }
     await client.query('COMMIT');
@@ -286,7 +290,7 @@ router.post(
 router.get('/:classId/quizzes/:quizId/questions-edit', authenticateToken, requireRole('teacher'), async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, open_meta, order_num
+      `SELECT id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, open_meta, marks, order_num
        FROM quiz_questions WHERE quiz_id = $1 ORDER BY order_num`,
       [req.params.quizId]
     );
@@ -313,12 +317,13 @@ router.put('/:classId/quizzes/:quizId', authenticateToken, requireRole('teacher'
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
       await client.query(
-        `INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, open_meta, order_num)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        `INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, open_meta, marks, order_num)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
         [req.params.quizId, q.question, q.option_a||null, q.option_b||null, q.option_c||null, q.option_d||null,
          q.question_type === 'open_ended' ? (q.correct_answer || '') : (q.correct_answer||'a').toLowerCase(),
          q.question_type||'multiple_choice', q.passage||null,
-         q.question_type === 'open_ended' ? JSON.stringify(sanitizeOpenMeta(q.open_meta)) : null, i]
+         q.question_type === 'open_ended' ? JSON.stringify(sanitizeOpenMeta(q.open_meta)) : null,
+         Math.min(100, Math.max(1, parseInt(q.marks, 10) || (q.question_type === 'open_ended' ? 5 : 1))), i]
       );
     }
     await client.query('COMMIT');
@@ -460,7 +465,7 @@ router.get('/:classId/quizzes/:quizId/questions', authenticateToken, async (req,
     });
     if (!access.ok) return res.status(access.status).json({ error: access.error });
     const result = await pool.query(
-      `SELECT id, question, option_a, option_b, option_c, option_d, question_type, passage, open_meta, order_num
+      `SELECT id, question, option_a, option_b, option_c, option_d, question_type, passage, open_meta, marks, order_num
        FROM quiz_questions WHERE quiz_id = $1 ORDER BY order_num`,
       [req.params.quizId]
     );
@@ -491,7 +496,7 @@ router.post('/:classId/quizzes/:quizId/submit', authenticateToken, requireRole('
     }
 
     const questions = await pool.query(
-      'SELECT id, question, correct_answer, question_type, passage, open_meta FROM quiz_questions WHERE quiz_id = $1',
+      'SELECT id, question, correct_answer, question_type, passage, open_meta, marks FROM quiz_questions WHERE quiz_id = $1',
       [req.params.quizId]
     );
 
@@ -541,7 +546,7 @@ router.post('/:classId/quizzes/:quizId/submit', authenticateToken, requireRole('
       } else {
         isCorrect = given.toLowerCase() === (correct || '').toLowerCase();
       }
-      if (isCorrect) score++;
+      if (isCorrect) score += questionMax(q);
       results[q.id] = { given, correct, isCorrect };
     }
     const total = questions.rows.reduce((sum, q) => sum + questionMax(q), 0);

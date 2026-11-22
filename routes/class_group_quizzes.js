@@ -108,7 +108,7 @@ function scoreAnswers(questions, answers, openGrades = {}) {
     } else {
       isCorrect = given.toLowerCase() === (correct || '').toLowerCase();
     }
-    if (isCorrect) score += 1;
+    if (isCorrect) score += questionMax(q);
     results[q.id] = { given, correct, isCorrect };
   }
   return { score, total: questions.reduce((sum, q) => sum + questionMax(q), 0), results };
@@ -116,7 +116,7 @@ function scoreAnswers(questions, answers, openGrades = {}) {
 
 async function fetchQuizQuestions(quizId) {
   const result = await pool.query(
-    `SELECT id, question, option_a, option_b, option_c, option_d, question_type, passage, open_meta, order_num
+    `SELECT id, question, option_a, option_b, option_c, option_d, question_type, passage, open_meta, marks, order_num
      FROM quiz_questions WHERE quiz_id = $1 ORDER BY order_num`,
     [quizId]
   );
@@ -767,7 +767,7 @@ router.post('/:classId/group-quizzes/:assignmentId/submit', authenticateToken, r
       : (row.draft_answers || {});
 
     const questions = await pool.query(
-      'SELECT id, question, correct_answer, question_type, passage, open_meta FROM quiz_questions WHERE quiz_id = $1',
+      'SELECT id, question, correct_answer, question_type, passage, open_meta, marks FROM quiz_questions WHERE quiz_id = $1',
       [row.quiz_id]
     );
     const openItems = questions.rows
