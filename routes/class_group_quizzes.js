@@ -5,6 +5,7 @@ const { userCanManageClass } = require('../lib/classAccess');
 const { notifyGroupQuizReleased } = require('../lib/groupQuizNotify');
 const { computeClassGroupStats } = require('../lib/groupStats');
 const { formatPointEvent, teamRoleMeta, TEAM_ROLES } = require('../lib/classPointSkills');
+const { gradeOpenAnswers, openMeta, questionMax } = require('../lib/openQuestions');
 const router = express.Router();
 
 async function studentInGroup(studentId, groupId) {
@@ -73,11 +74,23 @@ async function fetchGroupPointEvents(classId, groupId, limit = 40) {
   return res.rows.map(formatPointEvent);
 }
 
-function scoreAnswers(questions, answers) {
+function scoreAnswers(questions, answers, openGrades = {}) {
   let score = 0;
   const results = {};
   for (const q of questions) {
     const given = String(answers[q.id] ?? '');
+    if (q.question_type === 'open_ended') {
+      const g = openGrades[q.id] || { mark: 0, max: questionMax(q), feedback: '', by: 'fallback' };
+      score += g.mark;
+      results[q.id] = {
+        given,
+        isCorrect: g.mark >= Math.ceil(g.max / 2),
+        ai_score: g.mark,
+        max_score: g.max,
+        feedback: g.feedback,
+      };
+      continue;
+    }
     const correct = q.correct_answer;
     let isCorrect = false;
     if (q.question_type === 'fill_blank') {
@@ -98,12 +111,12 @@ function scoreAnswers(questions, answers) {
     if (isCorrect) score += 1;
     results[q.id] = { given, correct, isCorrect };
   }
-  return { score, total: questions.length, results };
+  return { score, total: questions.reduce((sum, q) => sum + questionMax(q), 0), results };
 }
 
 async function fetchQuizQuestions(quizId) {
   const result = await pool.query(
-    `SELECT id, question, option_a, option_b, option_c, option_d, question_type, passage, order_num
+    `SELECT id, question, option_a, option_b, option_c, option_d, question_type, passage, open_meta, order_num
      FROM quiz_questions WHERE quiz_id = $1 ORDER BY order_num`,
     [quizId]
   );
@@ -754,10 +767,22 @@ router.post('/:classId/group-quizzes/:assignmentId/submit', authenticateToken, r
       : (row.draft_answers || {});
 
     const questions = await pool.query(
-      'SELECT id, correct_answer, question_type, passage FROM quiz_questions WHERE quiz_id = $1',
+      'SELECT id, question, correct_answer, question_type, passage, open_meta FROM quiz_questions WHERE quiz_id = $1',
       [row.quiz_id]
     );
-    const { score, total, results } = scoreAnswers(questions.rows, finalAnswers);
+    const openItems = questions.rows
+      .filter((q) => q.question_type === 'open_ended')
+      .map((q) => ({
+        id: q.id,
+        question: q.question,
+        guide: q.correct_answer,
+        meta: openMeta(q),
+        answer: finalAnswers[q.id],
+      }));
+    const openGrades = await gradeOpenAnswers(openItems);
+    const { score, total, results } = scoreAnswers(questions.rows, finalAnswers, openGrades);
+    const grading = {};
+    for (const it of openItems) grading[it.id] = openGrades[it.id];
 
     const meta = await loadGroupMeta(classId, row.group_id);
     const members = await groupMembers(row.group_id, meta?.leader_id);
@@ -784,9 +809,10 @@ router.post('/:classId/group-quizzes/:assignmentId/submit', authenticateToken, r
         );
         if (!exists.rows.length) {
           await client.query(
-            `INSERT INTO quiz_attempts (quiz_id, student_id, score, total, answers, group_assignment_id)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
-            [row.quiz_id, m.id, score, total, JSON.stringify(finalAnswers), assignmentId]
+            `INSERT INTO quiz_attempts (quiz_id, student_id, score, total, answers, group_assignment_id, grading)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [row.quiz_id, m.id, score, total, JSON.stringify(finalAnswers), assignmentId,
+             Object.keys(grading).length ? JSON.stringify(grading) : null]
           );
         }
       }

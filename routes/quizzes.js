@@ -10,6 +10,7 @@ const {
   sharePageUrl,
 } = require('../lib/quizShares');
 const { ensureQuizTeacherShareSchema } = require('../lib/quizTeacherShares');
+const { gradeOpenAnswers, openMeta, questionMax, sanitizeOpenMeta } = require('../lib/openQuestions');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -89,6 +90,10 @@ async function listQuizzesForClass(classId) {
 pool.query(`
   ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS question_type VARCHAR(20) DEFAULT 'multiple_choice';
   ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS passage TEXT;
+  ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS open_meta JSONB;
+  ALTER TABLE quiz_questions ALTER COLUMN correct_answer TYPE TEXT;
+  ALTER TABLE quiz_questions DROP CONSTRAINT IF EXISTS quiz_questions_correct_answer_check;
+  ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS grading JSONB;
   ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS grade_level VARCHAR(20);
   ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMPTZ;
   ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS released_at TIMESTAMPTZ;
@@ -146,10 +151,12 @@ router.post('/:classId/quizzes', authenticateToken, requireRole('teacher'), asyn
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
       await client.query(
-        `INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, order_num)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        `INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, open_meta, order_num)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
         [quiz.id, q.question, q.option_a||null, q.option_b||null, q.option_c||null, q.option_d||null,
-         (q.correct_answer||'a').toLowerCase(), q.question_type||'multiple_choice', q.passage||null, i]
+         q.question_type === 'open_ended' ? (q.correct_answer || '') : (q.correct_answer||'a').toLowerCase(),
+         q.question_type||'multiple_choice', q.passage||null,
+         q.question_type === 'open_ended' ? JSON.stringify(sanitizeOpenMeta(q.open_meta)) : null, i]
       );
     }
     await client.query('COMMIT');
@@ -279,7 +286,7 @@ router.post(
 router.get('/:classId/quizzes/:quizId/questions-edit', authenticateToken, requireRole('teacher'), async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, order_num
+      `SELECT id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, open_meta, order_num
        FROM quiz_questions WHERE quiz_id = $1 ORDER BY order_num`,
       [req.params.quizId]
     );
@@ -306,10 +313,12 @@ router.put('/:classId/quizzes/:quizId', authenticateToken, requireRole('teacher'
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
       await client.query(
-        `INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, order_num)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        `INSERT INTO quiz_questions (quiz_id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, open_meta, order_num)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
         [req.params.quizId, q.question, q.option_a||null, q.option_b||null, q.option_c||null, q.option_d||null,
-         (q.correct_answer||'a').toLowerCase(), q.question_type||'multiple_choice', q.passage||null, i]
+         q.question_type === 'open_ended' ? (q.correct_answer || '') : (q.correct_answer||'a').toLowerCase(),
+         q.question_type||'multiple_choice', q.passage||null,
+         q.question_type === 'open_ended' ? JSON.stringify(sanitizeOpenMeta(q.open_meta)) : null, i]
       );
     }
     await client.query('COMMIT');
@@ -451,7 +460,7 @@ router.get('/:classId/quizzes/:quizId/questions', authenticateToken, async (req,
     });
     if (!access.ok) return res.status(access.status).json({ error: access.error });
     const result = await pool.query(
-      `SELECT id, question, option_a, option_b, option_c, option_d, question_type, passage, order_num
+      `SELECT id, question, option_a, option_b, option_c, option_d, question_type, passage, open_meta, order_num
        FROM quiz_questions WHERE quiz_id = $1 ORDER BY order_num`,
       [req.params.quizId]
     );
@@ -482,13 +491,41 @@ router.post('/:classId/quizzes/:quizId/submit', authenticateToken, requireRole('
     }
 
     const questions = await pool.query(
-      'SELECT id, correct_answer, question_type, passage FROM quiz_questions WHERE quiz_id = $1',
+      'SELECT id, question, correct_answer, question_type, passage, open_meta FROM quiz_questions WHERE quiz_id = $1',
       [req.params.quizId]
     );
+
+    // Open-ended answers are marked by AI (grammar, punctuation, topic, length)
+    const openItems = questions.rows
+      .filter((q) => q.question_type === 'open_ended')
+      .map((q) => ({
+        id: q.id,
+        question: q.question,
+        guide: q.correct_answer,
+        meta: openMeta(q),
+        answer: answers[q.id],
+      }));
+    const openGrades = await gradeOpenAnswers(openItems);
+    const grading = {};
+
     let score = 0;
     const results = {};
     for (const q of questions.rows) {
       const given = String(answers[q.id] ?? '');
+      if (q.question_type === 'open_ended') {
+        const g = openGrades[q.id] || { mark: 0, max: questionMax(q), feedback: '', by: 'fallback' };
+        score += g.mark;
+        grading[q.id] = g;
+        results[q.id] = {
+          given,
+          isCorrect: g.mark >= Math.ceil(g.max / 2),
+          ai_score: g.mark,
+          max_score: g.max,
+          feedback: g.feedback,
+          graded_by: g.by,
+        };
+        continue;
+      }
       const correct = q.correct_answer;
       let isCorrect = false;
       if (q.question_type === 'fill_blank') {
@@ -507,11 +544,12 @@ router.post('/:classId/quizzes/:quizId/submit', authenticateToken, requireRole('
       if (isCorrect) score++;
       results[q.id] = { given, correct, isCorrect };
     }
-    const total = questions.rows.length;
+    const total = questions.rows.reduce((sum, q) => sum + questionMax(q), 0);
     await pool.query(
-      `INSERT INTO quiz_attempts (quiz_id, student_id, score, total, answers, is_guest)
-       VALUES ($1,$2,$3,$4,$5,$6)`,
-      [req.params.quizId, req.user.id, score, total, JSON.stringify(answers), isGuest]
+      `INSERT INTO quiz_attempts (quiz_id, student_id, score, total, answers, is_guest, grading)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [req.params.quizId, req.user.id, score, total, JSON.stringify(answers), isGuest,
+       Object.keys(grading).length ? JSON.stringify(grading) : null]
     );
 
     const percentage = total > 0 ? Math.round((score / total) * 100) : 0;
@@ -644,10 +682,11 @@ router.get('/:classId/quizzes/:quizId/my-result', authenticateToken, requireRole
     const answers = attempt.answers || {};
 
     const questionsResult = await pool.query(
-      `SELECT id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, order_num
+      `SELECT id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, open_meta, order_num
        FROM quiz_questions WHERE quiz_id = $1 ORDER BY order_num`,
       [req.params.quizId]
     );
+    const grading = attempt.grading && typeof attempt.grading === 'object' ? attempt.grading : {};
 
     const optionMap = { a: 'option_a', b: 'option_b', c: 'option_c', d: 'option_d' };
     const detailed = questionsResult.rows.map((q, idx) => {
@@ -664,9 +703,13 @@ router.get('/:classId/quizzes/:quizId/my-result', authenticateToken, requireRole
           isCorrect = pairs.length > 0 && pairs.every((p, i) =>
             (parts[i]||'').trim().toLowerCase() === p.right.trim().toLowerCase());
         } catch { isCorrect = false; }
+      } else if (qtype === 'open_ended') {
+        const g = grading[q.id];
+        isCorrect = g ? g.mark >= Math.ceil((g.max || 1) / 2) : false;
       } else {
         isCorrect = studentAnswer.toLowerCase() === (correctAnswer||'').toLowerCase();
       }
+      const g = qtype === 'open_ended' ? grading[q.id] : null;
       return {
         number: idx + 1,
         question: q.question,
@@ -677,12 +720,16 @@ router.get('/:classId/quizzes/:quizId/my-result', authenticateToken, requireRole
         option_c: q.option_c,
         option_d: q.option_d,
         student_answer: studentAnswer || 'No answer',
-        student_answer_text: qtype === 'fill_blank' || qtype === 'matching' ? (studentAnswer || 'No answer') :
+        student_answer_text: qtype === 'fill_blank' || qtype === 'matching' || qtype === 'open_ended' ? (studentAnswer || 'No answer') :
           (studentAnswer ? (q[optionMap[studentAnswer]] || studentAnswer) : 'No answer'),
         correct_answer: correctAnswer,
         correct_answer_text: qtype === 'fill_blank' ? correctAnswer :
           qtype === 'matching' ? (q.passage || '') :
+          qtype === 'open_ended' ? 'Marked by AI' :
           (q[optionMap[correctAnswer]] || correctAnswer),
+        ai_score: g ? g.mark : null,
+        max_score: g ? g.max : null,
+        ai_feedback: g ? g.feedback : null,
         is_correct: isCorrect,
       };
     });
@@ -754,27 +801,38 @@ router.get('/:classId/quizzes/:quizId/attempts/:attemptId/detail', authenticateT
     const answers = attempt.answers || {};
 
     const questionsResult = await pool.query(
-      `SELECT id, question, option_a, option_b, option_c, option_d, correct_answer, order_num
+      `SELECT id, question, option_a, option_b, option_c, option_d, correct_answer, question_type, passage, order_num
        FROM quiz_questions WHERE quiz_id = $1 ORDER BY order_num`,
       [req.params.quizId]
     );
+    const tGrading = attempt.grading && typeof attempt.grading === 'object' ? attempt.grading : {};
 
     const optionMap = { a: 'option_a', b: 'option_b', c: 'option_c', d: 'option_d' };
     const detailed = questionsResult.rows.map((q, idx) => {
-      const studentAnswer = (answers[String(q.id)] || '').toLowerCase();
+      const qtype = q.question_type || 'multiple_choice';
+      const rawAnswer = String(answers[String(q.id)] ?? '');
+      const studentAnswer = qtype === 'open_ended' ? rawAnswer : rawAnswer.toLowerCase();
       const correctAnswer = q.correct_answer;
+      const g = qtype === 'open_ended' ? tGrading[q.id] : null;
       return {
         number: idx + 1,
         question: q.question,
+        question_type: qtype,
         option_a: q.option_a,
         option_b: q.option_b,
         option_c: q.option_c,
         option_d: q.option_d,
         student_answer: studentAnswer || 'No answer',
-        student_answer_text: studentAnswer ? (q[optionMap[studentAnswer]] || studentAnswer) : 'No answer',
+        student_answer_text: qtype === 'open_ended' ? (rawAnswer || 'No answer') :
+          (studentAnswer ? (q[optionMap[studentAnswer]] || studentAnswer) : 'No answer'),
         correct_answer: correctAnswer,
-        correct_answer_text: q[optionMap[correctAnswer]],
-        is_correct: studentAnswer === correctAnswer,
+        correct_answer_text: qtype === 'open_ended' ? 'Marked by AI' : q[optionMap[correctAnswer]],
+        ai_score: g ? g.mark : null,
+        max_score: g ? g.max : null,
+        ai_feedback: g ? g.feedback : null,
+        is_correct: qtype === 'open_ended'
+          ? (g ? g.mark >= Math.ceil((g.max || 1) / 2) : false)
+          : studentAnswer === correctAnswer,
       };
     });
 
