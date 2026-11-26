@@ -694,7 +694,7 @@ router.get('/coaching-sessions/student/:studentId', authenticateToken, async (re
     }
 
     const sessions = await pool.query(
-      `SELECT cs.id, cs.title, cs.topic, cs.status, cs.scheduled_at, cs.started_at, cs.ended_at,
+      `SELECT cs.id, cs.class_id, cs.title, cs.topic, cs.status, cs.scheduled_at, cs.started_at, cs.ended_at,
               cs.count_toward_official, c.name AS class_name, u.name AS teacher_name,
               (SELECT COUNT(*) FROM coaching_session_answers csa WHERE csa.session_id = cs.id AND csa.student_id = $1) AS answered_count,
               (SELECT SUM(csa.awarded_marks) FROM coaching_session_answers csa WHERE csa.session_id = cs.id AND csa.student_id = $1) AS total_marks,
