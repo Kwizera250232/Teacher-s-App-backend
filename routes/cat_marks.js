@@ -916,13 +916,18 @@ const escHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;
 /** Per-subject score out of 100 from cat_marks — ACTIVE sheet only (archived sheets never count). */
 async function subjectScores(classId, studentId) {
   const sheet = await getActiveSheet(classId);
-  const rows = (await pool.query(
-    `SELECT subject, SUM(marks_obtained)::float AS m, SUM(COALESCE(NULLIF(total_marks,0),100))::float AS t
-     FROM cat_marks WHERE class_id = $1 AND student_id = $2 AND sheet_id = $3 GROUP BY subject`, [classId, studentId, sheet.id]
-  )).rows;
-  const out = {};
-  for (const r of rows) out[canonSubj(r.subject)] = { name: r.subject, score: Math.round((r.m / r.t) * 1000) / 10 };
-  return out;
+  return subjectScoresForSheet(classId, studentId, sheet.id);
+}
+
+/** The sheet that matches a report term ("I" → sheet "Term I"); falls back to the active sheet. */
+async function sheetForTerm(classId, term) {
+  const t = String(term || '').replace(/^term\s*/i, '').trim().toLowerCase();
+  if (t) {
+    const sheets = await termSheets(classId);
+    const match = sheets.find((s) => String(s.name || '').replace(/^term\s*/i, '').trim().toLowerCase() === t);
+    if (match) return match;
+  }
+  return getActiveSheet(classId);
 }
 
 /** Ordered union: items in refOrder first (in that order), then the rest alphabetically. */
@@ -1741,7 +1746,7 @@ async function endtermPositions(classId, subjects, sheetId) {
   )).rows;
   const totals = [];
   for (const s of roster) {
-    const cat = await subjectScores(classId, s.id);
+    const cat = await subjectScoresForSheet(classId, s.id, sheetId);
     const exam = await examScores(classId, s.id, sheetId);
     const { grandPct } = endtermSubjectRows(subjects, cat, exam);
     totals.push({ id: s.id, pct: grandPct });
@@ -1902,8 +1907,8 @@ function buildEndTermHtml({ student, teacherName, schoolName, district, level, y
 /** Shared: gather everything needed to render one student's End-Term doc. */
 async function endtermContext(classId, studentId, body, req) {
   const settings = await loadSettings(classId);
-  const sheet = await getActiveSheet(classId);
-  const cat = await subjectScores(classId, studentId);
+  const sheet = await sheetForTerm(classId, body?.term);
+  const cat = await subjectScoresForSheet(classId, studentId, sheet.id);
   const exam = await examScores(classId, studentId, sheet.id);
   const { pos, size } = await endtermPositions(classId, settings.subjects, sheet.id);
   const template = await loadSchoolTemplate(await schoolIdForClass(classId));
@@ -1996,7 +2001,7 @@ router.get('/:classId/exam-marks', authenticateToken, requireRole('teacher', 'he
   try {
     const manage = await userCanManageClass(req.user, classId);
     if (!manage?.ok) return res.status(403).json({ error: 'Not your class.' });
-    const sheet = await getActiveSheet(classId);
+    const sheet = req.query.term ? await sheetForTerm(classId, req.query.term) : await getActiveSheet(classId);
     const settings = await loadSettings(classId);
     const roster = (await pool.query(
       `SELECT u.id, u.name FROM class_members cm JOIN users u ON u.id = cm.student_id WHERE cm.class_id = $1 ORDER BY u.name`, [classId]
@@ -2012,7 +2017,7 @@ router.get('/:classId/exam-marks', authenticateToken, requireRole('teacher', 'he
       if (r.t) examTotal = r.t;
     }
     const catBy = {};
-    for (const s of roster) catBy[s.id] = await subjectScores(classId, s.id);
+    for (const s of roster) catBy[s.id] = await subjectScoresForSheet(classId, s.id, sheet.id);
     res.json({
       sheet: { id: sheet.id, name: sheet.name }, subjects: settings.subjects,
       term: settings.term, exam_total: examTotal,
@@ -2032,9 +2037,9 @@ router.post('/:classId/exam-marks', authenticateToken, requireRole('teacher', 'h
     if (!manage?.ok) return res.status(403).json({ error: 'Not your class.' });
     const entries = Array.isArray(req.body?.entries) ? req.body.entries : [];
     if (!entries.length) return res.status(400).json({ error: 'No marks to save.' });
-    const sheet = await getActiveSheet(classId);
+    const sheet = req.body?.term ? await sheetForTerm(classId, req.body.term) : await getActiveSheet(classId);
     // Once the HT approves this term's End-Term reports, exam marks freeze too.
-    const sheetTerm = String(sheet.name || '').replace(/^term\s*/i, '').trim();
+    const sheetTerm = String(req.body?.term || sheet.name || '').replace(/^term\s*/i, '').trim();
     const locked = (await pool.query(
       `SELECT id FROM submitted_reports WHERE class_id=$1 AND report_type='end_term' AND status='approved'
        AND LOWER(COALESCE(term,''))=LOWER($2) LIMIT 1`, [classId, sheetTerm]
@@ -2140,7 +2145,7 @@ async function collectEndTermFiles(classId, body, user, req) {
   if (picked) roster = roster.filter((s) => picked.includes(s.id));
   if (!roster.length) return { error: 'No students selected.', status: 400 };
 
-  const sheet = await getActiveSheet(classId);
+  const sheet = await sheetForTerm(classId, p.term);
   const template = await loadSchoolTemplate(await schoolIdForClass(classId));
   const { pos, size } = await endtermPositions(classId, p.subjects, sheet.id);
   const teacherName = (await pool.query('SELECT name FROM users WHERE id=$1', [user.id])).rows[0]?.name || '';
@@ -2148,7 +2153,7 @@ async function collectEndTermFiles(classId, body, user, req) {
   const files = [];
   const summary = [];
   for (const student of roster) {
-    const cat = await subjectScores(classId, student.id);
+    const cat = await subjectScoresForSheet(classId, student.id, sheet.id);
     const exam = await examScores(classId, student.id, sheet.id);
     const doc = buildEndTermHtml({
       student, teacherName, schoolName: p.schoolName, district: p.district, level: p.level,
@@ -2358,7 +2363,7 @@ async function subjectScoresForSheet(classId, studentId, sheetId) {
      FROM cat_marks WHERE class_id = $1 AND student_id = $2 AND sheet_id = $3 GROUP BY subject`, [classId, studentId, sheetId]
   )).rows;
   const out = {};
-  for (const r of rows) out[canonSubj(r.subject)] = { name: r.subject, score: Math.round((r.m / r.t) * 1000) / 10 };
+  for (const r of rows) out[canonSubj(r.subject)] = { name: r.subject, score: Math.round((r.m / r.t) * 1000) / 10, raw: Math.round(r.m * 10) / 10, out_of: Math.round(r.t * 10) / 10 };
   return out;
 }
 
