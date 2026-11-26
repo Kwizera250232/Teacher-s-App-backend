@@ -2305,6 +2305,46 @@ router.get('/school-overview', authenticateToken, requireRole('head_teacher'), a
   }
 });
 
+// GET /school-teachers — MIS staff view: every teacher → their classes → students + report status
+router.get('/school-teachers', authenticateToken, requireRole('head_teacher'), async (req, res) => {
+  try {
+    const schoolId = req.user.school_id;
+    if (!schoolId) return res.json({ teachers: [] });
+    const teachers = (await pool.query(
+      `SELECT u.id, u.name, u.email FROM users u WHERE u.school_id = $1 AND u.role = 'teacher' ORDER BY u.name`, [schoolId]
+    )).rows;
+    if (!teachers.length) return res.json({ teachers: [] });
+    const tids = teachers.map((t) => t.id);
+    const classes = (await pool.query(
+      `SELECT c.id, c.name, c.subject, c.grade, c.teacher_id,
+              (SELECT COUNT(*)::int FROM class_members cm WHERE cm.class_id = c.id) AS students
+       FROM classes c WHERE c.teacher_id = ANY($1) ORDER BY c.name`, [tids]
+    )).rows;
+    const cids = classes.map((c) => c.id);
+    const reports = cids.length ? (await pool.query(
+      `SELECT class_id, report_type, term, COALESCE(status,'pending') AS status, student_count, created_at
+       FROM submitted_reports WHERE class_id = ANY($1) ORDER BY created_at DESC`, [cids]
+    )).rows : [];
+    const byClass = {};
+    for (const r of reports) (byClass[r.class_id] ||= []).push(r);
+    const byTeacher = {};
+    for (const c of classes) (byTeacher[c.teacher_id] ||= []).push({ ...c, reports: byClass[c.id] || [] });
+    res.json({
+      teachers: teachers.map((t) => ({
+        ...t,
+        classes: byTeacher[t.id] || [],
+        class_count: (byTeacher[t.id] || []).length,
+        student_count: (byTeacher[t.id] || []).reduce((a, c) => a + c.students, 0),
+        pending: (byTeacher[t.id] || []).reduce((a, c) => a + c.reports.filter((r) => r.status !== 'approved').length, 0),
+        approved: (byTeacher[t.id] || []).reduce((a, c) => a + c.reports.filter((r) => r.status === 'approved').length, 0),
+      })),
+    });
+  } catch (err) {
+    console.error('[school teachers]', err.message);
+    res.status(500).json({ error: 'Could not load the staff list.' });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // YEARLY REPORT — combines all term sheets (Term I / II / III) per subject:
 // each term's combined CAT+EXAM %, the year average, position, next steps.
