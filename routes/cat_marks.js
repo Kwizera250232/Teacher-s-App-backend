@@ -2033,6 +2033,15 @@ router.post('/:classId/exam-marks', authenticateToken, requireRole('teacher', 'h
     const entries = Array.isArray(req.body?.entries) ? req.body.entries : [];
     if (!entries.length) return res.status(400).json({ error: 'No marks to save.' });
     const sheet = await getActiveSheet(classId);
+    // Once the HT approves this term's End-Term reports, exam marks freeze too.
+    const sheetTerm = String(sheet.name || '').replace(/^term\s*/i, '').trim();
+    const locked = (await pool.query(
+      `SELECT id FROM submitted_reports WHERE class_id=$1 AND report_type='end_term' AND status='approved'
+       AND LOWER(COALESCE(term,''))=LOWER($2) LIMIT 1`, [classId, sheetTerm]
+    )).rows[0];
+    if (locked) {
+      return res.status(409).json({ error: `End-Term reports for Term ${sheetTerm} were approved by the Head Teacher — exam marks are locked.` });
+    }
     const total = Math.min(1000, Math.max(1, Number(req.body?.total_marks) || 100));
     let saved = 0;
     for (const e of entries.slice(0, 5000)) {
@@ -2497,7 +2506,7 @@ router.get('/:classId/yearly-report/prefill', authenticateToken, requireRole('te
       class_name: settings.class_name, school_name: settings.school_name, district: settings.district,
       level: settings.level, academic_year: settings.academic_year, logo: settings.logo,
       subjects: settings.subjects, sheets: sheets.map((s) => ({ id: s.id, name: s.name })),
-      has_template: Boolean(tpl), roster,
+      has_template: Boolean(tpl), roster, locked_terms: await lockedTermsFor(classId),
     });
   } catch (err) {
     console.error('[yearly prefill]', err.message);
