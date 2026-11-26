@@ -1353,6 +1353,7 @@ router.post('/:classId/midterm-report/folder', authenticateToken, requireRole('t
     const out = await collectReportFiles(classId, req.body, req.user);
     if (out.error) return res.status(out.status || 500).json({ error: out.error });
     await saveSettings(classId, out.p);
+    if (await assertNotLocked(classId, 'mid_term', out.p.term, res)) return;
     const folderToken = saveReportFolder(out.files, { className: out.p.className, term: out.p.term, schoolName: out.p.schoolName });
     await recordSubmission({
       classId, teacherId: req.user.id, teacherName: out.teacherName, reportType: 'mid_term',
@@ -1384,6 +1385,7 @@ router.post('/:classId/midterm-report/send-all', authenticateToken, requireRole(
     const out = await collectReportFiles(classId, req.body, req.user);
     if (out.error) return res.status(out.status || 500).json({ error: out.error });
     const { files, roster, p, teacherName } = out;
+    if (await assertNotLocked(classId, 'mid_term', p.term, res)) return;
     p.authorityEmail = recipients.join(', '); // persisted so the list is remembered next time
     await saveSettings(classId, p);
 
@@ -1615,6 +1617,9 @@ pool.query(`
     created_at TIMESTAMP DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_submitted_reports_school ON submitted_reports(school_id);
+  ALTER TABLE submitted_reports ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending';
+  ALTER TABLE submitted_reports ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP;
+  ALTER TABLE submitted_reports ADD COLUMN IF NOT EXISTS approved_by INTEGER;
 `).catch(e => console.error('[endterm] migration error:', e.message));
 
 /** The school a class belongs to = its owning teacher's school_id. */
@@ -1671,21 +1676,46 @@ async function notifyHeadTeachers(schoolId, { title, body, payload }) {
   } catch (e) { console.error('[reports] HT notify error:', e.message); }
 }
 
-/** Record a reports folder in the HT inbox + notify head teachers. */
+const TYPE_LABELS = { mid_term: 'Mid-Term', end_term: 'End-Term', yearly: 'Yearly' };
+
+/** Record a reports folder in the HT inbox + notify head teachers. One pending row per class+type+term. */
 async function recordSubmission({ classId, teacherId, teacherName, reportType, term, folderToken, fileCount, studentCount, className }) {
   const schoolId = await schoolIdForClass(classId);
   if (!schoolId) return;
+  // re-submitting replaces the still-pending folder for the same class+type+term
+  await pool.query(
+    `DELETE FROM submitted_reports WHERE class_id=$1 AND report_type=$2 AND COALESCE(term,'')=COALESCE($3,'') AND COALESCE(status,'pending')='pending'`,
+    [classId, reportType, term || null]
+  );
   await pool.query(
     `INSERT INTO submitted_reports (school_id, class_id, teacher_id, report_type, term, folder_token, file_count, student_count, class_name, teacher_name)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
     [schoolId, classId, teacherId, reportType, term || null, folderToken, fileCount || 0, studentCount || 0, className || null, teacherName || null]
   );
-  const typeLabel = reportType === 'end_term' ? 'End-Term' : 'Mid-Term';
+  const typeLabel = TYPE_LABELS[reportType] || 'Report';
   await notifyHeadTeachers(schoolId, {
     title: `📁 ${typeLabel} reports submitted — ${className || 'class'}`,
-    body: `${teacherName || 'A teacher'} submitted ${studentCount || 0} ${typeLabel} report cards (Term ${term || '—'}). Open the School tab → Reports to view or download them.`,
+    body: `${teacherName || 'A teacher'} submitted ${studentCount || 0} ${typeLabel} report cards${term ? ` (Term ${term})` : ''} for your review. Open the Reports tab to check and approve them.`,
     payload: { class_id: classId, report_type: reportType, term, class_name: className },
   });
+}
+
+/** Reject with 409 when that report set was already approved (locked) by the HT. */
+async function assertNotLocked(classId, reportType, term, res) {
+  const row = (await pool.query(
+    `SELECT id FROM submitted_reports WHERE class_id=$1 AND report_type=$2 AND COALESCE(term,'')=COALESCE($3,'') AND status='approved' LIMIT 1`,
+    [classId, reportType, term || null]
+  )).rows[0];
+  if (!row) return false;
+  res.status(409).json({ error: `${TYPE_LABELS[reportType] || 'These'} reports for Term ${term || '—'} were already approved by the Head Teacher — they are locked.` });
+  return true;
+}
+
+/** Term/type pairs already approved (locked) for a class — used to warn teachers. */
+async function lockedTermsFor(classId) {
+  return (await pool.query(
+    `SELECT report_type, term FROM submitted_reports WHERE class_id=$1 AND status='approved'`, [classId]
+  )).rows;
 }
 
 /** One student's End-Term row data: per-subject CAT + EXAM + TOTAL /200 + pct. */
@@ -2043,6 +2073,7 @@ router.get('/:classId/endterm-report/prefill', authenticateToken, requireRole('t
     )).rows.map((r) => r.student_id);
     res.json({
       ...settings, sheet_name: sheet.name, has_template: Boolean(tpl), exam_students: examRows,
+      locked_terms: await lockedTermsFor(classId),
       roster: roster.map((s) => ({ id: s.id, name: s.name, has_exam: examRows.includes(s.id) })),
     });
   } catch (err) {
@@ -2137,6 +2168,7 @@ router.post('/:classId/endterm-report/folder', authenticateToken, requireRole('t
     const out = await collectEndTermFiles(classId, req.body, req.user, req);
     if (out.error) return res.status(out.status || 500).json({ error: out.error });
     await saveSettings(classId, out.p);
+    if (await assertNotLocked(classId, 'end_term', out.p.term, res)) return;
     const folderToken = saveReportFolder(out.files, { className: out.p.className, term: out.p.term, schoolName: out.p.schoolName, type: 'end_term' });
     res.json({ ok: true, count: out.files.length, students: out.roster.length, folder_url: `${publicApiBase(req)}/api/catmarks/report-folder/${folderToken}` });
   } catch (err) {
@@ -2152,6 +2184,7 @@ router.post('/:classId/endterm-report/submit', authenticateToken, requireRole('t
     const out = await collectEndTermFiles(classId, req.body, req.user, req);
     if (out.error) return res.status(out.status || 500).json({ error: out.error });
     await saveSettings(classId, out.p);
+    if (await assertNotLocked(classId, 'end_term', out.p.term, res)) return;
     const folderToken = saveReportFolder(out.files, { className: out.p.className, term: out.p.term, schoolName: out.p.schoolName, type: 'end_term' });
     await recordSubmission({
       classId, teacherId: req.user.id, teacherName: out.teacherName, reportType: 'end_term',
@@ -2172,7 +2205,7 @@ router.get('/reports-inbox', authenticateToken, requireRole('head_teacher'), asy
     const schoolId = req.user.school_id;
     if (!schoolId) return res.json({ submissions: [] });
     const rows = (await pool.query(
-      `SELECT id, class_id, teacher_id, report_type, term, folder_token, file_count, student_count, class_name, teacher_name, created_at
+      `SELECT id, class_id, teacher_id, report_type, term, folder_token, file_count, student_count, class_name, teacher_name, status, approved_at, created_at
        FROM submitted_reports WHERE school_id = $1 ORDER BY created_at DESC LIMIT 300`, [schoolId]
     )).rows;
     const base = publicApiBase(req);
@@ -2185,6 +2218,404 @@ router.get('/reports-inbox', authenticateToken, requireRole('head_teacher'), asy
   } catch (err) {
     console.error('[reports inbox]', err.message);
     res.status(500).json({ error: 'Could not load submitted reports.' });
+  }
+});
+
+// POST /reports-inbox/:id/approve — HT approves → locks that report set for teachers
+router.post('/reports-inbox/:id/approve', authenticateToken, requireRole('head_teacher'), async (req, res) => {
+  try {
+    const schoolId = req.user.school_id;
+    const row = (await pool.query(
+      `UPDATE submitted_reports SET status='approved', approved_at=NOW(), approved_by=$1
+       WHERE id=$2 AND school_id=$3 RETURNING *`, [req.user.id, req.params.id, schoolId]
+    )).rows[0];
+    if (!row) return res.status(404).json({ error: 'Submission not found.' });
+    // let the teacher know their reports were approved
+    try {
+      await pool.query(
+        `INSERT INTO user_notifications (user_id, type, title, body, payload) VALUES ($1,'report_approved',$2,$3,$4)`,
+        [row.teacher_id, `✅ ${TYPE_LABELS[row.report_type] || 'Reports'} approved — ${row.class_name || 'class'}`,
+         `The Head Teacher reviewed and approved your ${TYPE_LABELS[row.report_type] || ''} report cards${row.term ? ` (Term ${row.term})` : ''}. They are now locked.`,
+         JSON.stringify({ class_id: row.class_id, report_type: row.report_type, term: row.term })]
+      );
+    } catch { /* notification is best-effort */ }
+    res.json({ ok: true, status: 'approved' });
+  } catch (err) {
+    console.error('[reports approve]', err.message);
+    res.status(500).json({ error: 'Could not approve right now.' });
+  }
+});
+
+// POST /reports-inbox/:id/reopen — HT sends it back to pending (teachers may regenerate)
+router.post('/reports-inbox/:id/reopen', authenticateToken, requireRole('head_teacher'), async (req, res) => {
+  try {
+    const schoolId = req.user.school_id;
+    const row = (await pool.query(
+      `UPDATE submitted_reports SET status='pending', approved_at=NULL, approved_by=NULL
+       WHERE id=$1 AND school_id=$2 RETURNING id`, [req.params.id, schoolId]
+    )).rows[0];
+    if (!row) return res.status(404).json({ error: 'Submission not found.' });
+    res.json({ ok: true, status: 'pending' });
+  } catch (err) {
+    console.error('[reports reopen]', err.message);
+    res.status(500).json({ error: 'Could not reopen right now.' });
+  }
+});
+
+// GET /school-overview — HT landing stats: staff, classes, students, pending/approved reports
+router.get('/school-overview', authenticateToken, requireRole('head_teacher'), async (req, res) => {
+  try {
+    const schoolId = req.user.school_id;
+    if (!schoolId) return res.json({ school: null, teachers: 0, classes: 0, students: 0, pending: 0, approved: 0, recent: [] });
+    const school = (await pool.query('SELECT id, name, district, sector FROM schools WHERE id=$1', [schoolId])).rows[0] || null;
+    const teachers = (await pool.query(`SELECT COUNT(*)::int AS n FROM users WHERE school_id=$1 AND role='teacher'`, [schoolId])).rows[0].n;
+    const classes = (await pool.query(`SELECT COUNT(*)::int AS n FROM classes c JOIN users t ON t.id=c.teacher_id WHERE t.school_id=$1`, [schoolId])).rows[0].n;
+    const students = (await pool.query(
+      `SELECT COUNT(DISTINCT cm.student_id)::int AS n FROM class_members cm
+       JOIN classes c ON c.id=cm.class_id JOIN users t ON t.id=c.teacher_id WHERE t.school_id=$1`, [schoolId]
+    )).rows[0].n;
+    const rep = (await pool.query(
+      `SELECT status, COUNT(*)::int AS n FROM submitted_reports WHERE school_id=$1 GROUP BY status`, [schoolId]
+    )).rows;
+    const pendingReqs = (await pool.query(
+      `SELECT COUNT(*)::int AS n FROM school_join_requests WHERE school_id=$1 AND status='pending'`, [schoolId]
+    ).catch(() => ({ rows: [{ n: 0 }] }))).rows[0].n;
+    const recent = (await pool.query(
+      `SELECT id, class_id, report_type, term, student_count, class_name, teacher_name, status, created_at
+       FROM submitted_reports WHERE school_id=$1 ORDER BY created_at DESC LIMIT 6`, [schoolId]
+    )).rows;
+    res.json({
+      school, teachers, classes, students,
+      pending: rep.find((r) => r.status === 'pending')?.n || 0,
+      approved: rep.find((r) => r.status === 'approved')?.n || 0,
+      join_requests: pendingReqs, recent,
+    });
+  } catch (err) {
+    console.error('[school overview]', err.message);
+    res.status(500).json({ error: 'Could not load the school overview.' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// YEARLY REPORT — combines all term sheets (Term I / II / III) per subject:
+// each term's combined CAT+EXAM %, the year average, position, next steps.
+// Teacher presses ONE button — nothing to enter.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** CAT score /100 per subject for one student within a GIVEN sheet. */
+async function subjectScoresForSheet(classId, studentId, sheetId) {
+  const rows = (await pool.query(
+    `SELECT subject, SUM(marks_obtained)::float AS m, SUM(COALESCE(NULLIF(total_marks,0),100))::float AS t
+     FROM cat_marks WHERE class_id = $1 AND student_id = $2 AND sheet_id = $3 GROUP BY subject`, [classId, studentId, sheetId]
+  )).rows;
+  const out = {};
+  for (const r of rows) out[canonSubj(r.subject)] = { name: r.subject, score: Math.round((r.m / r.t) * 1000) / 10 };
+  return out;
+}
+
+/** All sheets for a class in order (Term I, II, III…). Yearly uses the latest 3. */
+async function termSheets(classId) {
+  return (await pool.query(
+    `SELECT id, name, active FROM cat_term_sheets WHERE class_id = $1 ORDER BY id`, [classId]
+  )).rows;
+}
+
+/** Per-subject per-term combined pct + year average for one student. */
+async function yearlySubjectRows(classId, studentId, sheets, subjects) {
+  const rows = [];
+  for (const name of subjects) {
+    const terms = [];
+    for (const sh of sheets) {
+      const cat = await subjectScoresForSheet(classId, studentId, sh.id);
+      const exam = await examScores(classId, studentId, sh.id);
+      const c = cat[canonSubj(name)]?.score ?? null;
+      const e = exam[canonSubj(name)]?.score ?? null;
+      terms.push(c === null && e === null ? null : Math.round(((c ?? 0) + (e ?? 0)) / 2 * 10) / 10);
+    }
+    const marked = terms.filter((t) => t !== null);
+    rows.push({ name: displaySubj(name), terms, year: marked.length ? Math.round(marked.reduce((a, b) => a + b, 0) / marked.length * 10) / 10 : null });
+  }
+  const grand = rows.filter((r) => r.year !== null);
+  const yearPct = grand.length ? Math.round(grand.reduce((a, r) => a + r.year, 0) / grand.length * 10) / 10 : null;
+  return { rows, yearPct };
+}
+
+/** Rank the class by year average. */
+async function yearlyPositions(classId, sheets, subjects) {
+  const roster = (await pool.query(
+    `SELECT u.id FROM class_members cm JOIN users u ON u.id = cm.student_id WHERE cm.class_id = $1`, [classId]
+  )).rows;
+  const totals = [];
+  for (const s of roster) {
+    const { yearPct } = await yearlySubjectRows(classId, s.id, sheets, subjects);
+    totals.push({ id: s.id, pct: yearPct });
+  }
+  totals.sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1));
+  const pos = {};
+  totals.forEach((t, i) => { pos[t.id] = i + 1; });
+  return { pos, size: roster.length };
+}
+
+function yearlyMarksTable(subjects, yearRows, sheets) {
+  const cols = sheets.map((s) => `<th style="width:${Math.floor(40 / Math.max(sheets.length, 1))}%">${escHtml(s.name)}<br/><span style="font-weight:normal;font-size:8.5pt;">%</span></th>`).join('');
+  const empty = sheets.length < 3 ? `<th style="width:${Math.floor(40 / 3)}%">—</th>` : '';
+  const body = yearRows.rows.map((r, i) => `<tr>
+      <td class="c">${i + 1}</td>
+      <td class="b">${escHtml(r.name)}</td>
+      ${sheets.map((_, ti) => `<td class="c">${r.terms[ti] === null || r.terms[ti] === undefined ? '—' : r.terms[ti]}</td>`).join('')}
+      ${sheets.length < 3 ? '<td class="c">—</td>' : ''}
+      <td class="c b">${r.year === null ? '—' : r.year}</td>
+      <td class="c">${r.year === null ? '' : gradeABC(r.year)}</td>
+      <td>${r.year === null ? '&nbsp;' : escHtml(commentFor(r.year))}</td>
+    </tr>`).join('');
+  return `<table class="t" width="100%" style="table-layout:fixed;">
+    <tr><th width="6%" style="width:6%">#</th><th width="20%" style="width:20%">Subjects</th>${cols}${empty}<th width="12%" style="width:12%">YEAR %</th><th width="9%" style="width:9%">Grade</th><th width="13%" style="width:13%">Remarks</th></tr>
+    ${body}
+    <tr><td class="b">#</td><td class="b">YEAR TOTAL</td><td colspan="${sheets.length + (sheets.length < 3 ? 1 : 0)}" class="c"></td><td class="c b">${yearRows.yearPct === null ? '' : yearRows.yearPct + '%'}</td><td class="c b">${yearRows.yearPct === null ? '' : gradeABC(yearRows.yearPct)}</td><td>&nbsp;</td></tr>
+  </table>`;
+}
+
+/** Build the yearly report — school card template overlay when uploaded, else UClass yearly card. */
+function buildYearlyHtml({ student, teacherName, schoolName, district, level, year, logo, comment, subjects, sheets, yearRows, position, classSize, template, apiBase }) {
+  const dots = (n) => '.'.repeat(n);
+  const infoInner = `
+    <div style="font-weight:bold;font-size:12pt;line-height:1.5;">
+      Names: ${escHtml(student.name || dots(40))}<br/>
+      Academic Year: ${escHtml(year || dots(15))} &nbsp;&nbsp; Report: YEARLY (all terms)<br/>
+      Position: ${position || dots(5)} / ${classSize || dots(5)} &nbsp;&nbsp; Year average: ${yearRows.yearPct === null ? dots(8) : yearRows.yearPct + '%'}
+    </div>`;
+  const nextSteps = nextStepLines(subjects, Object.fromEntries(
+    yearRows.rows.filter((r) => r.year !== null).map((r) => [canonSubj(r.name), { score: r.year }])
+  ), comment).map((l) => escHtml(l));
+  const commentsInner = `
+    <div style="font-size:11pt;line-height:1.6;">
+      <b>Class teacher's comment:</b> ${comment ? escHtml(comment) : dots(70)}<br/>
+      <b>Next steps:</b>
+      <ol style="margin:6px 0 10px 18px;padding-left:16px;">${nextSteps.map((l) => `<li>${l}</li>`).join('')}</ol>
+      <b>Teacher:</b> ${escHtml(teacherName || '')} ${dots(30)} &nbsp;&nbsp; <b>School stamp:</b> ${dots(30)}
+    </div>`;
+
+  if (template) {
+    const fz = template.layout.front; const bz = template.layout.back;
+    const img = (src) => (src ? `<img src="${src.startsWith('http') ? src : apiBase + src}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:-1;"/>` : '');
+    const page = (src, inner) => `<div style="position:relative;width:210mm;height:296mm;overflow:hidden;">${img(src)}${inner}</div>`;
+    const abs = (z) => `position:absolute;left:${z.x}%;top:${z.y}%;width:${z.w}%;height:${z.h}%;`;
+    return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Yearly report</title><style>
+      @page { size: A4; margin: 0; }
+      body{font-family:'Times New Roman',Times,serif;color:#000;margin:0;}
+      table.t{border-collapse:collapse;width:100%;font-size:9.5pt;}
+      table.t th,table.t td{border:1px solid #000;padding:3px 5px;vertical-align:top;background:#fff;}
+      table.t th{font-weight:bold;text-align:center;background:#fff;}
+      table.t td.c{text-align:center;}
+      table.t td.b{font-weight:bold;}
+      .fill{background:rgba(255,255,255,0.92);padding:6px;}
+    </style></head><body>
+      ${page(template.front, `<div style="${abs(fz.info)}"><div class="fill">${infoInner}</div></div><div style="${abs(fz.marks)}">${yearlyMarksTable(subjects, yearRows, sheets)}</div>`)}
+      <br clear="all" style="page-break-before:always;mso-break-type:page-break;" />
+      ${page(template.back, `<div style="${abs(bz.comments)}"><div class="fill">${commentsInner}</div></div>`)}
+    </body></html>`;
+  }
+
+  const dots100 = dots(100);
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Yearly report</title><style>
+    @page { size: A4; margin: 1.6cm 1.8cm; }
+    body{font-family:'Times New Roman',Times,serif;font-size:11pt;color:#000;margin:0;}
+    @media screen { .page{max-width:800px;margin:0 auto;padding:10px 0 24px;} .page.last{border-top:3px dashed #94a3b8;padding-top:24px;} .page.last:before{content:'BACK PAGE';display:block;text-align:center;color:#94a3b8;font:bold 10pt Arial;margin-bottom:12px;} }
+    .hdr{width:100%;border-collapse:collapse;}
+    .hdr td{border:none;vertical-align:top;padding:0;}
+    .hdr .lines{font-weight:bold;font-size:11.5pt;line-height:1.3;}
+    .hdr .names{font-size:13pt;}
+    h2{text-align:center;text-decoration:underline;font-size:13pt;font-weight:bold;margin:14px 0 6px;}
+    h3{font-size:12pt;font-weight:bold;margin:2px 0 2px 30px;}
+    table.t{border-collapse:collapse;width:100%;font-size:10pt;}
+    table.t th,table.t td{border:1px solid #000;padding:4px 6px;vertical-align:top;}
+    table.t th{font-weight:bold;text-align:center;}
+    table.t td.c{text-align:center;}
+    table.t td.b{font-weight:bold;}
+    .ns{margin:16px 0 0 30px;font-size:11pt;}
+    .ns ol{margin:8px 0 0 20px;padding-left:20px;}
+    .ns li{margin-bottom:10px;line-height:1.5;}
+    .sig{margin:18px 0 0 30px;font-size:11pt;}
+    .sig p{margin:0 0 6px;}
+    .sig .ln{margin:4px 0 16px;}
+  </style></head><body>
+  <div class="page">
+    <table class="hdr"><tr>
+      <td style="width:120px;">${logo ? `<img src="${logo}" alt="logo" width="100" style="width:100px;max-height:110px;"/>` : ''}</td>
+      <td class="lines">
+        ${escHtml((district || '').toUpperCase())}${district ? ' DISTRICT' : ''}<br/>
+        ${escHtml((schoolName || 'SCHOOL NAME').toUpperCase())}<br/>
+        Academic Year: ${year ? escHtml(year) : dots(28)} &nbsp;Report: <b>YEARLY — ALL TERMS</b><br/>
+        <span class="names">Names: ${student?.name ? escHtml(student.name) : dots(60)}</span>
+      </td>
+    </tr></table>
+    <h2>Yearly comprehensive report — Terms I, II &amp; III</h2>
+    <h3>Marks per term (% of CAT + EXAM combined)</h3>
+    ${yearlyMarksTable(subjects, yearRows, sheets)}
+    <table class="t" width="100%" style="margin-top:10px;table-layout:fixed;">
+      <tr><td class="b" width="50%" style="width:50%">Position in class / Ikiciro mw ishuri</td><td class="c b">${position ? `${position} / ${classSize}` : dots(20)}</td></tr>
+      <tr><td class="b">Year average / Impuzandengo y'umwaka</td><td class="c b">${yearRows.yearPct === null ? dots(20) : yearRows.yearPct + '%'}</td></tr>
+    </table>
+  </div>
+  <br clear="all" style="page-break-before:always;mso-break-type:page-break;" />
+  <div class="page last">
+    <div class="ns">
+      <b>Class teacher's comment / Igitekerezo cy'umwarimu:</b><br/>
+      ${comment ? escHtml(comment) : dots100}<br/>${dots100}
+    </div>
+    <div class="ns">
+      <b>NEXT STEPS (Intambwe ikurikira)</b>
+      <ol>
+        ${nextSteps.map((l) => `<li>${l}<br/>${dots(95)}</li>`).join('') || `<li>${dots(95)}<br/>${dots100}</li>`}
+      </ol>
+    </div>
+    <div class="sig">
+      <p>Class teacher&rsquo;s name and signature</p>
+      <div class="ln">${teacherName ? `${escHtml(teacherName)} &nbsp;` : ''}${dots(teacherName ? 50 : 75)}</div>
+      <p>Parent&rsquo;s name and signature</p>
+      <div class="ln">${dots(75)}</div>
+      <p>School stamp and signature</p>
+      <div class="ln">${dots(75)}</div>
+    </div>
+  </div>
+  </body></html>`;
+}
+
+// GET /:classId/yearly-report/prefill — sheets (terms), subjects, locked state
+router.get('/:classId/yearly-report/prefill', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = req.params.classId;
+  try {
+    const manage = await userCanManageClass(req.user, classId);
+    if (!manage?.ok) return res.status(403).json({ error: 'Not your class.' });
+    const settings = await loadSettings(classId);
+    const sheets = (await termSheets(classId)).slice(-3);
+    const tpl = await loadSchoolTemplate(await schoolIdForClass(classId));
+    const roster = (await pool.query(
+      `SELECT u.id, u.name FROM class_members cm JOIN users u ON u.id = cm.student_id WHERE cm.class_id = $1 ORDER BY u.name`, [classId]
+    )).rows;
+    res.json({
+      class_name: settings.class_name, school_name: settings.school_name, district: settings.district,
+      level: settings.level, academic_year: settings.academic_year, logo: settings.logo,
+      subjects: settings.subjects, sheets: sheets.map((s) => ({ id: s.id, name: s.name })),
+      has_template: Boolean(tpl), roster,
+    });
+  } catch (err) {
+    console.error('[yearly prefill]', err.message);
+    res.status(500).json({ error: 'Could not load yearly report settings.' });
+  }
+});
+
+// POST /:classId/yearly-report {student_id, preview, teacher_comment} — one .doc or preview
+router.post('/:classId/yearly-report', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = req.params.classId;
+  const studentId = parseInt(req.body?.student_id, 10);
+  if (!studentId) return res.status(400).json({ error: 'student_id is required.' });
+  try {
+    const manage = await userCanManageClass(req.user, classId);
+    if (!manage?.ok) return res.status(403).json({ error: 'You cannot generate reports for this class.' });
+    const student = (await pool.query(
+      `SELECT u.id, u.name FROM class_members cm JOIN users u ON u.id = cm.student_id WHERE cm.class_id = $1 AND u.id = $2`, [classId, studentId]
+    )).rows[0];
+    if (!student) return res.status(404).json({ error: 'Student not found in this class.' });
+    const settings = await loadSettings(classId);
+    const sheets = (await termSheets(classId)).slice(-3);
+    const yearRows = await yearlySubjectRows(classId, studentId, sheets, settings.subjects);
+    const { pos, size } = await yearlyPositions(classId, sheets, settings.subjects);
+    const template = await loadSchoolTemplate(await schoolIdForClass(classId));
+    const teacherName = (await pool.query('SELECT name FROM users WHERE id=$1', [req.user.id])).rows[0]?.name || '';
+    const doc = buildYearlyHtml({
+      student, teacherName, schoolName: settings.school_name, district: settings.district,
+      level: settings.level, year: settings.academic_year, logo: settings.logo,
+      comment: String(req.body.teacher_comment || '').trim(), subjects: settings.subjects,
+      sheets, yearRows, position: pos[studentId] || null, classSize: size,
+      template, apiBase: publicApiBase(req),
+    });
+    if (req.body.preview) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(doc);
+    }
+    const safe = String(student.name || 'student').replace(/[^\w]+/g, '-').slice(0, 60);
+    res.setHeader('Content-Type', 'application/msword');
+    res.setHeader('Content-Disposition', `attachment; filename="Yearly-Report-${safe}.doc"`);
+    res.send('﻿' + doc);
+  } catch (err) {
+    console.error('[yearly report]', err.message);
+    res.status(500).json({ error: 'Could not build the yearly report right now.' });
+  }
+});
+
+/** Build yearly .doc for every selected student + a class yearly summary. */
+async function collectYearlyFiles(classId, body, user, req) {
+  const manage = await userCanManageClass(user, classId);
+  if (!manage?.ok) return { error: 'You cannot generate reports for this class.', status: 403 };
+  const settings = await loadSettings(classId);
+  let roster = (await pool.query(
+    `SELECT u.id, u.name FROM class_members cm JOIN users u ON u.id = cm.student_id WHERE cm.class_id = $1 ORDER BY u.name`, [classId]
+  )).rows;
+  const picked = Array.isArray(body?.student_ids) ? body.student_ids.map((x) => parseInt(x, 10)).filter(Boolean) : null;
+  if (picked) roster = roster.filter((s) => picked.includes(s.id));
+  if (!roster.length) return { error: 'No students selected.', status: 400 };
+  const sheets = (await termSheets(classId)).slice(-3);
+  const template = await loadSchoolTemplate(await schoolIdForClass(classId));
+  const { pos, size } = await yearlyPositions(classId, sheets, settings.subjects);
+  const teacherName = (await pool.query('SELECT name FROM users WHERE id=$1', [user.id])).rows[0]?.name || '';
+  const apiBase = publicApiBase(req);
+  const comment = String(body?.teacher_comment || '').trim();
+  const files = [];
+  const summary = [];
+  for (const student of roster) {
+    const yearRows = await yearlySubjectRows(classId, student.id, sheets, settings.subjects);
+    const doc = buildYearlyHtml({
+      student, teacherName, schoolName: settings.school_name, district: settings.district,
+      level: settings.level, year: settings.academic_year, logo: settings.logo, comment,
+      subjects: settings.subjects, sheets, yearRows, position: pos[student.id] || null,
+      classSize: size, template, apiBase,
+    });
+    const safe = String(student.name || 'student').replace(/[^\w]+/g, '-').slice(0, 60);
+    files.push({ name: `Yearly-Report-${safe}.doc`, data: Buffer.from('﻿' + doc, 'utf8') });
+    summary.push({ name: student.name, pct: yearRows.yearPct });
+  }
+  summary.sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1));
+  const summaryDoc = buildClassSummaryHtml({
+    teacherName, schoolName: settings.school_name, district: settings.district, level: settings.level,
+    year: settings.academic_year, term: 'YEAR', logo: settings.logo, className: settings.class_name,
+    subjects: settings.subjects, students: summary.map((s) => ({ name: s.name, total: null, pct: s.pct })),
+  }).replace('MID-TERM', 'YEARLY').replace('STUDENTS RANKED BY MARKS', 'STUDENTS RANKED — WHOLE YEAR');
+  files.unshift({ name: '01-Class-Marks-List-Yearly.doc', data: Buffer.from('﻿' + summaryDoc, 'utf8') });
+  return { files, roster, settings, teacherName };
+}
+
+// POST /:classId/yearly-report/folder — yearly folder for the teacher (download)
+router.post('/:classId/yearly-report/folder', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = req.params.classId;
+  try {
+    const out = await collectYearlyFiles(classId, req.body, req.user, req);
+    if (out.error) return res.status(out.status || 500).json({ error: out.error });
+    if (await assertNotLocked(classId, 'yearly', 'Year', res)) return;
+    const folderToken = saveReportFolder(out.files, { className: out.settings.class_name, term: 'Year', schoolName: out.settings.school_name, type: 'yearly' });
+    res.json({ ok: true, count: out.files.length, students: out.roster.length, folder_url: `${publicApiBase(req)}/api/catmarks/report-folder/${folderToken}` });
+  } catch (err) {
+    console.error('[yearly folder]', err.message);
+    res.status(500).json({ error: 'Could not build the yearly folder right now.' });
+  }
+});
+
+// POST /:classId/yearly-report/submit — yearly folder + file it in the HT's Reports inbox
+router.post('/:classId/yearly-report/submit', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = req.params.classId;
+  try {
+    const out = await collectYearlyFiles(classId, req.body, req.user, req);
+    if (out.error) return res.status(out.status || 500).json({ error: out.error });
+    if (await assertNotLocked(classId, 'yearly', 'Year', res)) return;
+    const folderToken = saveReportFolder(out.files, { className: out.settings.class_name, term: 'Year', schoolName: out.settings.school_name, type: 'yearly' });
+    await recordSubmission({
+      classId, teacherId: req.user.id, teacherName: out.teacherName, reportType: 'yearly',
+      term: 'Year', folderToken, fileCount: out.files.length, studentCount: out.roster.length, className: out.settings.class_name,
+    });
+    res.json({ ok: true, submitted: true, count: out.files.length, students: out.roster.length, folder_url: `${publicApiBase(req)}/api/catmarks/report-folder/${folderToken}` });
+  } catch (err) {
+    console.error('[yearly submit]', err.message);
+    res.status(500).json({ error: 'Could not submit the yearly reports right now.' });
   }
 });
 
