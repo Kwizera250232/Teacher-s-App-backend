@@ -2036,8 +2036,25 @@ router.post('/:classId/exam-marks', authenticateToken, requireRole('teacher', 'h
     const manage = await userCanManageClass(req.user, classId);
     if (!manage?.ok) return res.status(403).json({ error: 'Not your class.' });
     const entries = Array.isArray(req.body?.entries) ? req.body.entries : [];
-    if (!entries.length) return res.status(400).json({ error: 'No marks to save.' });
     const sheet = req.body?.term ? await sheetForTerm(classId, req.body.term) : await getActiveSheet(classId);
+    // Set "exam out of" without touching marks (marks sheet EXAM column header).
+    if (req.body?.update_total_only) {
+      const t = Math.min(1000, Math.max(1, Number(req.body.update_total_only) || 100));
+      const subj = String(req.body.subject || '').trim();
+      if (subj) {
+        await pool.query(
+          `UPDATE exam_marks SET total_marks=$1, updated_at=NOW() WHERE class_id=$2 AND sheet_id=$3 AND subject=$4`,
+          [t, classId, sheet.id, subj]
+        );
+      } else {
+        await pool.query(
+          `UPDATE exam_marks SET total_marks=$1, updated_at=NOW() WHERE class_id=$2 AND sheet_id=$3`,
+          [t, classId, sheet.id]
+        );
+      }
+      return res.json({ ok: true, total_marks: t });
+    }
+    if (!entries.length) return res.status(400).json({ error: 'No marks to save.' });
     // Once the HT approves this term's End-Term reports, exam marks freeze too.
     const sheetTerm = String(req.body?.term || sheet.name || '').replace(/^term\s*/i, '').trim();
     const locked = (await pool.query(
