@@ -9,6 +9,8 @@ const { insertParentNotification, resolveParentRecipients } = require('../lib/pa
 const { maybeEmailParent } = require('../lib/parentNotifyEmail');
 const { getOrCreateParentInviteToken } = require('../lib/parentInvite');
 const { resolveFrontendUrl, buildParentInvitePath } = require('../lib/frontendUrl');
+const { createUploadFields, getUploadsRoot } = require('../lib/uploads');
+const r2 = require('../lib/r2');
 
 const router = express.Router();
 
@@ -1352,6 +1354,10 @@ router.post('/:classId/midterm-report/folder', authenticateToken, requireRole('t
     if (out.error) return res.status(out.status || 500).json({ error: out.error });
     await saveSettings(classId, out.p);
     const folderToken = saveReportFolder(out.files, { className: out.p.className, term: out.p.term, schoolName: out.p.schoolName });
+    await recordSubmission({
+      classId, teacherId: req.user.id, teacherName: out.teacherName, reportType: 'mid_term',
+      term: out.p.term, folderToken, fileCount: out.files.length, studentCount: out.roster.length, className: out.p.className,
+    });
     res.json({ ok: true, count: out.files.length, students: out.roster.length, folder_url: `${publicApiBase(req)}/api/catmarks/report-folder/${folderToken}` });
   } catch (err) {
     console.error('[midterm folder]', err.message);
@@ -1386,6 +1392,10 @@ router.post('/:classId/midterm-report/send-all', authenticateToken, requireRole(
     // file downloads straight to their device and opens in Word. No ZIP at all.
     const folderToken = saveReportFolder(files, { className: p.className, term: p.term, schoolName: p.schoolName });
     const folderUrl = `${publicApiBase(req)}/api/catmarks/report-folder/${folderToken}`;
+    await recordSubmission({
+      classId, teacherId: req.user.id, teacherName, reportType: 'mid_term',
+      term: p.term, folderToken, fileCount: files.length, studentCount: roster.length, className: p.className,
+    });
 
     const subject = `Mid-Term ${p.term} Reports — ${p.className} (${roster.length} students)`;
     const html = `<div style="font-family:Arial,sans-serif;max-width:560px;">
@@ -1557,6 +1567,624 @@ router.get('/:classId/proclamation.doc', authenticateToken, requireRole('teacher
   } catch (err) {
     console.error('[proclamation doc]', err.message);
     res.status(500).json({ error: 'Could not build the proclamation right now.' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// END-OF-TERM REPORTS
+//  - Head teacher uploads the school's REAL report card (front + back scans);
+//    it becomes the school's End-Term format for every class.
+//  - Teachers only add EXAM marks per subject; CAT totals come from the
+//    active marks sheet automatically.
+//  - Teachers generate reports in the school's card format, download them, or
+//    send them to the HT — every submission lands in the HT's Reports folder
+//    (grouped by term + type) with a notification.
+// ═══════════════════════════════════════════════════════════════════════════
+
+pool.query(`
+  CREATE TABLE IF NOT EXISTS school_report_cards (
+    school_id INTEGER PRIMARY KEY,
+    front_image TEXT, back_image TEXT,
+    layout JSONB DEFAULT '{}'::jsonb,
+    uploaded_by INTEGER,
+    updated_at TIMESTAMP DEFAULT NOW()
+  );
+  CREATE TABLE IF NOT EXISTS exam_marks (
+    id SERIAL PRIMARY KEY,
+    class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    sheet_id INTEGER,
+    student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    subject TEXT NOT NULL,
+    marks_obtained FLOAT NOT NULL,
+    total_marks FLOAT NOT NULL DEFAULT 100,
+    updated_at TIMESTAMP DEFAULT NOW()
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS exam_marks_unique ON exam_marks(class_id, student_id, subject, sheet_id);
+  CREATE INDEX IF NOT EXISTS idx_exam_marks_class ON exam_marks(class_id);
+  CREATE TABLE IF NOT EXISTS submitted_reports (
+    id SERIAL PRIMARY KEY,
+    school_id INTEGER,
+    class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    teacher_id INTEGER NOT NULL REFERENCES users(id),
+    report_type TEXT NOT NULL,
+    term TEXT,
+    folder_token TEXT NOT NULL,
+    file_count INTEGER DEFAULT 0,
+    student_count INTEGER DEFAULT 0,
+    class_name TEXT, teacher_name TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_submitted_reports_school ON submitted_reports(school_id);
+`).catch(e => console.error('[endterm] migration error:', e.message));
+
+/** The school a class belongs to = its owning teacher's school_id. */
+async function schoolIdForClass(classId) {
+  const row = (await pool.query(
+    `SELECT t.school_id FROM classes c JOIN users t ON t.id = c.teacher_id WHERE c.id = $1`, [classId]
+  )).rows[0];
+  return row?.school_id || null;
+}
+
+/** Default overlay zones on the school card scan (percentages of the page). */
+const DEFAULT_CARD_LAYOUT = {
+  front: {
+    info: { x: 10, y: 10, w: 80, h: 14 },
+    marks: { x: 8, y: 26, w: 84, h: 62 },
+  },
+  back: {
+    comments: { x: 8, y: 18, w: 84, h: 62 },
+  },
+};
+
+async function loadSchoolTemplate(schoolId) {
+  if (!schoolId) return null;
+  const row = (await pool.query('SELECT * FROM school_report_cards WHERE school_id = $1', [schoolId])).rows[0];
+  if (!row || (!row.front_image && !row.back_image)) return null;
+  return {
+    front: row.front_image, back: row.back_image,
+    layout: { front: { ...DEFAULT_CARD_LAYOUT.front, ...(row.layout?.front || {}) }, back: { ...DEFAULT_CARD_LAYOUT.back, ...(row.layout?.back || {}) } },
+  };
+}
+
+/** Exam score /100 per subject for one student (ACTIVE sheet). */
+async function examScores(classId, studentId, sheetId) {
+  const rows = (await pool.query(
+    `SELECT subject, marks_obtained::float AS m, COALESCE(NULLIF(total_marks,0),100)::float AS t
+     FROM exam_marks WHERE class_id = $1 AND student_id = $2 AND sheet_id = $3`, [classId, studentId, sheetId]
+  )).rows;
+  const out = {};
+  for (const r of rows) out[canonSubj(r.subject)] = { name: r.subject, score: Math.round((r.m / r.t) * 1000) / 10, raw: r.m, out_of: r.t };
+  return out;
+}
+
+/** Notify every head teacher of a school (in-app notification for the bell). */
+async function notifyHeadTeachers(schoolId, { title, body, payload }) {
+  if (!schoolId) return;
+  try {
+    const hts = (await pool.query(`SELECT id FROM users WHERE school_id = $1 AND role = 'head_teacher'`, [schoolId])).rows;
+    for (const ht of hts) {
+      await pool.query(
+        `INSERT INTO user_notifications (user_id, type, title, body, payload) VALUES ($1,'report_submitted',$2,$3,$4)`,
+        [ht.id, title, body, JSON.stringify(payload || {})]
+      );
+    }
+  } catch (e) { console.error('[reports] HT notify error:', e.message); }
+}
+
+/** Record a reports folder in the HT inbox + notify head teachers. */
+async function recordSubmission({ classId, teacherId, teacherName, reportType, term, folderToken, fileCount, studentCount, className }) {
+  const schoolId = await schoolIdForClass(classId);
+  if (!schoolId) return;
+  await pool.query(
+    `INSERT INTO submitted_reports (school_id, class_id, teacher_id, report_type, term, folder_token, file_count, student_count, class_name, teacher_name)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [schoolId, classId, teacherId, reportType, term || null, folderToken, fileCount || 0, studentCount || 0, className || null, teacherName || null]
+  );
+  const typeLabel = reportType === 'end_term' ? 'End-Term' : 'Mid-Term';
+  await notifyHeadTeachers(schoolId, {
+    title: `📁 ${typeLabel} reports submitted — ${className || 'class'}`,
+    body: `${teacherName || 'A teacher'} submitted ${studentCount || 0} ${typeLabel} report cards (Term ${term || '—'}). Open the School tab → Reports to view or download them.`,
+    payload: { class_id: classId, report_type: reportType, term, class_name: className },
+  });
+}
+
+/** One student's End-Term row data: per-subject CAT + EXAM + TOTAL /200 + pct. */
+function endtermSubjectRows(subjects, cat, exam) {
+  const rows = subjects.map((name) => {
+    const c = cat[canonSubj(name)]?.score ?? null;
+    const e = exam[canonSubj(name)]?.score ?? null;
+    const marked = c !== null || e !== null;
+    const total = (c ?? 0) + (e ?? 0);
+    const pct = marked ? Math.round(total / 2 * 10) / 10 : null;
+    return { name: displaySubj(name), cat: c, exam: e, total: marked ? Math.round(total * 10) / 10 : null, pct };
+  });
+  const markedRows = rows.filter((r) => r.pct !== null);
+  const grandTotal = markedRows.length ? Math.round(markedRows.reduce((a, r) => a + r.total, 0) * 10) / 10 : null;
+  const grandPct = markedRows.length ? Math.round((markedRows.reduce((a, r) => a + r.pct, 0) / markedRows.length) * 10) / 10 : null;
+  return { rows, grandTotal, grandPct, outOf: subjects.length * 200 };
+}
+
+/** Rank a class for the End-Term card (combined CAT+EXAM %). */
+async function endtermPositions(classId, subjects, sheetId) {
+  const roster = (await pool.query(
+    `SELECT u.id FROM class_members cm JOIN users u ON u.id = cm.student_id WHERE cm.class_id = $1`, [classId]
+  )).rows;
+  const totals = [];
+  for (const s of roster) {
+    const cat = await subjectScores(classId, s.id);
+    const exam = await examScores(classId, s.id, sheetId);
+    const { grandPct } = endtermSubjectRows(subjects, cat, exam);
+    totals.push({ id: s.id, pct: grandPct });
+  }
+  totals.sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1));
+  const pos = {};
+  totals.forEach((t, i) => { pos[t.id] = i + 1; });
+  return { pos, size: roster.length };
+}
+
+function marksTableEndTerm(subjects, cat, exam) {
+  const { rows, grandTotal, grandPct, outOf } = endtermSubjectRows(subjects, cat, exam);
+  const body = rows.map((r, i) => `<tr>
+      <td class="c">${i + 1}</td>
+      <td class="b">${escHtml(r.name)}</td>
+      <td class="c">${r.cat === null ? '' : r.cat}</td>
+      <td class="c">${r.exam === null ? '' : r.exam}</td>
+      <td class="c b">${r.total === null ? '' : r.total}</td>
+      <td class="c">${r.pct === null ? '' : gradeABC(r.pct)}</td>
+      <td>${r.pct === null ? '&nbsp;' : escHtml(commentFor(r.pct))}</td>
+    </tr>`).join('');
+  return `<table class="t" width="100%" style="table-layout:fixed;">
+    <tr><th width="6%" style="width:6%">#</th><th width="22%" style="width:22%">Subjects</th><th width="13%" style="width:13%">CAT /100</th><th width="13%" style="width:13%">EXAM /100</th><th width="13%" style="width:13%">TOTAL /200</th><th width="10%" style="width:10%">Grade</th><th width="23%" style="width:23%">Remarks</th></tr>
+    ${body}
+    <tr><td class="b">#</td><td class="b">Total</td><td colspan="3" class="c b">${grandTotal === null ? '' : `${grandTotal} / ${outOf}`}</td><td class="c b">${grandPct === null ? '' : gradeABC(grandPct)}</td><td class="c b">${grandPct === null ? '' : `${grandPct}%`}</td></tr>
+  </table>`;
+}
+
+/**
+ * Build the two-page End-Term report for one student.
+ * School template uploaded → the scan is the page; data is overlaid in the zones.
+ * No template → the built-in UClass End-Term card.
+ */
+function buildEndTermHtml({ student, teacherName, schoolName, district, level, year, term, logo, comment, subjects, cat, exam, position, classSize, template, apiBase }) {
+  const dots = (n) => '.'.repeat(n);
+  const box = '&#9744;';
+  const { grandPct } = endtermSubjectRows(subjects, cat, exam);
+  const nextSteps = nextStepLines(subjects, Object.fromEntries(
+    subjects.map((s) => { const k = canonSubj(s); const c = cat[k]?.score; const e = exam[k]?.score; return [k, { score: (c ?? 0) + (e ?? 0) ? Math.round(((c ?? 0) + (e ?? 0)) / 2 * 10) / 10 : null }]; }).filter(([, v]) => v.score !== null)
+  ), comment).map((l) => escHtml(l));
+
+  const abs = (z) => `position:absolute;left:${z.x}%;top:${z.y}%;width:${z.w}%;height:${z.h}%;`;
+  const infoInner = `
+    <div style="font-weight:bold;font-size:12pt;line-height:1.5;">
+      Names: ${escHtml(student.name || dots(40))}<br/>
+      Academic Year: ${escHtml(year || dots(15))} &nbsp;&nbsp; Term: ${escHtml(term || dots(8))}<br/>
+      Position: ${position || dots(5)} / ${classSize || dots(5)} &nbsp;&nbsp; Overall: ${grandPct === null ? dots(8) : grandPct + '%'}
+    </div>`;
+  const commentsInner = `
+    <div style="font-size:11pt;line-height:1.6;">
+      <b>Class teacher's comment:</b> ${comment ? escHtml(comment) : dots(70)}<br/>
+      <b>Next steps:</b>
+      <ol style="margin:6px 0 10px 18px;padding-left:16px;">${nextSteps.map((l) => `<li>${l}</li>`).join('')}</ol>
+      <b>Teacher:</b> ${escHtml(teacherName || '')} ${dots(30)} &nbsp;&nbsp; <b>School stamp:</b> ${dots(30)}
+    </div>`;
+
+  if (template) {
+    const fz = template.layout.front; const bz = template.layout.back;
+    const img = (src) => (src ? `<img src="${src.startsWith('http') ? src : apiBase + src}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:-1;"/>` : '');
+    const page = (src, inner) => `<div style="position:relative;width:210mm;height:296mm;overflow:hidden;">${img(src)}${inner}</div>`;
+    return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>End of term report</title><style>
+      @page { size: A4; margin: 0; }
+      body{font-family:'Times New Roman',Times,serif;color:#000;margin:0;}
+      table.t{border-collapse:collapse;width:100%;font-size:10pt;}
+      table.t th,table.t td{border:1px solid #000;padding:3px 5px;vertical-align:top;background:#fff;}
+      table.t th{font-weight:bold;text-align:left;background:#fff;}
+      table.t td.c{text-align:center;}
+      table.t td.b{font-weight:bold;}
+      .fill{background:rgba(255,255,255,0.92);padding:6px;}
+    </style></head><body>
+      ${page(template.front, `<div style="${abs(fz.info)}"><div class="fill">${infoInner}</div></div><div style="${abs(fz.marks)}">${marksTableEndTerm(subjects, cat, exam)}</div>`)}
+      <br clear="all" style="page-break-before:always;mso-break-type:page-break;" />
+      ${page(template.back, `<div style="${abs(bz.comments)}"><div class="fill">${commentsInner}</div></div>`)}
+    </body></html>`;
+  }
+
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>End of term report</title><style>
+    @page { size: A4; margin: 1.6cm 1.8cm; }
+    body{font-family:'Times New Roman',Times,serif;font-size:11pt;color:#000;margin:0;}
+    @media screen { .page{max-width:800px;margin:0 auto;padding:10px 0 24px;} .page.last{border-top:3px dashed #94a3b8;padding-top:24px;} .page.last:before{content:'BACK PAGE';display:block;text-align:center;color:#94a3b8;font:bold 10pt Arial;margin-bottom:12px;} }
+    .hdr{width:100%;border-collapse:collapse;}
+    .hdr td{border:none;vertical-align:top;padding:0;}
+    .hdr .lines{font-weight:bold;font-size:11.5pt;line-height:1.3;}
+    .hdr .names{font-size:13pt;}
+    h2{text-align:center;text-decoration:underline;font-size:13pt;font-weight:bold;margin:14px 0 4px;}
+    h3{font-size:12pt;font-weight:bold;margin:2px 0 2px 30px;}
+    table.t{border-collapse:collapse;width:100%;font-size:10.5pt;}
+    table.t th,table.t td{border:1px solid #000;padding:4px 6px;vertical-align:top;}
+    table.t th{font-weight:bold;text-align:left;}
+    table.t td.c{text-align:center;}
+    table.t td.b{font-weight:bold;}
+    .sec{text-align:center;font-weight:bold;font-size:11.5pt;margin:18px 0 0;}
+    .sub{font-size:10.5pt;margin:0 0 4px 30px;}
+    .ns{margin:16px 0 0 30px;font-size:11pt;}
+    .ns ol{margin:8px 0 0 20px;padding-left:20px;}
+    .ns li{margin-bottom:10px;line-height:1.5;}
+    .sig{margin:18px 0 0 30px;font-size:11pt;}
+    .sig p{margin:0 0 6px;}
+    .sig .ln{margin:4px 0 16px;}
+  </style></head><body>
+  <div class="page">
+    <table class="hdr"><tr>
+      <td style="width:120px;">${logo ? `<img src="${logo}" alt="logo" width="100" style="width:100px;max-height:110px;"/>` : ''}</td>
+      <td class="lines">
+        ${escHtml((district || '').toUpperCase())}${district ? ' DISTRICT' : ''}<br/>
+        ${escHtml((schoolName || 'SCHOOL NAME').toUpperCase())}<br/>
+        Academic Year: ${year ? escHtml(year) : dots(28)} &nbsp;Term: ${term ? escHtml(term) : dots(28)}<br/>
+        <span class="names">Names: ${student?.name ? escHtml(student.name) : dots(60)}</span>
+      </td>
+    </tr></table>
+    <h2>End of term report — ${escHtml(term)}</h2>
+    <h3>Grades</h3>
+    <table class="t" width="100%" style="margin-bottom:16px;table-layout:fixed;">
+      <tr><td width="22%" style="width:22%;background:#00b050;">&nbsp;</td><td width="10%" style="width:10%" class="b">(80-100)</td><td width="6%" style="width:6%" class="b">A</td><td width="62%" style="width:62%" class="b">Above expectation/Birahebuje</td></tr>
+      <tr><td style="background:#ffff00;">&nbsp;</td><td class="b">(60-79)</td><td class="b">B</td><td class="b">On target/Yakoze neza</td></tr>
+      <tr><td style="background:#ff0000;">&nbsp;<br/>&nbsp;</td><td class="b">(0-59)</td><td class="b">C</td><td class="b">Below expectation/Akeneye ubufasha</td></tr>
+    </table>
+    ${marksTableEndTerm(subjects, cat, exam)}
+    <table class="t" width="100%" style="margin-top:10px;table-layout:fixed;">
+      <tr><td class="b" width="50%" style="width:50%">Position in class / Ikiciro mw ishuri</td><td class="c b">${position ? `${position} / ${classSize}` : dots(20)}</td></tr>
+      <tr><td class="b">Overall percentage</td><td class="c b">${grandPct === null ? dots(20) : grandPct + '%'}</td></tr>
+    </table>
+    <div class="sec">LEARNER DEVELOPMENT AND PARTICIPATION</div>
+    <div class="sub">(Imyitwarire n&rsquo;iterambere by&rsquo;umunyeshuri mu myigire)</div>
+    <table class="t" width="100%" style="table-layout:fixed;">
+      <tr><td width="22%" style="width:22%" class="c">Area</td><td width="24%" style="width:24%">Positive (Bimeze neza)</td><td width="26%" style="width:26%">Developing (birimo gutera imbere)</td><td width="28%" style="width:28%">Needs Support (Akeneye ubufasha)</td></tr>
+      <tr><td>Attitude to Learning / <i>Uko yitwara mu myigire</i></td><td>${box}</td><td>${box}</td><td>${box}</td></tr>
+      <tr><td>Collaboration <i>Gukorana n&rsquo;abandi</i></td><td>${box}</td><td>${box}</td><td>${box}</td></tr>
+      <tr><td>Communication <i>Itumanaho</i></td><td>${box}</td><td>${box}</td><td>${box}</td></tr>
+      <tr><td>Independence <i>Kwikorera/kwigenga</i></td><td>${box}</td><td>${box}</td><td>${box}</td></tr>
+      <tr><td>Attendance &amp; Punctuality <i>Ubwitabire n&rsquo;igihe</i></td><td>${box}</td><td>${box}</td><td>${box}</td></tr>
+    </table>
+  </div>
+  <br clear="all" style="page-break-before:always;mso-break-type:page-break;" />
+  <div class="page last">
+    <div class="ns">
+      <b>Class teacher's comment / Igitekerezo cy'umwarimu:</b><br/>
+      ${comment ? escHtml(comment) : dots(100)}<br/>${dots(100)}
+    </div>
+    <div class="ns">
+      <b>NEXT STEPS (Intambwe ikurikira mu iterambere ry&rsquo;umunyeshuri)</b>
+      <ol>
+        ${nextSteps.map((l) => `<li>${l}<br/>${dots(95)}</li>`).join('') || `<li>${dots(95)}<br/>${dots(100)}</li>`}
+      </ol>
+    </div>
+    <div class="sig">
+      <p>Class teacher&rsquo;s name and signature</p>
+      <div class="ln">${teacherName ? `${escHtml(teacherName)} &nbsp;` : ''}${dots(teacherName ? 50 : 75)}</div>
+      <p>Parent&rsquo;s name and signature</p>
+      <div class="ln">${dots(75)}</div>
+      <p>School stamp and signature</p>
+      <div class="ln">${dots(75)}</div>
+    </div>
+  </div>
+  </body></html>`;
+}
+
+/** Shared: gather everything needed to render one student's End-Term doc. */
+async function endtermContext(classId, studentId, body, req) {
+  const settings = await loadSettings(classId);
+  const sheet = await getActiveSheet(classId);
+  const cat = await subjectScores(classId, studentId);
+  const exam = await examScores(classId, studentId, sheet.id);
+  const { pos, size } = await endtermPositions(classId, settings.subjects, sheet.id);
+  const template = await loadSchoolTemplate(await schoolIdForClass(classId));
+  const teacherName = (await pool.query('SELECT name FROM users WHERE id=$1', [req.user.id])).rows[0]?.name || '';
+  return {
+    settings, sheet, cat, exam, template, teacherName,
+    position: pos[studentId] || null, classSize: size,
+  };
+}
+
+// ─────────────────────────────── TEMPLATE (HT) ───────────────────────────────
+
+const reportCardUpload = createUploadFields([{ name: 'front', maxCount: 1 }, { name: 'back', maxCount: 1 }]);
+
+// POST /report-card/template — HT uploads the school's report card (front + back)
+router.post('/report-card/template', authenticateToken, requireRole('head_teacher'), reportCardUpload, async (req, res) => {
+  try {
+    const schoolId = req.user.school_id;
+    if (!schoolId) return res.status(400).json({ error: 'Link a school first.' });
+    const front = req.files?.front?.[0]; const back = req.files?.back?.[0];
+    if (!front && !back) return res.status(400).json({ error: 'Upload the front and/or back image of the report card.' });
+    const toUrl = (f) => f ? `/uploads/${path.basename(f.path)}` : null;
+    const frontUrl = toUrl(front); const backUrl = toUrl(back);
+    for (const f of [front, back].filter(Boolean)) {
+      r2.enqueue(f.path, path.basename(f.path));
+    }
+    await pool.query(
+      `INSERT INTO school_report_cards (school_id, front_image, back_image, uploaded_by, updated_at)
+       VALUES ($1, COALESCE($2, (SELECT front_image FROM school_report_cards WHERE school_id=$1)),
+                    COALESCE($3, (SELECT back_image FROM school_report_cards WHERE school_id=$1)), $4, NOW())
+       ON CONFLICT (school_id) DO UPDATE SET front_image=COALESCE($2, school_report_cards.front_image),
+                    back_image=COALESCE($3, school_report_cards.back_image), uploaded_by=$4, updated_at=NOW()`,
+      [schoolId, frontUrl, backUrl, req.user.id]
+    );
+    const tpl = await loadSchoolTemplate(schoolId);
+    res.json({ ok: true, template: tpl });
+  } catch (err) {
+    console.error('[report-card upload]', err.message);
+    res.status(500).json({ error: 'Could not upload the report card right now.' });
+  }
+});
+
+// PUT /report-card/template/layout — HT saves the overlay zones (percentages)
+router.put('/report-card/template/layout', authenticateToken, requireRole('head_teacher'), async (req, res) => {
+  try {
+    const schoolId = req.user.school_id;
+    if (!schoolId) return res.status(400).json({ error: 'Link a school first.' });
+    const layout = req.body?.layout;
+    if (!layout || typeof layout !== 'object') return res.status(400).json({ error: 'layout is required.' });
+    const clean = {};
+    for (const page of ['front', 'back']) {
+      if (!layout[page]) continue;
+      clean[page] = {};
+      for (const [zone, z] of Object.entries(layout[page])) {
+        if (!z || typeof z !== 'object') continue;
+        const num = (v) => Math.min(100, Math.max(0, Number(v) || 0));
+        clean[page][zone] = { x: num(z.x), y: num(z.y), w: num(z.w), h: num(z.h) };
+      }
+    }
+    await pool.query(
+      `INSERT INTO school_report_cards (school_id, layout, uploaded_by, updated_at) VALUES ($1,$2,$3,NOW())
+       ON CONFLICT (school_id) DO UPDATE SET layout=$2, uploaded_by=$3, updated_at=NOW()`,
+      [schoolId, JSON.stringify(clean), req.user.id]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[report-card layout]', err.message);
+    res.status(500).json({ error: 'Could not save the layout right now.' });
+  }
+});
+
+// GET /report-card/template — the school's card (HT: own school; teacher: ?class_id= resolves via class)
+router.get('/report-card/template', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  try {
+    let schoolId = req.user.school_id;
+    if (!schoolId && req.query.class_id) schoolId = await schoolIdForClass(req.query.class_id);
+    const tpl = await loadSchoolTemplate(schoolId);
+    res.json({ template: tpl, school_id: schoolId || null, defaults: DEFAULT_CARD_LAYOUT });
+  } catch (err) {
+    console.error('[report-card get]', err.message);
+    res.status(500).json({ error: 'Could not load the report card.' });
+  }
+});
+
+// ─────────────────────────────── EXAM MARKS ───────────────────────────────
+
+// GET /:classId/exam-marks — roster + exam marks (ACTIVE sheet) + per-subject CAT totals
+router.get('/:classId/exam-marks', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = req.params.classId;
+  try {
+    const manage = await userCanManageClass(req.user, classId);
+    if (!manage?.ok) return res.status(403).json({ error: 'Not your class.' });
+    const sheet = await getActiveSheet(classId);
+    const settings = await loadSettings(classId);
+    const roster = (await pool.query(
+      `SELECT u.id, u.name FROM class_members cm JOIN users u ON u.id = cm.student_id WHERE cm.class_id = $1 ORDER BY u.name`, [classId]
+    )).rows;
+    const examRows = (await pool.query(
+      `SELECT student_id, subject, marks_obtained::float AS m, total_marks::float AS t
+       FROM exam_marks WHERE class_id = $1 AND sheet_id = $2`, [classId, sheet.id]
+    )).rows;
+    const examBy = {};
+    let examTotal = 100;
+    for (const r of examRows) {
+      (examBy[r.student_id] ||= {})[canonSubj(r.subject)] = r.m;
+      if (r.t) examTotal = r.t;
+    }
+    const catBy = {};
+    for (const s of roster) catBy[s.id] = await subjectScores(classId, s.id);
+    res.json({
+      sheet: { id: sheet.id, name: sheet.name }, subjects: settings.subjects,
+      term: settings.term, exam_total: examTotal,
+      students: roster.map((s) => ({ id: s.id, name: s.name, exam: examBy[s.id] || {}, cat: catBy[s.id] || {} })),
+    });
+  } catch (err) {
+    console.error('[exam-marks get]', err.message);
+    res.status(500).json({ error: 'Could not load exam marks.' });
+  }
+});
+
+// POST /:classId/exam-marks {entries:[{student_id, subject, marks}], total_marks}
+router.post('/:classId/exam-marks', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = req.params.classId;
+  try {
+    const manage = await userCanManageClass(req.user, classId);
+    if (!manage?.ok) return res.status(403).json({ error: 'Not your class.' });
+    const entries = Array.isArray(req.body?.entries) ? req.body.entries : [];
+    if (!entries.length) return res.status(400).json({ error: 'No marks to save.' });
+    const sheet = await getActiveSheet(classId);
+    const total = Math.min(1000, Math.max(1, Number(req.body?.total_marks) || 100));
+    let saved = 0;
+    for (const e of entries.slice(0, 5000)) {
+      const sid = parseInt(e.student_id, 10); const subj = String(e.subject || '').trim();
+      const mark = Number(e.marks);
+      if (!sid || !subj || !Number.isFinite(mark) || mark < 0) continue;
+      await pool.query(
+        `INSERT INTO exam_marks (class_id, sheet_id, student_id, subject, marks_obtained, total_marks, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,NOW())
+         ON CONFLICT (class_id, student_id, subject, sheet_id) DO UPDATE SET marks_obtained=$5, total_marks=$6, updated_at=NOW()`,
+        [classId, sheet.id, sid, subj, Math.min(total, mark), total]
+      );
+      saved += 1;
+    }
+    res.json({ ok: true, saved });
+  } catch (err) {
+    console.error('[exam-marks save]', err.message);
+    res.status(500).json({ error: 'Could not save exam marks.' });
+  }
+});
+
+// ─────────────────────────── END-TERM GENERATION ───────────────────────────
+
+// GET /:classId/endterm-report/prefill — subjects, roster, CAT+EXAM scores, template status
+router.get('/:classId/endterm-report/prefill', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = req.params.classId;
+  try {
+    const manage = await userCanManageClass(req.user, classId);
+    if (!manage?.ok) return res.status(403).json({ error: 'Not your class.' });
+    const settings = await loadSettings(classId);
+    const sheet = await getActiveSheet(classId);
+    const tpl = await loadSchoolTemplate(await schoolIdForClass(classId));
+    const roster = (await pool.query(
+      `SELECT u.id, u.name FROM class_members cm JOIN users u ON u.id = cm.student_id WHERE cm.class_id = $1 ORDER BY u.name`, [classId]
+    )).rows;
+    const examRows = (await pool.query(
+      `SELECT DISTINCT student_id FROM exam_marks WHERE class_id = $1 AND sheet_id = $2`, [classId, sheet.id]
+    )).rows.map((r) => r.student_id);
+    res.json({
+      ...settings, sheet_name: sheet.name, has_template: Boolean(tpl), exam_students: examRows,
+      roster: roster.map((s) => ({ id: s.id, name: s.name, has_exam: examRows.includes(s.id) })),
+    });
+  } catch (err) {
+    console.error('[endterm prefill]', err.message);
+    res.status(500).json({ error: 'Could not load report settings.' });
+  }
+});
+
+// POST /:classId/endterm-report {student_id, preview, teacher_comment} — one .doc or HTML preview
+router.post('/:classId/endterm-report', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = req.params.classId;
+  const studentId = parseInt(req.body?.student_id, 10);
+  if (!studentId) return res.status(400).json({ error: 'student_id is required.' });
+  try {
+    const manage = await userCanManageClass(req.user, classId);
+    if (!manage?.ok) return res.status(403).json({ error: 'You cannot generate reports for this class.' });
+    const student = (await pool.query(
+      `SELECT u.id, u.name FROM class_members cm JOIN users u ON u.id = cm.student_id WHERE cm.class_id = $1 AND u.id = $2`, [classId, studentId]
+    )).rows[0];
+    if (!student) return res.status(404).json({ error: 'Student not found in this class.' });
+
+    const p = await resolveReportParams(classId, req.body);
+    await saveSettings(classId, p);
+    const ctx = await endtermContext(classId, studentId, req.body, req);
+    const doc = buildEndTermHtml({
+      student, teacherName: ctx.teacherName, schoolName: p.schoolName, district: p.district,
+      level: p.level, year: p.year, term: p.term, logo: p.logo, comment: p.comment,
+      subjects: p.subjects, cat: ctx.cat, exam: ctx.exam,
+      position: ctx.position, classSize: ctx.classSize,
+      template: ctx.template, apiBase: publicApiBase(req),
+    });
+    if (req.body.preview) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(doc);
+    }
+    const safe = String(student.name || 'student').replace(/[^\w]+/g, '-').slice(0, 60);
+    res.setHeader('Content-Type', 'application/msword');
+    res.setHeader('Content-Disposition', `attachment; filename="EndTerm-${p.term}-Report-${safe}.doc"`);
+    res.send('﻿' + doc);
+  } catch (err) {
+    console.error('[endterm report]', err.message);
+    res.status(500).json({ error: 'Could not build the report right now.' });
+  }
+});
+
+/** Build every End-Term file for the class: summary + one .doc per student. */
+async function collectEndTermFiles(classId, body, user, req) {
+  const manage = await userCanManageClass(user, classId);
+  if (!manage?.ok) return { error: 'You cannot generate reports for this class.', status: 403 };
+  const p = await resolveReportParams(classId, body);
+  let roster = (await pool.query(
+    `SELECT u.id, u.name FROM class_members cm JOIN users u ON u.id = cm.student_id WHERE cm.class_id = $1 ORDER BY u.name`, [classId]
+  )).rows;
+  const picked = Array.isArray(body?.student_ids) ? body.student_ids.map((x) => parseInt(x, 10)).filter(Boolean) : null;
+  if (picked) roster = roster.filter((s) => picked.includes(s.id));
+  if (!roster.length) return { error: 'No students selected.', status: 400 };
+
+  const sheet = await getActiveSheet(classId);
+  const template = await loadSchoolTemplate(await schoolIdForClass(classId));
+  const { pos, size } = await endtermPositions(classId, p.subjects, sheet.id);
+  const teacherName = (await pool.query('SELECT name FROM users WHERE id=$1', [user.id])).rows[0]?.name || '';
+  const apiBase = publicApiBase(req);
+  const files = [];
+  const summary = [];
+  for (const student of roster) {
+    const cat = await subjectScores(classId, student.id);
+    const exam = await examScores(classId, student.id, sheet.id);
+    const doc = buildEndTermHtml({
+      student, teacherName, schoolName: p.schoolName, district: p.district, level: p.level,
+      year: p.year, term: p.term, logo: p.logo, comment: p.comment, subjects: p.subjects,
+      cat, exam, position: pos[student.id] || null, classSize: size, template, apiBase,
+    });
+    const safe = String(student.name || 'student').replace(/[^\w]+/g, '-').slice(0, 60);
+    files.push({ name: `EndTerm-${p.term}-Report-${safe}.doc`, data: Buffer.from('﻿' + doc, 'utf8') });
+    const { grandPct } = endtermSubjectRows(p.subjects, cat, exam);
+    summary.push({ name: student.name, pct: grandPct, rank: pos[student.id] });
+  }
+  summary.sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999));
+  const summaryDoc = buildClassSummaryHtml({
+    teacherName, schoolName: p.schoolName, district: p.district, level: p.level, year: p.year,
+    term: p.term, logo: p.logo, className: p.className, subjects: p.subjects,
+    students: summary.map((s) => ({ name: s.name, total: null, pct: s.pct })),
+  }).replace('MID-TERM', 'END-TERM').replace('Students ranked by marks', 'Students ranked — End of Term');
+  files.unshift({ name: `01-Class-Marks-List-EndTerm-${p.term}.doc`, data: Buffer.from('﻿' + summaryDoc, 'utf8') });
+  return { files, roster, p, teacherName };
+}
+
+// POST /:classId/endterm-report/folder — reports folder link for the teacher (download)
+router.post('/:classId/endterm-report/folder', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = req.params.classId;
+  try {
+    const out = await collectEndTermFiles(classId, req.body, req.user, req);
+    if (out.error) return res.status(out.status || 500).json({ error: out.error });
+    await saveSettings(classId, out.p);
+    const folderToken = saveReportFolder(out.files, { className: out.p.className, term: out.p.term, schoolName: out.p.schoolName, type: 'end_term' });
+    res.json({ ok: true, count: out.files.length, students: out.roster.length, folder_url: `${publicApiBase(req)}/api/catmarks/report-folder/${folderToken}` });
+  } catch (err) {
+    console.error('[endterm folder]', err.message);
+    res.status(500).json({ error: 'Could not build the reports folder right now.' });
+  }
+});
+
+// POST /:classId/endterm-report/submit — build the folder AND file it in the HT's Reports inbox
+router.post('/:classId/endterm-report/submit', authenticateToken, requireRole('teacher', 'head_teacher'), async (req, res) => {
+  const classId = req.params.classId;
+  try {
+    const out = await collectEndTermFiles(classId, req.body, req.user, req);
+    if (out.error) return res.status(out.status || 500).json({ error: out.error });
+    await saveSettings(classId, out.p);
+    const folderToken = saveReportFolder(out.files, { className: out.p.className, term: out.p.term, schoolName: out.p.schoolName, type: 'end_term' });
+    await recordSubmission({
+      classId, teacherId: req.user.id, teacherName: out.teacherName, reportType: 'end_term',
+      term: out.p.term, folderToken, fileCount: out.files.length, studentCount: out.roster.length, className: out.p.className,
+    });
+    res.json({ ok: true, submitted: true, count: out.files.length, students: out.roster.length, folder_url: `${publicApiBase(req)}/api/catmarks/report-folder/${folderToken}` });
+  } catch (err) {
+    console.error('[endterm submit]', err.message);
+    res.status(500).json({ error: 'Could not submit the reports right now.' });
+  }
+});
+
+// ─────────────────────────────── HT REPORTS INBOX ───────────────────────────
+
+// GET /reports-inbox — every reports folder teachers of the school submitted, newest first
+router.get('/reports-inbox', authenticateToken, requireRole('head_teacher'), async (req, res) => {
+  try {
+    const schoolId = req.user.school_id;
+    if (!schoolId) return res.json({ submissions: [] });
+    const rows = (await pool.query(
+      `SELECT id, class_id, teacher_id, report_type, term, folder_token, file_count, student_count, class_name, teacher_name, created_at
+       FROM submitted_reports WHERE school_id = $1 ORDER BY created_at DESC LIMIT 300`, [schoolId]
+    )).rows;
+    const base = publicApiBase(req);
+    res.json({
+      submissions: rows.map((r) => ({
+        ...r,
+        folder_url: `${base}/api/catmarks/report-folder/${r.folder_token}`,
+      })),
+    });
+  } catch (err) {
+    console.error('[reports inbox]', err.message);
+    res.status(500).json({ error: 'Could not load submitted reports.' });
   }
 });
 
