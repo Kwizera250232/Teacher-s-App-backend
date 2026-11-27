@@ -52,4 +52,29 @@ router.get('/moments/:token', async (req, res) => {
   }
 });
 
+// GET /api/public/stats — live platform counters for the landing page
+// (teachers, students, app installs). Counts only — no personal data.
+router.get('/stats', async (req, res) => {
+  try {
+    const [teachers, students, installs, schools, classes] = await Promise.all([
+      pool.query("SELECT COUNT(*) FROM users WHERE role IN ('teacher','head_teacher') AND is_approved=TRUE"),
+      pool.query("SELECT COUNT(*) FROM users WHERE role='student'"),
+      pool.query('SELECT COUNT(*) FROM pwa_installs').catch(() => ({ rows: [{ count: 0 }] })),
+      pool.query('SELECT COUNT(*) FROM schools').catch(() => ({ rows: [{ count: 0 }] })),
+      pool.query('SELECT COUNT(*) FROM classes').catch(() => ({ rows: [{ count: 0 }] })),
+    ]);
+    res.set('Cache-Control', 'public, max-age=300');
+    res.json({
+      teachers: parseInt(teachers.rows[0].count, 10),
+      students: parseInt(students.rows[0].count, 10),
+      installs: parseInt(installs.rows[0].count, 10),
+      schools: parseInt(schools.rows[0].count, 10),
+      classes: parseInt(classes.rows[0].count, 10),
+    });
+  } catch (err) {
+    console.error('[public/stats]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 module.exports = router;
