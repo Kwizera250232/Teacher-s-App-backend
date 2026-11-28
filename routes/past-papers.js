@@ -56,6 +56,55 @@ pool.query(`
   CREATE INDEX IF NOT EXISTS idx_pp_exams_type ON past_paper_exams(exam_type);
 `).catch(e => console.error('[past-papers] schema:', e.message));
 
+// ── Premium gate — same rule as AI Textbooks: students in a paid class must
+// have paid before opening past papers. Staff/alumni are never gated. ──
+async function unpaidPremiumClasses(studentId) {
+  const r = await pool.query(
+    `SELECT s.class_id, s.amount_rwf, c.name AS class_name
+       FROM class_payment_settings s
+       JOIN classes c ON c.id = s.class_id
+      WHERE s.enabled AND s.amount_rwf > 0
+        AND EXISTS (SELECT 1 FROM class_members m WHERE m.class_id = s.class_id AND m.student_id = $1)
+        AND NOT EXISTS (SELECT 1 FROM class_payments p WHERE p.class_id = s.class_id
+                        AND p.student_id = $1 AND p.status = 'SUCCESSFUL' AND p.expires_at > NOW())`,
+    [studentId]
+  );
+  return r.rows;
+}
+
+async function pastPapersGate(req, res) {
+  if (req.user.role !== 'student') return false;
+  try {
+    const unpaid = await unpaidPremiumClasses(req.user.id);
+    if (!unpaid.length) return false;
+    const c = unpaid[0];
+    res.status(402).json({
+      error: `📜 Past Papers is a premium feature of your class "${c.class_name}" — pay for class access to practice national exams.`,
+      premium_required: true,
+      class_id: c.class_id,
+      class_name: c.class_name,
+      amount_rwf: c.amount_rwf,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Access status for the student page (lock banner + pay CTA)
+router.get('/access', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'student') return res.json({ premium_required: false });
+    const unpaid = await unpaidPremiumClasses(req.user.id);
+    res.json({
+      premium_required: unpaid.length > 0,
+      classes: unpaid.map((c) => ({ class_id: c.class_id, class_name: c.class_name, amount_rwf: c.amount_rwf })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // ── Gemini AI helper ──────────────────────────────────────────────────────────
 async function callGemini(prompt, maxTokens = 800) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -74,12 +123,46 @@ async function callGemini(prompt, maxTokens = 800) {
   return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
+// ── Groq helper — powers AI question generation for admins ───────────────────
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_MODEL = 'openai/gpt-oss-120b';
+async function callGroqText(messages, maxTokens = 8192, temperature = 0.3) {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) throw new Error('GROQ_API_KEY not configured');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await fetch(GROQ_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: GROQ_MODEL, messages, temperature, max_tokens: maxTokens }),
+    });
+    if (res.status === 429 && attempt < 2) {
+      const waitMs = parseInt(res.headers.get('retry-after') || '0', 10) * 1000 || (attempt + 1) * 2000;
+      await new Promise(r => setTimeout(r, waitMs));
+      continue;
+    }
+    if (!res.ok) throw new Error(`Groq API error: ${res.status}`);
+    const data = await res.json();
+    return data?.choices?.[0]?.message?.content || '';
+  }
+  throw new Error('Groq API: max retries exceeded');
+}
+
+/** Extract a JSON array from an AI response (tolerates markdown fences). */
+function parseJsonArray(text) {
+  const clean = String(text || '').replace(/```json|```/g, '').trim();
+  const start = clean.indexOf('[');
+  const end = clean.lastIndexOf(']');
+  if (start === -1 || end === -1) return [];
+  try { return JSON.parse(clean.slice(start, end + 1)); } catch { return []; }
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // PUBLIC ROUTES (students/alumni)
 // ════════════════════════════════════════════════════════════════════════════
 
 // ── Get available years ──────────────────────────────────────────────────────
 router.get('/years', authenticateToken, async (req, res) => {
+  if (await pastPapersGate(req, res)) return;
   try {
     const result = await pool.query(
       `SELECT DISTINCT year FROM past_paper_exams WHERE is_published=TRUE ORDER BY year DESC`
@@ -93,6 +176,7 @@ router.get('/years', authenticateToken, async (req, res) => {
 
 // ── Get subjects for a year ──────────────────────────────────────────────────
 router.get('/subjects/:year', authenticateToken, async (req, res) => {
+  if (await pastPapersGate(req, res)) return;
   try {
     const result = await pool.query(
       `SELECT DISTINCT subject FROM past_paper_exams WHERE year=$1 AND is_published=TRUE ORDER BY subject`,
@@ -121,6 +205,7 @@ router.get('/exam-types/:year/:subject', authenticateToken, async (req, res) => 
 
 // ── Get all questions for a year + subject + exam_type (for AI quiz generation) ──
 router.get('/questions/:year/:subject', authenticateToken, async (req, res) => {
+  if (await pastPapersGate(req, res)) return;
   const { exam_type } = req.query;
   try {
     let query, params;
@@ -153,6 +238,7 @@ router.get('/questions/:year/:subject', authenticateToken, async (req, res) => {
 
 // ── Get exams for a year + subject ───────────────────────────────────────────
 router.get('/exams/:year/:subject', authenticateToken, async (req, res) => {
+  if (await pastPapersGate(req, res)) return;
   try {
     const result = await pool.query(
       `SELECT e.id, e.title, e.subject, e.year, e.class_level, e.description, e.duration_minutes,
@@ -172,6 +258,7 @@ router.get('/exams/:year/:subject', authenticateToken, async (req, res) => {
 
 // ── Get exam questions (for taking the exam) ─────────────────────────────────
 router.get('/exam/:id', authenticateToken, async (req, res) => {
+  if (await pastPapersGate(req, res)) return;
   try {
     const exam = await pool.query(
       `SELECT id, title, subject, year, class_level, description, duration_minutes FROM past_paper_exams WHERE id=$1 AND is_published=TRUE`,
@@ -201,6 +288,7 @@ router.get('/exam/:id', authenticateToken, async (req, res) => {
 
 // ── Submit exam answers ──────────────────────────────────────────────────────
 router.post('/exam/:id/submit', authenticateToken, async (req, res) => {
+  if (await pastPapersGate(req, res)) return;
   const { answers, time_taken_seconds } = req.body;
   if (!answers || typeof answers !== 'object') {
     return res.status(400).json({ error: 'Answers are required.' });
@@ -294,6 +382,59 @@ router.get('/my-attempts', authenticateToken, async (req, res) => {
 // ════════════════════════════════════════════════════════════════════════════
 // ADMIN ROUTES
 // ════════════════════════════════════════════════════════════════════════════
+
+// POST /admin/generate-questions — paste a real national exam, AI returns MCQs.
+// Questions are returned to the admin for review/edit before saving — no exam
+// is created here, so the existing take/grade flow is untouched.
+router.post('/admin/generate-questions', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
+  const { exam_text, subject = '', max_questions = 25 } = req.body;
+  const text = String(exam_text || '').trim();
+  if (text.length < 80) {
+    return res.status(400).json({ error: 'Paste the full exam text (at least 80 characters).' });
+  }
+  const cap = Math.min(Math.max(parseInt(max_questions, 10) || 25, 1), 50);
+  try {
+    const prompt = `You are converting a real exam paper into multiple-choice questions for Rwandan students (${subject || 'General subject'}).
+
+Below is the raw pasted exam text (national exam style — may contain section headers, instructions, numbering, or essay prompts). Extract up to ${cap} of the most important questions.
+
+RULES:
+- Every output item is a 4-option multiple-choice question.
+- If the source question is already MCQ, keep it faithful; fill missing options sensibly.
+- If the source is an open/essay/calculation question, convert it into an MCQ where the correct option is the real answer and the other 3 are plausible distractors.
+- "correct_answer" is the letter a/b/c/d of the correct option.
+- "explanation" = 1-2 sentences on why the answer is correct (simple language).
+- Return ONLY a JSON array, no markdown, no extra text.
+
+FORMAT:
+[{"question":"...","option_a":"...","option_b":"...","option_c":"...","option_d":"...","correct_answer":"a","explanation":"..."}]
+
+EXAM TEXT:
+${text.slice(0, 24000)}`;
+
+    const raw = await callGroqText([{ role: 'user', content: prompt }], 16000);
+    const arr = parseJsonArray(raw);
+    const questions = (Array.isArray(arr) ? arr : [])
+      .filter(q => q && q.question && q.option_a && q.option_b && q.option_c && q.option_d && ['a','b','c','d'].includes(String(q.correct_answer || '').toLowerCase()))
+      .slice(0, cap)
+      .map(q => ({
+        question: String(q.question).trim(),
+        option_a: String(q.option_a).trim(),
+        option_b: String(q.option_b).trim(),
+        option_c: String(q.option_c).trim(),
+        option_d: String(q.option_d).trim(),
+        correct_answer: String(q.correct_answer).toLowerCase(),
+        explanation: String(q.explanation || '').trim(),
+      }));
+    if (!questions.length) {
+      return res.status(502).json({ error: 'AI could not extract questions — check the pasted text and try again.' });
+    }
+    res.json({ questions });
+  } catch (e) {
+    console.error('[past-papers/generate]', e.message);
+    res.status(500).json({ error: e.message.includes('Groq') ? 'AI service error — try again in a moment.' : 'Generation failed.' });
+  }
+});
 
 // ── ADMIN: List all exams ────────────────────────────────────────────────────
 router.get('/admin/exams', authenticateToken, requireRole('admin', 'head_teacher'), async (req, res) => {
