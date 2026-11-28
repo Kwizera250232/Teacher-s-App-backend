@@ -27,6 +27,11 @@ const fs = require('fs');
       ALTER TABLE alumni_past_papers ADD COLUMN IF NOT EXISTS file_url TEXT;
       ALTER TABLE alumni_past_papers ADD COLUMN IF NOT EXISTS level VARCHAR(20) DEFAULT 'primary';
       ALTER TABLE alumni_past_papers ADD COLUMN IF NOT EXISTS quiz_questions JSONB;
+      ALTER TABLE alumni_past_papers ADD COLUMN IF NOT EXISTS created_by INTEGER;
+      ALTER TABLE alumni_past_papers ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
+      -- Old uploads used pdf_url — backfill file_url so they still work
+      ALTER TABLE alumni_past_papers ADD COLUMN IF NOT EXISTS pdf_url TEXT;
+      UPDATE alumni_past_papers SET file_url = pdf_url WHERE file_url IS NULL AND pdf_url IS NOT NULL;
     `);
   } catch (err) {
     console.error('[alumni/ensureTables] error:', err);
