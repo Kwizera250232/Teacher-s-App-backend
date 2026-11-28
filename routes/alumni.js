@@ -22,6 +22,11 @@ const fs = require('fs');
       );
       CREATE INDEX IF NOT EXISTS idx_past_papers_subject ON alumni_past_papers(subject);
       CREATE INDEX IF NOT EXISTS idx_past_papers_year ON alumni_past_papers(year);
+      -- Older installs created this table without these columns
+      ALTER TABLE alumni_past_papers ADD COLUMN IF NOT EXISTS description TEXT;
+      ALTER TABLE alumni_past_papers ADD COLUMN IF NOT EXISTS file_url TEXT;
+      ALTER TABLE alumni_past_papers ADD COLUMN IF NOT EXISTS level VARCHAR(20) DEFAULT 'primary';
+      ALTER TABLE alumni_past_papers ADD COLUMN IF NOT EXISTS quiz_questions JSONB;
     `);
   } catch (err) {
     console.error('[alumni/ensureTables] error:', err);
@@ -50,6 +55,97 @@ const fileUpload = multer({
     else cb(new Error('Only PDF, EPUB, DOC, DOCX, and image files allowed.'));
   },
 });
+
+// ── Premium gate — same rule as Past Papers/REB Textbooks: a student who paid
+// ANY teacher's class unlocks; locked only when in a paid class having never paid. ──
+async function unpaidPremiumClasses(studentId) {
+  const r = await pool.query(
+    `SELECT s.class_id, s.amount_rwf, c.name AS class_name
+       FROM class_payment_settings s
+       JOIN classes c ON c.id = s.class_id
+      WHERE s.enabled AND s.amount_rwf > 0
+        AND NOT EXISTS (SELECT 1 FROM class_payments p2 WHERE p2.student_id = $1
+                        AND p2.status = 'SUCCESSFUL' AND p2.expires_at > NOW())
+        AND EXISTS (SELECT 1 FROM class_members m WHERE m.class_id = s.class_id AND m.student_id = $1)
+        AND NOT EXISTS (SELECT 1 FROM class_payments p WHERE p.class_id = s.class_id
+                        AND p.student_id = $1 AND p.status = 'SUCCESSFUL' AND p.expires_at > NOW())`,
+    [studentId]
+  );
+  return r.rows;
+}
+async function pastPapersGate(req, res) {
+  if (req.user.role !== 'student') return false;
+  try {
+    const unpaid = await unpaidPremiumClasses(req.user.id);
+    if (!unpaid.length) return false;
+    const c = unpaid[0];
+    res.status(402).json({
+      error: `📜 Past Papers is a premium feature of your class "${c.class_name}" — pay for class access.`,
+      premium_required: true,
+      class_id: c.class_id,
+      class_name: c.class_name,
+      amount_rwf: c.amount_rwf,
+    });
+    return true;
+  } catch { return false; }
+}
+
+// ── Groq helper — powers doc→quiz generation ──────────────────────────────────
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_MODEL = 'openai/gpt-oss-120b';
+async function callGroqText(messages, maxTokens = 8192, temperature = 0.3) {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) throw new Error('GROQ_API_KEY not configured');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await fetch(GROQ_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: GROQ_MODEL, messages, temperature, max_tokens: maxTokens }),
+    });
+    if (res.status === 429 && attempt < 2) {
+      const waitMs = parseInt(res.headers.get('retry-after') || '0', 10) * 1000 || (attempt + 1) * 2000;
+      await new Promise(r => setTimeout(r, waitMs));
+      continue;
+    }
+    if (!res.ok) throw new Error(`Groq API error: ${res.status}`);
+    const data = await res.json();
+    return data?.choices?.[0]?.message?.content || '';
+  }
+  throw new Error('Groq API: max retries exceeded');
+}
+function parseJsonArray(text) {
+  const clean = String(text || '').replace(/```json|```/g, '').trim();
+  const start = clean.indexOf('[');
+  const end = clean.lastIndexOf(']');
+  if (start === -1 || end === -1) return [];
+  try { return JSON.parse(clean.slice(start, end + 1)); } catch { return []; }
+}
+
+let pdfParseLib = null;
+try { pdfParseLib = require('pdf-parse'); } catch (e) {}
+let mammothLib = null;
+try { mammothLib = require('mammoth'); } catch (e) {}
+
+/** Extract plain text from an uploaded paper file (pdf, docx, txt). */
+async function extractPaperText(fileUrl) {
+  const filePath = path.join(__dirname, '..', fileUrl.replace(/^\/+/, ''));
+  const ext = path.extname(fileUrl).toLowerCase();
+  if (ext === '.pdf') {
+    if (!pdfParseLib) throw new Error('PDF reading unavailable on this server.');
+    const buf = fs.readFileSync(filePath);
+    const data = await pdfParseLib(buf);
+    return data.text || '';
+  }
+  if (ext === '.docx') {
+    if (!mammothLib) throw new Error('DOCX reading unavailable on this server.');
+    const r = await mammothLib.extractRawText({ path: filePath });
+    return r.value || '';
+  }
+  if (ext === '.txt') {
+    return fs.readFileSync(filePath, 'utf8');
+  }
+  throw new Error('Quiz generation supports PDF, DOCX, or TXT papers — this file is ' + (ext || 'unknown') + '.');
+}
 
 router.post('/upload', authenticateToken, fileUpload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
@@ -660,12 +756,77 @@ router.get('/opportunities', authenticateToken, async (req, res) => {
 });
 
 router.get('/past-papers', authenticateToken, async (req, res) => {
+  if (await pastPapersGate(req, res)) return;
   try {
-    const papers = await pool.query('SELECT * FROM alumni_past_papers ORDER BY created_at DESC');
+    const papers = await pool.query('SELECT * FROM alumni_past_papers ORDER BY year DESC, created_at DESC');
     res.json({ papers: papers.rows });
   } catch (err) {
     console.error('[alumni/past-papers]', err);
     res.status(500).json({ error: 'Failed to load past papers' });
+  }
+});
+
+// POST /past-papers/:id/generate-quiz — extract the doc's text, AI builds MCQs.
+// Result is cached on the row (quiz_questions) so it generates once for everyone.
+router.post('/past-papers/:id/generate-quiz', authenticateToken, async (req, res) => {
+  if (await pastPapersGate(req, res)) return;
+  try {
+    const paperRes = await pool.query('SELECT * FROM alumni_past_papers WHERE id=$1', [req.params.id]);
+    if (!paperRes.rows.length) return res.status(404).json({ error: 'Past paper not found.' });
+    const paper = paperRes.rows[0];
+
+    if (Array.isArray(paper.quiz_questions) && paper.quiz_questions.length) {
+      return res.json({ questions: paper.quiz_questions, title: paper.title, subject: paper.subject, year: paper.year, cached: true });
+    }
+    if (!paper.file_url) return res.status(400).json({ error: 'This paper has no document to read.' });
+
+    const text = (await extractPaperText(paper.file_url)).trim();
+    if (text.length < 100) {
+      return res.status(400).json({ error: 'Could not read enough text from this document (it may be a scanned image PDF).' });
+    }
+
+    const prompt = `You are converting a REAL exam paper document into multiple-choice questions for Rwandan students (${paper.subject || 'General subject'}, ${paper.year || ''}).
+
+COMPLETENESS RULE — MOST IMPORTANT:
+- Extract EVERY question in the paper, in ORIGINAL order, from every section. Do NOT skip any question.
+- Keep each question's original number in the stem if shown.
+
+WORDING RULES:
+- Copy each question stem EXACTLY as written — no rephrasing or vocabulary changes. Fix only obvious paste/OCR artifacts.
+- If a question is already MCQ, keep options verbatim. If open/essay/calculation, keep the wording but convert to MCQ: correct option = real answer, 3 plausible distractors.
+
+ANSWER RULES:
+- "correct_answer" must be the REAL correct answer — work it out carefully (a wrong key teaches the wrong thing).
+- "explanation" = 1-2 sentences showing why.
+
+OUTPUT — ONLY a JSON array, no markdown:
+[{"question":"...","option_a":"...","option_b":"...","option_c":"...","option_d":"...","correct_answer":"a","explanation":"..."}]
+
+DOCUMENT TEXT:
+${text.slice(0, 30000)}`;
+
+    const raw = await callGroqText([{ role: 'user', content: prompt }], 16000);
+    const questions = parseJsonArray(raw)
+      .filter(q => q && q.question && q.option_a && q.option_b && q.option_c && q.option_d && ['a','b','c','d'].includes(String(q.correct_answer || '').toLowerCase()))
+      .map(q => ({
+        question: String(q.question).trim(),
+        option_a: String(q.option_a).trim(),
+        option_b: String(q.option_b).trim(),
+        option_c: String(q.option_c).trim(),
+        option_d: String(q.option_d).trim(),
+        correct_answer: String(q.correct_answer).toLowerCase(),
+        explanation: String(q.explanation || '').trim(),
+      }));
+
+    if (!questions.length) {
+      return res.status(502).json({ error: 'AI could not extract questions from this document.' });
+    }
+
+    await pool.query('UPDATE alumni_past_papers SET quiz_questions=$1 WHERE id=$2', [JSON.stringify(questions), paper.id]);
+    res.json({ questions, title: paper.title, subject: paper.subject, year: paper.year, cached: false });
+  } catch (err) {
+    console.error('[alumni/past-papers/generate-quiz]', err);
+    res.status(500).json({ error: err.message || 'Quiz generation failed.' });
   }
 });
 
@@ -753,18 +914,34 @@ router.get('/admin/alumni/past-papers', authenticateToken, requireRole('admin', 
 });
 
 router.post('/admin/alumni/past-papers', authenticateToken, requireRole('admin', 'head_teacher', 'teacher'), fileUpload.single('file'), async (req, res) => {
-  const { title, subject, year, description, download_url } = req.body;
+  const { title, subject, year, level, description, download_url } = req.body;
   if (!title) return res.status(400).json({ error: 'Title required.' });
   try {
     const file_url = req.file ? `/uploads/files/${req.file.filename}` : download_url || null;
     const result = await pool.query(
-      'INSERT INTO alumni_past_papers (title, subject, year, description, file_url, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-      [title, subject || null, year || null, description || null, file_url, req.user.id]
+      'INSERT INTO alumni_past_papers (title, subject, year, level, description, file_url, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
+      [title, subject || null, year || null, level || 'primary', description || null, file_url, req.user.id]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('[alumni/admin/past-papers POST]', err);
     res.status(500).json({ error: 'Failed to add past paper' });
+  }
+});
+
+router.put('/admin/alumni/past-papers/:id', authenticateToken, requireRole('admin', 'head_teacher', 'teacher'), async (req, res) => {
+  const { title, subject, year, level, description } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE alumni_past_papers SET title=COALESCE($1,title), subject=COALESCE($2,subject), year=COALESCE($3,year),
+       level=COALESCE($4,level), description=COALESCE($5,description) WHERE id=$6 RETURNING *`,
+      [title, subject, year, level, description, req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Past paper not found.' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[alumni/admin/past-papers PUT]', err);
+    res.status(500).json({ error: 'Failed to update past paper' });
   }
 });
 
