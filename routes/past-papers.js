@@ -158,6 +158,20 @@ function parseJsonArray(text) {
   try { return JSON.parse(clean.slice(start, end + 1)); } catch { return []; }
 }
 
+// ── Web search helper (SearXNG, same as AI Quiz Gen) — grounds AI answers ─────
+const SEARXNG_URL = process.env.SEARXNG_URL || 'http://localhost:8888';
+async function searchWeb(query, numResults = 5) {
+  try {
+    const url = `${SEARXNG_URL}/search?q=${encodeURIComponent(query)}&format=json&categories=general&pageno=1`;
+    const res = await fetch(url, { timeout: 8000 });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.results || []).slice(0, numResults).map(r => ({
+      title: r.title || '', content: r.content || '', url: r.url || '',
+    }));
+  } catch { return []; }
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // PUBLIC ROUTES (students/alumni)
 // ════════════════════════════════════════════════════════════════════════════
@@ -396,21 +410,40 @@ router.post('/admin/generate-questions', authenticateToken, requireRole('admin',
   }
   const cap = Math.min(Math.max(parseInt(max_questions, 10) || 25, 1), 50);
   try {
-    const prompt = `You are converting a real exam paper into multiple-choice questions for Rwandan students (${subject || 'General subject'}).
+    // Ground answers with web context — find the real exam/marking guide online
+    const examYear = req.body.year || '';
+    const queries = [
+      `${subject} ${examYear} national exam Rwanda answers marking guide`.trim(),
+      `${subject} national examination paper ${examYear} answer key`.trim(),
+    ];
+    const searchResults = (await Promise.all(queries.map(q => searchWeb(q, 4)))).flat();
+    const webContext = searchResults
+      .map(r => `${r.title}: ${r.content}`)
+      .filter(s => s.length > 10)
+      .join('\n')
+      .slice(0, 6000);
+
+    const prompt = `You are converting a REAL exam paper into multiple-choice questions for Rwandan students (${subject || 'General subject'}).
 
 Below is the raw pasted exam text (national exam style — may contain section headers, instructions, numbering, or essay prompts). Extract up to ${cap} of the most important questions.
 
-RULES:
-- Every output item is a 4-option multiple-choice question.
-- If the source question is already MCQ, keep it faithful; fill missing options sensibly.
-- If the source is an open/essay/calculation question, convert it into an MCQ where the correct option is the real answer and the other 3 are plausible distractors.
-- "correct_answer" is the letter a/b/c/d of the correct option.
-- "explanation" = 1-2 sentences on why the answer is correct (simple language).
-- Return ONLY a JSON array, no markdown, no extra text.
+WORDING RULES — VERY IMPORTANT:
+- Copy each question's stem EXACTLY as written in the source text. Do NOT rephrase, paraphrase, simplify, or change any vocabulary. The original wording must be preserved verbatim — this is a real past paper and students must see the authentic question.
+- Keep the original numbering context if it exists in the text (e.g. "Question 12").
+- Only fix obvious OCR/paste artifacts (broken characters, missing spaces), never the wording itself.
 
-FORMAT:
+ANSWER RULES:
+- "correct_answer" must be the REAL correct answer — verify it carefully. Use the web reference material below when provided, plus your own knowledge. Think twice: a wrong key teaches students the wrong thing.
+- For math/science questions, actually work out the answer, don't guess.
+- If the source is an open/essay/calculation question, keep its wording verbatim but convert to MCQ: the correct option is the real answer, the other 3 are plausible distractors.
+- If the source is already MCQ, keep the original options verbatim (fill missing options only if absent).
+
+EXPLANATION:
+- "explanation" = 1-2 sentences showing WHY the answer is correct (show the working for math).
+
+OUTPUT FORMAT — ONLY a JSON array, no markdown, no extra text:
 [{"question":"...","option_a":"...","option_b":"...","option_c":"...","option_d":"...","correct_answer":"a","explanation":"..."}]
-
+${webContext ? `\nWEB REFERENCE (use to verify answers):\n${webContext}\n` : ''}
 EXAM TEXT:
 ${text.slice(0, 24000)}`;
 
@@ -431,7 +464,34 @@ ${text.slice(0, 24000)}`;
     if (!questions.length) {
       return res.status(502).json({ error: 'AI could not extract questions — check the pasted text and try again.' });
     }
-    res.json({ questions });
+
+    // Second pass — a separate AI call double-checks every answer key and
+    // explanation, fixing mistakes. Question wording is left untouched.
+    let verified = questions;
+    try {
+      const checkPrompt = `You are an examiner checking an answer key for a ${subject || 'General'} exam. For EACH question below, verify that "correct_answer" is truly correct (work it out yourself${webContext ? ', using the reference material' : ''}). If a key is wrong, fix it and rewrite the explanation. Do NOT change the question text or the options — only correct_answer and explanation.
+
+Return ONLY the corrected JSON array in the exact same format and order.
+
+QUESTIONS:
+${JSON.stringify(questions)}
+${webContext ? `\nWEB REFERENCE:\n${webContext.slice(0, 3000)}` : ''}`;
+      const vraw = await callGroqText([{ role: 'user', content: checkPrompt }], 12000);
+      const varr = parseJsonArray(vraw);
+      if (Array.isArray(varr) && varr.length === questions.length) {
+        verified = varr.map((v, i) => ({
+          ...questions[i], // never trust the verifier with wording/options
+          correct_answer: ['a','b','c','d'].includes(String(v?.correct_answer || '').toLowerCase())
+            ? String(v.correct_answer).toLowerCase()
+            : questions[i].correct_answer,
+          explanation: String(v?.explanation || questions[i].explanation || '').trim(),
+        }));
+      }
+    } catch (e) {
+      console.error('[past-papers/verify]', e.message); // verification failure still returns generated questions
+    }
+
+    res.json({ questions: verified });
   } catch (e) {
     console.error('[past-papers/generate]', e.message);
     res.status(500).json({ error: e.message.includes('Groq') ? 'AI service error — try again in a moment.' : 'Generation failed.' });
