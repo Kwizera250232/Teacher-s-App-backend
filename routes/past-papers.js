@@ -408,7 +408,7 @@ router.post('/admin/generate-questions', authenticateToken, requireRole('admin',
   if (text.length < 80) {
     return res.status(400).json({ error: 'Paste the full exam text (at least 80 characters).' });
   }
-  const cap = Math.min(Math.max(parseInt(max_questions, 10) || 25, 1), 50);
+  const cap = Math.min(Math.max(parseInt(max_questions, 10) || 50, 1), 80);
   try {
     // Ground answers with web context — find the real exam/marking guide online
     const examYear = req.body.year || '';
@@ -425,7 +425,13 @@ router.post('/admin/generate-questions', authenticateToken, requireRole('admin',
 
     const prompt = `You are converting a REAL exam paper into multiple-choice questions for Rwandan students (${subject || 'General subject'}).
 
-Below is the raw pasted exam text (national exam style — may contain section headers, instructions, numbering, or essay prompts). Extract up to ${cap} of the most important questions.
+Below is the raw pasted exam text (national exam style — may contain section headers, instructions, numbering, or essay prompts).
+
+COMPLETENESS RULE — MOST IMPORTANT:
+- Extract EVERY question in the paper, in the ORIGINAL order they appear. Do NOT skip any question. Do NOT pick only the important ones — ALL of them must appear in the output.
+- If the paper has Section A/B/C, keep all questions from every section.
+- Keep each question's original number in the stem if shown (e.g. start the question text with "1.", "12.", "Q5:" as written).
+- The only limit is the hard maximum of ${cap} questions — if the paper contains more, take the first ${cap} in order, never cherry-picked.
 
 WORDING RULES — VERY IMPORTANT:
 - Copy each question's stem EXACTLY as written in the source text. Do NOT rephrase, paraphrase, simplify, or change any vocabulary. The original wording must be preserved verbatim — this is a real past paper and students must see the authentic question.
