@@ -56,14 +56,16 @@ pool.query(`
   CREATE INDEX IF NOT EXISTS idx_pp_exams_type ON past_paper_exams(exam_type);
 `).catch(e => console.error('[past-papers] schema:', e.message));
 
-// ── Premium gate — same rule as AI Textbooks: students in a paid class must
-// have paid before opening past papers. Staff/alumni are never gated. ──
+// ── Premium gate — same rule as REB Textbooks: a student who paid ANY
+// teacher's class unlocks premium features. Staff/alumni are never gated. ──
 async function unpaidPremiumClasses(studentId) {
   const r = await pool.query(
     `SELECT s.class_id, s.amount_rwf, c.name AS class_name
        FROM class_payment_settings s
        JOIN classes c ON c.id = s.class_id
       WHERE s.enabled AND s.amount_rwf > 0
+        AND NOT EXISTS (SELECT 1 FROM class_payments p2 WHERE p2.student_id = $1
+                        AND p2.status = 'SUCCESSFUL' AND p2.expires_at > NOW())
         AND EXISTS (SELECT 1 FROM class_members m WHERE m.class_id = s.class_id AND m.student_id = $1)
         AND NOT EXISTS (SELECT 1 FROM class_payments p WHERE p.class_id = s.class_id
                         AND p.student_id = $1 AND p.status = 'SUCCESSFUL' AND p.expires_at > NOW())`,

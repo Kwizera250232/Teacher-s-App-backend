@@ -12,13 +12,17 @@ const router = express.Router();
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL = 'openai/gpt-oss-120b';
 
-// ── Premium gate — students in a class with paid access must have paid to read ──
+// ── Premium gate — a student who paid ANY teacher's class unlocks premium
+// features (REB Textbooks, Past Papers). Locked only when they're in a paid
+// class and have never paid any class. ──
 async function unpaidPremiumClasses(studentId) {
   const r = await pool.query(
     `SELECT s.class_id, s.amount_rwf, c.name AS class_name
        FROM class_payment_settings s
        JOIN classes c ON c.id = s.class_id
       WHERE s.enabled AND s.amount_rwf > 0
+        AND NOT EXISTS (SELECT 1 FROM class_payments p2 WHERE p2.student_id = $1
+                        AND p2.status = 'SUCCESSFUL' AND p2.expires_at > NOW())
         AND EXISTS (SELECT 1 FROM class_members m WHERE m.class_id = s.class_id AND m.student_id = $1)
         AND NOT EXISTS (SELECT 1 FROM class_payments p WHERE p.class_id = s.class_id
                         AND p.student_id = $1 AND p.status = 'SUCCESSFUL' AND p.expires_at > NOW())`,
@@ -35,7 +39,7 @@ async function textbookGate(req, res) {
     if (!unpaid.length) return false;
     const c = unpaid[0];
     res.status(402).json({
-      error: `📚 AI Textbooks is a premium feature of your class "${c.class_name}" — pay for class access to open books.`,
+      error: `📚 REB Textbooks is a premium feature of your class "${c.class_name}" — pay for class access to open books.`,
       premium_required: true,
       class_id: c.class_id,
       class_name: c.class_name,
